@@ -1,0 +1,42 @@
+//! HTTP Server State
+
+use std::sync::Arc;
+use tokio::sync::RwLock;
+
+use crate::db::repositories::{AgentRepository, AuditRepository, AdminUserRepository};
+use crate::mcp::McpServer;
+use crate::services::{EvaluatorService, RegistryService, SearchService, OrganizationService, SessionService, OrgToolService};
+
+#[derive(Clone)]
+pub struct HttpState {
+    pub mcp_server: Arc<RwLock<McpServer>>,
+}
+
+#[derive(Clone)]
+pub struct SseState {
+    pub sessions: Arc<RwLock<std::collections::HashMap<String, tokio::sync::broadcast::Sender<String>>>>,
+}
+
+impl SseState {
+    pub fn new() -> Self {
+        Self {
+            sessions: Arc::new(RwLock::new(std::collections::HashMap::new())),
+        }
+    }
+}
+
+#[derive(Clone)]
+pub struct AppRouterState {
+    pub http: HttpState,
+    pub sse: SseState,
+    pub registry: RegistryService,
+    pub search: SearchService,
+    pub evaluator: EvaluatorService,
+    pub agent_repo: AgentRepository,
+    pub audit_repo: AuditRepository,
+    pub admin_user_repo: AdminUserRepository,
+    // v0.4 multi-tenant services
+    pub organization: OrganizationService,
+    pub session: SessionService,
+    pub org_tool: OrgToolService,
+}
