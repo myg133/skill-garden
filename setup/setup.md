@@ -1,12 +1,12 @@
-# Anspire SkillGarden - Agent 安装指南
+# Anspire SkillGarden - Agent 瀹夎鎸囧崡
 
-> 让 Agent 快速接入 SkillGarden 系统
+> 璁?Agent 蹇€熸帴鍏?SkillGarden 绯荤粺
 
 ---
 
-## 快速接入（5 分钟）
+## 蹇€熸帴鍏ワ紙5 鍒嗛挓锛?
 
-### 第一步：生成 Agent ID
+### 绗竴姝ワ細鐢熸垚 Agent ID
 
 ```bash
 # Linux/macOS
@@ -18,9 +18,9 @@ $AGENT_ID = "agent-" + [guid]::NewGuid().ToString()
 Write-Host "Agent ID: $AGENT_ID"
 ```
 
-### 第二步：配置 MCP Server
+### 绗簩姝ワ細閰嶇疆 MCP Server
 
-在 Gemini CLI 配置文件中添加：
+鍦?Gemini CLI 閰嶇疆鏂囦欢涓坊鍔狅細
 
 ```json
 {
@@ -38,14 +38,14 @@ Write-Host "Agent ID: $AGENT_ID"
 }
 ```
 
-### 第三步：验证连接
+### 绗笁姝ワ細楠岃瘉杩炴帴
 
 ```bash
-# 使用 MCP 工具验证
+# 浣跨敤 MCP 宸ュ叿楠岃瘉
 mcp__skillgarden__health_check
 ```
 
-**预期输出**：
+**棰勬湡杈撳嚭**锛?
 
 ```json
 {
@@ -56,13 +56,13 @@ mcp__skillgarden__health_check
 }
 ```
 
-### 第四步：获取 Skills
+### 绗洓姝ワ細鑾峰彇 Skills
 
 ```bash
-# 搜索可用 Skills
+# 鎼滅储鍙敤 Skills
 mcp__skillgarden__skills_search --query "browse,review"
 
-# 安装基础 Skills
+# 瀹夎鍩虹 Skills
 mcp__skillgarden__skills_install --skill_id "browse-v1.0.0"
 mcp__skillgarden__skills_install --skill_id "review-v1.0.0"
 mcp__skillgarden__skills_install --skill_id "qa-v1.0.0"
@@ -70,58 +70,58 @@ mcp__skillgarden__skills_install --skill_id "qa-v1.0.0"
 
 ---
 
-## Agent 工作流
+## Agent 宸ヤ綔娴?
 
-### 标准工作流
+### 鏍囧噯宸ヤ綔娴?
 
 ```
-┌─────────────────────────────────────────────────────────────────┐
-│                      Agent 任务执行流程                          │
-│                                                                 │
-│  1. 接收任务                                                     │
-│     ↓                                                            │
-│  2. 拆解任务                                                     │
-│     ↓                                                            │
-│  3. 搜索 Skills                                                  │
-│     │  skills_search(query)                                     │
-│     ↓                                                            │
-│  4. 查看 Skills 统计                                             │
-│     │  skills_stats(skill_id)  → 查看成功率、执行时间等          │
-│     ↓                                                            │
-│  5. 安装 Skills                                                  │
-│     │  skills_install(skill_id)                                  │
-│     ↓                                                            │
-│  6. 执行任务                                                     │
-│     │  使用已安装的 Skills                                       │
-│     ↓                                                            │
-│  7. 评价 Skills（结构化指标）                                     │
-│     │  evaluate_skill(skill_id, success, duration_ms, ...)      │
-│     ↓                                                            │
-│  8. 完成任务                                                     │
-└─────────────────────────────────────────────────────────────────┘
+鈹屸攢鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹?
+鈹?                     Agent 浠诲姟鎵ц娴佺▼                          鈹?
+鈹?                                                                鈹?
+鈹? 1. 鎺ユ敹浠诲姟                                                     鈹?
+鈹?    鈫?                                                           鈹?
+鈹? 2. 鎷嗚В浠诲姟                                                     鈹?
+鈹?    鈫?                                                           鈹?
+鈹? 3. 鎼滅储 Skills                                                  鈹?
+鈹?    鈹? skills_search(query)                                     鈹?
+鈹?    鈫?                                                           鈹?
+鈹? 4. 鏌ョ湅 Skills 缁熻                                             鈹?
+鈹?    鈹? skills_stats(skill_id)  鈫?鏌ョ湅鎴愬姛鐜囥€佹墽琛屾椂闂寸瓑          鈹?
+鈹?    鈫?                                                           鈹?
+鈹? 5. 瀹夎 Skills                                                  鈹?
+鈹?    鈹? skills_install(skill_id)                                  鈹?
+鈹?    鈫?                                                           鈹?
+鈹? 6. 鎵ц浠诲姟                                                     鈹?
+鈹?    鈹? 浣跨敤宸插畨瑁呯殑 Skills                                       鈹?
+鈹?    鈫?                                                           鈹?
+鈹? 7. 璇勪环 Skills锛堢粨鏋勫寲鎸囨爣锛?                                    鈹?
+鈹?    鈹? evaluate_skill(skill_id, success, duration_ms, ...)      鈹?
+鈹?    鈫?                                                           鈹?
+鈹? 8. 瀹屾垚浠诲姟                                                     鈹?
+鈹斺攢鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹?
 ```
 
-### 示例：完整任务流程
+### 绀轰緥锛氬畬鏁翠换鍔℃祦绋?
 
 ```bash
-# 1. 搜索 Skills
+# 1. 鎼滅储 Skills
 mcp__skillgarden__skills_search --query "browse qa"
 
-# 2. 查看 Skill 统计（选择最佳）
+# 2. 鏌ョ湅 Skill 缁熻锛堥€夋嫨鏈€浣筹級
 mcp__skillgarden__skills_stats --skill_id "browse-v1.0.0"
-# 返回: { avg_success_rate: 95, avg_duration_ms: 1200, total_installs: 5, ... }
+# 杩斿洖: { avg_success_rate: 95, avg_duration_ms: 1200, total_installs: 5, ... }
 
 mcp__skillgarden__skills_stats --skill_id "qa-v1.0.0"
-# 返回: { avg_success_rate: 88, avg_duration_ms: 3500, total_installs: 3, ... }
+# 杩斿洖: { avg_success_rate: 88, avg_duration_ms: 3500, total_installs: 3, ... }
 
-# 3. 安装 Skills（选择成功率高的）
+# 3. 瀹夎 Skills锛堥€夋嫨鎴愬姛鐜囬珮鐨勶級
 mcp__skillgarden__skills_install --skill_id "browse-v1.0.0"
 mcp__skillgarden__skills_install --skill_id "qa-v1.0.0"
 
-# 4. 执行测试（使用已安装的 Skills）
-# ... 执行测试逻辑 ...
+# 4. 鎵ц娴嬭瘯锛堜娇鐢ㄥ凡瀹夎鐨?Skills锛?
+# ... 鎵ц娴嬭瘯閫昏緫 ...
 
-# 5. 评价 Skills（提交结构化指标）
+# 5. 璇勪环 Skills锛堟彁浜ょ粨鏋勫寲鎸囨爣锛?
 mcp__skillgarden__evaluate_skill \
   --skill_id "browse-v1.0.0" \
   --success true \
@@ -137,165 +137,165 @@ mcp__skillgarden__evaluate_skill \
 
 ---
 
-## MCP 可用工具
+## MCP 鍙敤宸ュ叿
 
-### Skills 操作
+### Skills 鎿嶄綔
 
-| 工具 | 描述 | 示例 |
+| 宸ュ叿 | 鎻忚堪 | 绀轰緥 |
 |------|------|------|
-| `skills_search` | 搜索 Skills | `skills_search --query "browse"` |
-| `skills_list` | 列出所有 Skills | `skills_list` |
-| `skills_install` | 安装 Skills | `skills_install --skill_id "browse-v1.0.0"` |
-| `skills_info` | 查看详情 | `skills_info --skill_id "browse-v1.0.0"` |
-| `skills_stats` | 查看统计数据 | `skills_stats --skill_id "browse-v1.0.0"` |
-| `skills_update` | 更新到新版本 | `skills_update --skill_id "browse-v1.0.0"` |
+| `skills_search` | 鎼滅储 Skills | `skills_search --query "browse"` |
+| `skills_list` | 鍒楀嚭鎵€鏈?Skills | `skills_list` |
+| `skills_install` | 瀹夎 Skills | `skills_install --skill_id "browse-v1.0.0"` |
+| `skills_info` | 鏌ョ湅璇︽儏 | `skills_info --skill_id "browse-v1.0.0"` |
+| `skills_stats` | 鏌ョ湅缁熻鏁版嵁 | `skills_stats --skill_id "browse-v1.0.0"` |
+| `skills_update` | 鏇存柊鍒版柊鐗堟湰 | `skills_update --skill_id "browse-v1.0.0"` |
 
-### 评价操作
+### 璇勪环鎿嶄綔
 
-| 工具 | 描述 | 参数 |
+| 宸ュ叿 | 鎻忚堪 | 鍙傛暟 |
 |------|------|------|
-| `evaluate_skill` | 评价 Skills（结构化） | `skill_id`, `success`, `duration_ms`, `error_type?`, `tags?` |
+| `evaluate_skill` | 璇勪环 Skills锛堢粨鏋勫寲锛?| `skill_id`, `success`, `duration_ms`, `error_type?`, `tags?` |
 
-### 系统操作
+### 绯荤粺鎿嶄綔
 
-| 工具 | 描述 | 示例 |
+| 宸ュ叿 | 鎻忚堪 | 绀轰緥 |
 |------|------|------|
-| `health_check` | 健康检查 | `health_check` |
-| `get_runtime_info` | 运行时信息 | `get_runtime_info` |
+| `health_check` | 鍋ュ悍妫€鏌?| `health_check` |
+| `get_runtime_info` | 杩愯鏃朵俊鎭?| `get_runtime_info` |
 
 ---
 
-## Skills 评价设计
+## Skills 璇勪环璁捐
 
-### 评价给 Agent 看，不是给人看
+### 璇勪环缁?Agent 鐪嬶紝涓嶆槸缁欎汉鐪?
 
 ```
-传统设计：
-Agent 评价 → 文本反馈 → 管理员阅读 → 判断质量
+浼犵粺璁捐锛?
+Agent 璇勪环 鈫?鏂囨湰鍙嶉 鈫?绠＄悊鍛橀槄璇?鈫?鍒ゆ柇璐ㄩ噺
 
-SkillGarden 设计：
-Agent 评价 → 结构化指标 → 其他 Agent 读取 → 自动选择最佳 Skill
+SkillGarden 璁捐锛?
+Agent 璇勪环 鈫?缁撴瀯鍖栨寚鏍?鈫?鍏朵粬 Agent 璇诲彇 鈫?鑷姩閫夋嫨鏈€浣?Skill
 ```
 
-### 结构化评价参数
+### 缁撴瀯鍖栬瘎浠峰弬鏁?
 
-| 参数 | 类型 | 必填 | 说明 |
+| 鍙傛暟 | 绫诲瀷 | 蹇呭～ | 璇存槑 |
 |------|------|------|------|
-| `skill_id` | string | 是 | Skill 标识 |
-| `success` | boolean | 是 | 本次使用是否成功 |
-| `duration_ms` | number | 是 | 执行时间（毫秒） |
-| `error_type` | enum | 否 | 错误类型：`timeout` / `crash` / `logic_error` / `other` |
-| `tags` | string[] | 否 | 标签：`reliable` / `fast` / `stable` / `experimental` |
+| `skill_id` | string | 鏄?| Skill 鏍囪瘑 |
+| `success` | boolean | 鏄?| 鏈浣跨敤鏄惁鎴愬姛 |
+| `duration_ms` | number | 鏄?| 鎵ц鏃堕棿锛堟绉掞級 |
+| `error_type` | enum | 鍚?| 閿欒绫诲瀷锛歚timeout` / `crash` / `logic_error` / `other` |
+| `tags` | string[] | 鍚?| 鏍囩锛歚reliable` / `fast` / `stable` / `experimental` |
 
-### 如何使用评价数据
+### 濡備綍浣跨敤璇勪环鏁版嵁
 
-**Agent 选择 Skill 时**：
+**Agent 閫夋嫨 Skill 鏃?*锛?
 
 ```
-1. 搜索相关 Skills
-2. 获取每个 Skill 的 stats
-3. 按成功率排序
-4. 选择成功率最高的
-5. 如果成功率相近，按执行时间排序
+1. 鎼滅储鐩稿叧 Skills
+2. 鑾峰彇姣忎釜 Skill 鐨?stats
+3. 鎸夋垚鍔熺巼鎺掑簭
+4. 閫夋嫨鎴愬姛鐜囨渶楂樼殑
+5. 濡傛灉鎴愬姛鐜囩浉杩戯紝鎸夋墽琛屾椂闂存帓搴?
 ```
 
 ---
 
-## 故障排查
+## 鏁呴殰鎺掓煡
 
-### 连接失败
+### 杩炴帴澶辫触
 
 ```bash
-# 检查 MCP Server 是否运行
+# 妫€鏌?MCP Server 鏄惁杩愯
 curl http://localhost:3000/health
 
-# 检查环境变量
+# 妫€鏌ョ幆澧冨彉閲?
 echo $AGENT_ID
 echo $MCP_SERVER_URL
 ```
 
-**解决方案**：
+**瑙ｅ喅鏂规**锛?
 
-1. 确保 MCP Server 已启动：`npm run dev`
-2. 检查端口是否被占用
-3. 验证网络连接
+1. 纭繚 MCP Server 宸插惎鍔細`npm run dev`
+2. 妫€鏌ョ鍙ｆ槸鍚﹁鍗犵敤
+3. 楠岃瘉缃戠粶杩炴帴
 
-### 安装失败
+### 瀹夎澶辫触
 
 ```bash
-# 检查存储目录权限
+# 妫€鏌ュ瓨鍌ㄧ洰褰曟潈闄?
 ls -la path/to/skills
 
-# 检查磁盘空间
+# 妫€鏌ョ鐩樼┖闂?
 df -h
 ```
 
-**解决方案**：
+**瑙ｅ喅鏂规**锛?
 
-1. 修复目录权限：`chmod 755 path/to/skills`
-2. 清理磁盘空间
-3. 检查 skill_id 是否正确
+1. 淇鐩綍鏉冮檺锛歚chmod 755 path/to/skills`
+2. 娓呯悊纾佺洏绌洪棿
+3. 妫€鏌?skill_id 鏄惁姝ｇ‘
 
-### 搜索无结果
+### 鎼滅储鏃犵粨鏋?
 
 ```bash
-# 检查 Skills 仓库
+# 妫€鏌?Skills 浠撳簱
 ls -la path/to/skills
 
-# 检查注册表
+# 妫€鏌ユ敞鍐岃〃
 cat data/registry/skills-index.json
 ```
 
-**解决方案**：
+**瑙ｅ喅鏂规**锛?
 
-1. 确保 Skills 已正确安装到仓库
-2. 验证 SKILL.md 格式正确
-3. 检查 tags 是否匹配
+1. 纭繚 Skills 宸叉纭畨瑁呭埌浠撳簱
+2. 楠岃瘉 SKILL.md 鏍煎紡姝ｇ‘
+3. 妫€鏌?tags 鏄惁鍖归厤
 
 ---
 
-## 常见问题
+## 甯歌闂
 
-### Q: 如何获取 Agent ID？
+### Q: 濡備綍鑾峰彇 Agent ID锛?
 
-A: Agent ID 在首次启动时自动生成，也可以手动指定。建议使用 UUID 格式。
+A: Agent ID 鍦ㄩ娆″惎鍔ㄦ椂鑷姩鐢熸垚锛屼篃鍙互鎵嬪姩鎸囧畾銆傚缓璁娇鐢?UUID 鏍煎紡銆?
 
-### Q: 可以同时运行多个 Agent 吗？
+### Q: 鍙互鍚屾椂杩愯澶氫釜 Agent 鍚楋紵
 
-A: 可以，每个 Agent 需要独立的 AGENT_ID。
+A: 鍙互锛屾瘡涓?Agent 闇€瑕佺嫭绔嬬殑 AGENT_ID銆?
 
-### Q: Skills 安装到哪里？
+### Q: Skills 瀹夎鍒板摢閲岋紵
 
-A: 默认安装到 `SKILLS_PATH` 指定的目录，也可以是 Agent 本地目录。
+A: 榛樿瀹夎鍒?`SKILLS_PATH` 鎸囧畾鐨勭洰褰曪紝涔熷彲浠ユ槸 Agent 鏈湴鐩綍銆?
 
-### Q: 如何更新 Skills？
+### Q: 濡備綍鏇存柊 Skills锛?
 
-A: 使用 `skills_update` 重新安装，会自动更新到最新版本。
+A: 浣跨敤 `skills_update` 閲嶆柊瀹夎锛屼細鑷姩鏇存柊鍒版渶鏂扮増鏈€?
 
-### Q: 评价指标有什么用？
+### Q: 璇勪环鎸囨爣鏈変粈涔堢敤锛?
 
-A: 其他 Agent 会根据评价指标（成功率、执行时间）来选择使用哪个 Skill。高质量的 Skill 会被更多 Agent 安装和使用。
+A: 鍏朵粬 Agent 浼氭牴鎹瘎浠锋寚鏍囷紙鎴愬姛鐜囥€佹墽琛屾椂闂达級鏉ラ€夋嫨浣跨敤鍝釜 Skill銆傞珮璐ㄩ噺鐨?Skill 浼氳鏇村 Agent 瀹夎鍜屼娇鐢ㄣ€?
 
-### Q: 文本评价和结构化评价有什么区别？
+### Q: 鏂囨湰璇勪环鍜岀粨鏋勫寲璇勪环鏈変粈涔堝尯鍒紵
 
 A:
 
-- **文本评价**：需要 LLM 生成，成本高，Agent 解析复杂
-- **结构化评价**：Agent 直接提交数字指标，其他 Agent 可直接使用
+- **鏂囨湰璇勪环**锛氶渶瑕?LLM 鐢熸垚锛屾垚鏈珮锛孉gent 瑙ｆ瀽澶嶆潅
+- **缁撴瀯鍖栬瘎浠?*锛欰gent 鐩存帴鎻愪氦鏁板瓧鎸囨爣锛屽叾浠?Agent 鍙洿鎺ヤ娇鐢?
 
-SkillGarden 使用结构化评价，不强制要求文本。
-
----
-
-## 下一步
-
-安装完成后，你可以：
-
-1. **创建第一个 Skill**：参考 `skills/_templates/skill-template/`
-2. **运行测试**：参考 `docs/MVP.md`
-3. **参与贡献**：提交 Skills 到共享仓库
+SkillGarden 浣跨敤缁撴瀯鍖栬瘎浠凤紝涓嶅己鍒惰姹傛枃鏈€?
 
 ---
 
-**最后更新**：2026-04-20
-**版本**：0.2.0
+## 涓嬩竴姝?
+
+瀹夎瀹屾垚鍚庯紝浣犲彲浠ワ細
+
+1. **鍒涘缓绗竴涓?Skill**锛氬弬鑰?`skills/_templates/skill-template/`
+2. **杩愯娴嬭瘯**锛氬弬鑰?`docs/MVP.md`
+3. **鍙備笌璐＄尞**锛氭彁浜?Skills 鍒板叡浜粨搴?
+
+---
+
+**鏈€鍚庢洿鏂?*锛?026-04-20
+**鐗堟湰**锛?.2.0
