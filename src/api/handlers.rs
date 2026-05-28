@@ -538,7 +538,7 @@ pub async fn delete_org_handler(
         .await
         .map_err(|e| ApiError::BadRequest(e.to_string()))?;
 
-    Ok((StatusCode::NO_CONTENT, Json(serde_json::json!({"deleted": org_id}))))
+    Ok((StatusCode::OK, Json(serde_json::json!({"deleted": org_id}))))
 }
 
 /// Session handlers
@@ -671,4 +671,62 @@ pub async fn reject_org_tool_handler(
         .map_err(|e| ApiError::BadRequest(e.to_string()))?;
 
     Ok((StatusCode::OK, Json(serde_json::json!({"rejected": tool_id}))))
+}
+
+pub async fn get_admin_status_handler(
+    State(state): State<ApiState>,
+    AgentContext { roles, .. }: AgentContext,
+) -> Result<impl IntoResponse, ApiError> {
+    if !roles.iter().any(|r| r == "admin") {
+        return Err(ApiError::Unauthorized("Admin access required".to_string()));
+    }
+
+    let pool = state.agent_repo.pool();
+    let db_connected = sqlx::query("SELECT 1").execute(pool).await.is_ok();
+
+    let db_url = std::env::var("DATABASE_URL")
+        .unwrap_or_else(|_| "postgres://localhost:5432/aionhive".to_string());
+    let sanitized_url = db_url
+        .split('@')
+        .enumerate()
+        .map(|(i, part)| {
+            if i == 0 {
+                if let Some(colon) = part.rfind(':') {
+                    format!("{}:****", &part[..colon])
+                } else {
+                    part.to_string()
+                }
+            } else {
+                part.to_string()
+            }
+        })
+        .collect::<Vec<_>>()
+        .join("@");
+
+    let port: u16 = std::env::var("AION_HIVE_HTTP_PORT")
+        .unwrap_or_else(|_| "8080".to_string())
+        .parse()
+        .unwrap_or(8080);
+
+    let transport_mode = std::env::var("AION_HIVE_TRANSPORT")
+        .unwrap_or_else(|_| "http".to_string());
+
+    let data_dir = std::env::var("AION_HIVE_DATA_DIR")
+        .unwrap_or_else(|_| "./data".to_string());
+
+    let skills_dir = std::env::var("AION_HIVE_SKILLS_DIR")
+        .unwrap_or_else(|_| "./skills".to_string());
+
+    let response = crate::api::models::AdminStatusResponse {
+        version: env!("CARGO_PKG_VERSION").to_string(),
+        transport_mode,
+        http_port: port,
+        data_dir,
+        skills_dir,
+        db_connected,
+        db_url: sanitized_url,
+        jwt_expiry_hours: 24,
+    };
+
+    Ok((StatusCode::OK, Json(response)))
 }

@@ -29,6 +29,9 @@ async fn test_search_add_and_search() {
         dependencies: vec![],
         content: "# Test Content for Searching".to_string(),
         install_count: 10,
+        git_url: None,
+        visibility: aion_hive::Visibility::OrgVisible,
+        tools: vec![],
     };
 
     search.add_skill(&skill).unwrap();
@@ -58,6 +61,9 @@ async fn test_search_with_tags() {
         dependencies: vec![],
         content: "# Web Scraper".to_string(),
         install_count: 5,
+        git_url: None,
+        visibility: aion_hive::Visibility::OrgVisible,
+        tools: vec![],
     };
 
     search.add_skill(&skill).unwrap();
@@ -89,6 +95,9 @@ async fn test_search_delete() {
         dependencies: vec![],
         content: "# Temporary Skill".to_string(),
         install_count: 0,
+        git_url: None,
+        visibility: aion_hive::Visibility::OrgVisible,
+        tools: vec![],
     };
 
     search.add_skill(&skill).unwrap();

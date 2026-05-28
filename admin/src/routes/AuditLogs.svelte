@@ -22,12 +22,19 @@
       const params = {};
       if (filters.action) params.action = filters.action;
       if (filters.agent_id) params.agent_id = filters.agent_id;
-      if (filters.from_date) params.from = filters.from_date;
-      if (filters.to_date) params.to = filters.to_date;
       params.limit = 50;
 
-      const res = await api.listAuditLogs(params);
+      let res = await api.listAuditLogs(params);
       logs = res.data || [];
+
+      if (filters.from_date || filters.to_date) {
+        const from = filters.from_date ? new Date(filters.from_date).getTime() : 0;
+        const to = filters.to_date ? new Date(filters.to_date + 'T23:59:59').getTime() : Infinity;
+        logs = logs.filter(log => {
+          const t = new Date(log.created_at).getTime();
+          return t >= from && t <= to;
+        });
+      }
     } catch (e) {
       error = e.message;
     } finally {
@@ -43,15 +50,18 @@
   onMount(fetchLogs);
 </script>
 
-<div class="p-6">
-  <h1 class="text-2xl font-semibold mb-6">Audit Logs</h1>
+<div class="p-8">
+  <div class="page-header">
+    <h1 class="text-[28px] font-extrabold text-surface-800 tracking-tight">Audit Logs</h1>
+    <p class="text-surface-500 text-sm mt-1.5 font-medium">Track and search all skill operations</p>
+  </div>
 
-  <div class="bg-white rounded-lg border border-gray-200 p-4 mb-6">
-    <div class="grid grid-cols-5 gap-4">
+  <div class="gradient-card-sky rounded-2xl border border-sky-200/60 p-6 mb-6 shadow-card">
+    <div class="grid grid-cols-5 gap-4 items-end">
       <div>
-        <label class="block text-sm text-gray-600 mb-1">Action</label>
-        <select bind:value={filters.action} class="w-full px-3 py-2 border border-gray-300 rounded">
-          <option value="">All</option>
+        <label class="block text-xs font-semibold text-surface-500 uppercase tracking-wider mb-2">Action</label>
+        <select bind:value={filters.action} class="w-full px-4 py-2.5 border border-surface-200 rounded-xl text-sm font-medium text-surface-600 input-focus outline-none bg-sky-50 select-caret">
+          <option value="">All Actions</option>
           <option value="skill_create">skill_create</option>
           <option value="skill_approve">skill_approve</option>
           <option value="skill_reject">skill_reject</option>
@@ -60,38 +70,40 @@
         </select>
       </div>
       <div>
-        <label class="block text-sm text-gray-600 mb-1">Agent ID</label>
+        <label class="block text-xs font-semibold text-surface-500 uppercase tracking-wider mb-2">Agent ID</label>
         <input
           bind:value={filters.agent_id}
           placeholder="Filter by agent"
-          class="w-full px-3 py-2 border border-gray-300 rounded"
+          class="w-full px-4 py-2.5 border border-surface-200 rounded-xl text-sm input-focus outline-none placeholder:text-surface-300 bg-sky-50"
         />
       </div>
       <div>
-        <label class="block text-sm text-gray-600 mb-1">From Date</label>
+        <label class="block text-xs font-semibold text-surface-500 uppercase tracking-wider mb-2">From</label>
         <input
           type="date"
           bind:value={filters.from_date}
-          class="w-full px-3 py-2 border border-gray-300 rounded"
+          class="w-full px-4 py-2.5 border border-surface-200 rounded-xl text-sm text-surface-600 input-focus outline-none bg-sky-50"
         />
       </div>
       <div>
-        <label class="block text-sm text-gray-600 mb-1">To Date</label>
+        <label class="block text-xs font-semibold text-surface-500 uppercase tracking-wider mb-2">To</label>
         <input
           type="date"
           bind:value={filters.to_date}
-          class="w-full px-3 py-2 border border-gray-300 rounded"
+          class="w-full px-4 py-2.5 border border-surface-200 rounded-xl text-sm text-surface-600 input-focus outline-none bg-sky-50"
         />
       </div>
-      <div class="flex items-end gap-2">
+      <div class="flex gap-2">
         <button
           on:click={fetchLogs}
-          class="px-4 py-2 bg-blue-600 text-white rounded hover:bg-blue-700">
+          class="btn-primary px-5 py-2.5 rounded-xl text-sm font-semibold"
+        >
           Search
         </button>
         <button
           on:click={resetFilters}
-          class="px-4 py-2 text-gray-600 border border-gray-300 rounded hover:bg-gray-50">
+          class="btn-secondary px-4 py-2.5 rounded-xl text-sm font-medium"
+        >
           Reset
         </button>
       </div>
@@ -101,11 +113,13 @@
   {#if loading}
     <LoadingSpinner />
   {:else if error}
-    <div class="text-red-500">{error}</div>
+    <div class="bg-rose-50 border border-rose-100 text-rose-600 px-5 py-4 rounded-2xl text-sm font-medium">{error}</div>
   {:else if logs.length === 0}
-    <EmptyState message="No audit logs match your filters" />
+    <div class="bg-sky-50 rounded-2xl border border-indigo-200 shadow-card">
+      <EmptyState message="No audit logs match your filters" />
+    </div>
   {:else}
-    <div class="bg-white rounded-lg border border-gray-200 overflow-hidden">
+    <div class="bg-sky-50 rounded-2xl border border-indigo-200 overflow-hidden shadow-card">
       <AuditTable {logs} />
     </div>
   {/if}

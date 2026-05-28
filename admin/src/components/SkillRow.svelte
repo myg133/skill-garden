@@ -6,23 +6,25 @@
   export let skill;
 </script>
 
-<tr class="border-b border-gray-100 hover:bg-gray-50">
-  <td class="px-4 py-3">
-    <Link to="/skills/{skill.id}" class="text-blue-600 hover:text-blue-800 font-medium">
+<tr class="table-row hover:bg-surface-800/50">
+  <td class="px-6 py-4">
+    <Link to="/skills/{skill.id}" class="text-brand-400 hover:text-brand-300 font-semibold text-sm transition-colors">
       {skill.name}
     </Link>
   </td>
-  <td class="px-4 py-3 text-gray-600 text-sm">{skill.agent_id}</td>
-  <td class="px-4 py-3">
-    <div class="flex gap-1 flex-wrap">
+  <td class="px-6 py-4 text-surface-400 text-sm font-mono text-xs">{skill.agent_id}</td>
+  <td class="px-6 py-4">
+    <div class="flex gap-1.5 flex-wrap">
       {#each (skill.tags || []).slice(0, 3) as tag}
-        <span class="px-2 py-0.5 bg-gray-100 text-gray-600 text-xs rounded">{tag}</span>
+        <span class="px-2.5 py-1 bg-surface-800 text-surface-400 text-xs font-medium rounded-lg">{tag}</span>
       {/each}
+      {#if (skill.tags || []).length > 3}
+        <span class="px-2.5 py-1 bg-surface-800 text-surface-500 text-xs font-medium rounded-lg">+{skill.tags.length - 3}</span>
+      {/if}
     </div>
   </td>
-  <td class="px-4 py-3 text-gray-600 text-sm">{skill.created_at ? new Date(skill.created_at).toLocaleDateString() : 'N/A'}</td>
-  <td class="px-4 py-3">
+  <td class="px-6 py-4 text-surface-400 text-sm">{skill.created_at ? new Date(skill.created_at).toLocaleDateString() : 'N/A'}</td>
+  <td class="px-6 py-4">
     <ReviewActions {skill} />
   </td>
 </tr>
-

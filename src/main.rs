@@ -28,6 +28,7 @@ use aion_hive::api::handlers::{
     update_skill_handler, delete_skill_handler, get_skill_stats_handler,
     create_evaluation_handler, register_agent_handler, get_token_handler,
     admin_login_handler, list_audit_logs_handler, approve_skill_handler, reject_skill_handler,
+    get_admin_status_handler,
     // v0.4 multi-tenant handlers
     create_org_handler, get_org_handler, list_orgs_handler, update_org_handler, delete_org_handler,
     create_session_handler, get_session_handler, list_sessions_handler, end_session_handler, session_declare_handler,
@@ -182,6 +183,7 @@ async fn run_http_server(state: AppState, port: u16) -> Result<()> {
         .route("/api/v1/admin/audit-logs", get(list_audit_logs_handler))
         .route("/api/v1/admin/skills/:id/approve", post(approve_skill_handler))
         .route("/api/v1/admin/skills/:id/reject", post(reject_skill_handler))
+        .route("/api/v1/admin/status", get(get_admin_status_handler))
         // v0.4 multi-tenant routes
         .route("/api/v1/organizations", post(create_org_handler))
         .route("/api/v1/organizations", get(list_orgs_handler))

@@ -24,6 +24,7 @@ pub fn create_api_router(state: ApiState) -> Router<ApiState> {
         .route("/api/v1/admin/audit-logs", get(list_audit_logs_handler))
         .route("/api/v1/admin/skills/:id/approve", post(approve_skill_handler))
         .route("/api/v1/admin/skills/:id/reject", post(reject_skill_handler))
+        .route("/api/v1/admin/status", get(get_admin_status_handler))
         // v0.4 multi-tenant routes
         .route("/api/v1/organizations", post(create_org_handler))
         .route("/api/v1/organizations", get(list_orgs_handler))

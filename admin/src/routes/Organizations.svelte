@@ -58,93 +58,99 @@
   }
 </script>
 
-<div class="p-6 max-w-7xl mx-auto">
-  <div class="flex items-center justify-between mb-6">
-    <div>
-      <h1 class="text-2xl font-semibold text-slate-900">Organizations</h1>
-      <p class="text-slate-500 text-sm mt-1">Manage tenant organizations</p>
+<div class="p-8">
+  <div class="page-header">
+    <div class="flex items-center justify-between">
+      <div>
+        <h1 class="text-[28px] font-extrabold text-surface-800 tracking-tight">Organizations</h1>
+        <p class="text-surface-500 text-sm mt-1.5 font-medium">Manage tenant organizations and their tools</p>
+      </div>
+      <button
+        on:click={() => showCreateModal = true}
+        class="btn-primary px-5 py-2.5 rounded-xl font-semibold text-sm flex items-center gap-2"
+      >
+        <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 4v16m8-8H4"/></svg>
+        New Organization
+      </button>
     </div>
-    <button
-      on:click={() => showCreateModal = true}
-      class="bg-indigo-600 hover:bg-indigo-700 text-white px-4 py-2 rounded-lg font-medium text-sm transition-colors"
-    >
-      + New Organization
-    </button>
   </div>
 
   {#if loading}
     <LoadingSpinner />
   {:else if error}
-    <div class="bg-red-50 border border-red-200 text-red-700 px-4 py-3 rounded-lg">{error}</div>
+    <div class="bg-rose-50 border border-rose-100 text-rose-600 px-5 py-4 rounded-2xl text-sm font-medium">{error}</div>
   {:else if organizations.length === 0}
-    <EmptyState message="No organizations yet" />
+    <div class="bg-sky-50 backdrop-blur-sm rounded-2xl border border-indigo-200/60 shadow-card">
+      <EmptyState message="No organizations yet">
+        <button
+          on:click={() => showCreateModal = true}
+          class="mt-4 btn-primary px-5 py-2.5 rounded-xl font-semibold text-sm"
+        >
+          Create your first organization
+        </button>
+      </EmptyState>
+    </div>
   {:else}
-    <div class="bg-white rounded-xl border border-slate-200 overflow-hidden shadow-sm">
-      <table class="w-full">
-        <thead class="bg-slate-50 border-b border-slate-200">
-          <tr>
-            <th class="px-6 py-3 text-left text-xs font-semibold text-slate-600 uppercase tracking-wider">Name</th>
-            <th class="px-6 py-3 text-left text-xs font-semibold text-slate-600 uppercase tracking-wider">ID</th>
-            <th class="px-6 py-3 text-left text-xs font-semibold text-slate-600 uppercase tracking-wider">Created</th>
-            <th class="px-6 py-3 text-right text-xs font-semibold text-slate-600 uppercase tracking-wider">Actions</th>
-          </tr>
-        </thead>
-        <tbody class="divide-y divide-slate-100">
-          {#each organizations as org (org.id)}
-            <tr class="hover:bg-slate-50 transition-colors">
-              <td class="px-6 py-4">
-                <Link to="/organizations/{org.id}" class="text-slate-900 hover:text-indigo-600 font-medium">
-                  {org.name}
-                </Link>
-              </td>
-              <td class="px-6 py-4 text-slate-500 text-sm font-mono">{org.id}</td>
-              <td class="px-6 py-4 text-slate-500 text-sm">{new Date(org.created_at).toLocaleDateString()}</td>
-              <td class="px-6 py-4 text-right">
-                <Link
-                  to="/organizations/{org.id}"
-                  class="text-indigo-600 hover:text-indigo-800 text-sm font-medium mr-4"
-                >
-                  View
-                </Link>
-                <button
-                  on:click={() => handleDelete(org.id)}
-                  class="text-red-600 hover:text-red-800 text-sm font-medium"
-                >
-                  Delete
-                </button>
-              </td>
-            </tr>
-          {/each}
-        </tbody>
-      </table>
+    <div class="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-4">
+      {#each organizations as org (org.id)}
+        <Link
+          to="/organizations/{org.id}"
+          class="group bg-sky-50 backdrop-blur-sm rounded-2xl border border-indigo-200/60 p-6 card card-interactive block"
+        >
+          <div class="flex items-start gap-4">
+            <div class="w-11 h-11 rounded-xl bg-gradient-to-br from-brand-500 to-purple-600 flex items-center justify-center font-bold text-lg shadow-glow flex-shrink-0 group-hover:scale-105 transition-transform duration-300">
+              {org.name[0]?.toUpperCase() || '?'}
+            </div>
+            <div class="flex-1 min-w-0">
+              <h3 class="text-surface-800 font-semibold text-[15px] truncate mb-0.5 group-hover:text-brand-600 transition-colors">
+                {org.name}
+              </h3>
+              <p class="text-surface-400 text-xs font-mono truncate">{org.id}</p>
+            </div>
+          </div>
+          <div class="mt-4 pt-4 border-t border-surface-100 flex items-center justify-between">
+            <p class="text-surface-400 text-xs">
+              Created {new Date(org.created_at).toLocaleDateString()}
+            </p>
+            <svg class="w-4 h-4 text-surface-300 group-hover:text-brand-500 group-hover:translate-x-0.5 transition-all" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5l7 7-7 7"/>
+            </svg>
+          </div>
+        </Link>
+      {/each}
     </div>
   {/if}
 </div>
 
 {#if showCreateModal}
-<div class="fixed inset-0 bg-black/50 flex items-center justify-center z-50">
-  <div class="bg-white rounded-xl p-6 w-full max-w-md shadow-2xl">
-    <h2 class="text-lg font-semibold text-slate-900 mb-4">Create Organization</h2>
-    <input
-      type="text"
-      bind:value={newOrgName}
-      placeholder="Organization name"
-      class="w-full px-4 py-2 border border-slate-300 rounded-lg mb-4 focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 outline-none"
-    />
-    <div class="flex gap-3 justify-end">
-      <button
-        on:click={() => { showCreateModal = false; newOrgName = ''; }}
-        class="px-4 py-2 text-slate-600 hover:text-slate-800 font-medium"
-      >
-        Cancel
-      </button>
-      <button
-        on:click={handleCreate}
-        disabled={creating || !newOrgName.trim()}
-        class="bg-indigo-600 hover:bg-indigo-700 disabled:bg-slate-300 text-white px-4 py-2 rounded-lg font-medium transition-colors"
-      >
-        {creating ? 'Creating...' : 'Create'}
-      </button>
+<div class="fixed inset-0 bg-surface-900/50 backdrop-blur-sm flex items-center justify-center z-50 modal-overlay">
+  <div class="bg-sky-50 rounded-2xl p-6 w-full max-w-md shadow-elevated-lg border border-indigo-200 modal-content">
+    <h2 class="text-lg font-bold text-surface-800 mb-5">Create Organization</h2>
+    <div class="space-y-4">
+      <div>
+        <label class="block text-xs font-semibold text-surface-500 uppercase tracking-wider mb-2">Name</label>
+        <input
+          type="text"
+          bind:value={newOrgName}
+          placeholder="Organization name"
+          class="w-full px-4 py-3 border border-surface-200 rounded-xl text-sm input-focus outline-none font-medium"
+        />
+      </div>
+      <div class="flex gap-3 justify-end pt-1">
+        <button
+          on:click={() => { showCreateModal = false; newOrgName = ''; }}
+          class="px-4 py-2.5 text-surface-500 hover:text-surface-800 font-semibold text-sm transition-all rounded-lg hover:bg-surface-50"
+        >
+          Cancel
+        </button>
+        <button
+          on:click={handleCreate}
+          disabled={creating || !newOrgName.trim()}
+          class="btn-primary px-5 py-2.5 rounded-xl font-semibold text-sm disabled:opacity-50 disabled:cursor-not-allowed"
+        >
+          {creating ? 'Creating...' : 'Create'}
+        </button>
+      </div>
     </div>
   </div>
 </div>

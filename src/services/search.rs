@@ -276,6 +276,7 @@ pub struct SearchResult {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::Visibility;
     use tempfile::TempDir;
 
     fn create_test_skill(id: &str, name: &str, description: &str, tags: Vec<&str>) -> Skill {
@@ -292,6 +293,9 @@ mod tests {
             dependencies: vec![],
             content: format!("# {} Content", name),
             install_count: 10,
+            git_url: None,
+            visibility: Visibility::OrgVisible,
+            tools: vec![],
         }
     }
 

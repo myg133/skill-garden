@@ -238,3 +238,15 @@ pub struct AdminUserInfo {
     pub username: String,
     pub display_name: Option<String>,
 }
+
+#[derive(Debug, Serialize)]
+pub struct AdminStatusResponse {
+    pub version: String,
+    pub transport_mode: String,
+    pub http_port: u16,
+    pub data_dir: String,
+    pub skills_dir: String,
+    pub db_connected: bool,
+    pub db_url: String,
+    pub jwt_expiry_hours: u64,
+}

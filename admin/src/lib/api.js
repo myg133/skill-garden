@@ -45,7 +45,7 @@ export const api = {
 
   // Agent Auth (for agent clients, not admin UI)
   getToken(agentId, agentSecret) {
-    return requestNoAuth('/agents/token', {
+    return requestNoAuth('/auth/agent/token', {
       method: 'POST',
       body: JSON.stringify({ agent_id: agentId, agent_secret: agentSecret })
     });
@@ -145,6 +145,10 @@ export const api = {
   },
 
   listApprovedTools(orgId) {
-    return request(`/organizations/${orgId}/tools`);
+    return request(`/org-tools/${orgId}?approved_only=true`);
+  },
+
+  getAdminStatus() {
+    return request('/admin/status');
   }
 };

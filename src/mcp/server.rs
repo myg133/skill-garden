@@ -20,6 +20,7 @@ use crate::models::evaluation::{ErrorType, EvalTag};
 use crate::models::skill::NewSkill;
 use crate::services::{EvaluatorService, OrgToolService, RegistryService, SearchService, SessionService, ToolRouterService};
 
+#[allow(dead_code)]
 pub struct McpServer {
     registry: RegistryService,
     search: SearchService,
