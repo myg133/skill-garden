@@ -18,8 +18,9 @@
         api.getSkill(id),
         api.getSkillStats(id)
       ]);
-      skill = skillRes.data;
-      stats = statsRes.data;
+      const detail = skillRes;
+      skill = { ...detail.metadata, content: detail.content };
+      stats = detail.stats || (statsRes.data || statsRes);
     } catch (e) {
       error = e.message;
     } finally {

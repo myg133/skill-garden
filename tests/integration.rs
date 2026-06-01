@@ -23,6 +23,9 @@ async fn test_search_add_and_search() {
         tags: vec!["test".to_string(), "search".to_string()],
         version: "1.0.0".to_string(),
         author_agent_id: "agent-1".to_string(),
+        author_identity_id: None,
+        owner_type: "user".to_string(),
+        owner_id: None,
         created: chrono::Utc::now(),
         updated: chrono::Utc::now(),
         compatibility: ">=1.0.0".to_string(),
@@ -32,6 +35,10 @@ async fn test_search_add_and_search() {
         git_url: None,
         visibility: aion_hive::Visibility::OrgVisible,
         tools: vec![],
+        review_status: "published".to_string(),
+        reviewed_by: None,
+        reviewed_at: None,
+        review_comment: None,
     };
 
     search.add_skill(&skill).unwrap();
@@ -55,6 +62,9 @@ async fn test_search_with_tags() {
         tags: vec!["web".to_string(), "scraper".to_string()],
         version: "1.0.0".to_string(),
         author_agent_id: "agent-1".to_string(),
+        author_identity_id: None,
+        owner_type: "user".to_string(),
+        owner_id: None,
         created: chrono::Utc::now(),
         updated: chrono::Utc::now(),
         compatibility: ">=1.0.0".to_string(),
@@ -64,6 +74,10 @@ async fn test_search_with_tags() {
         git_url: None,
         visibility: aion_hive::Visibility::OrgVisible,
         tools: vec![],
+        review_status: "published".to_string(),
+        reviewed_by: None,
+        reviewed_at: None,
+        review_comment: None,
     };
 
     search.add_skill(&skill).unwrap();
@@ -89,6 +103,9 @@ async fn test_search_delete() {
         tags: vec![],
         version: "1.0.0".to_string(),
         author_agent_id: "agent-1".to_string(),
+        author_identity_id: None,
+        owner_type: "user".to_string(),
+        owner_id: None,
         created: chrono::Utc::now(),
         updated: chrono::Utc::now(),
         compatibility: ">=1.0.0".to_string(),
@@ -98,6 +115,10 @@ async fn test_search_delete() {
         git_url: None,
         visibility: aion_hive::Visibility::OrgVisible,
         tools: vec![],
+        review_status: "published".to_string(),
+        reviewed_by: None,
+        reviewed_at: None,
+        review_comment: None,
     };
 
     search.add_skill(&skill).unwrap();

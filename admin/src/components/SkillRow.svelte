@@ -12,7 +12,7 @@
       {skill.name}
     </Link>
   </td>
-  <td class="px-6 py-4 text-surface-400 text-sm font-mono text-xs">{skill.agent_id}</td>
+  <td class="px-6 py-4 text-surface-400 text-sm font-mono text-xs">{skill.author_agent_id}</td>
   <td class="px-6 py-4">
     <div class="flex gap-1.5 flex-wrap">
       {#each (skill.tags || []).slice(0, 3) as tag}
@@ -23,7 +23,7 @@
       {/if}
     </div>
   </td>
-  <td class="px-6 py-4 text-surface-400 text-sm">{skill.created_at ? new Date(skill.created_at).toLocaleDateString() : 'N/A'}</td>
+  <td class="px-6 py-4 text-surface-400 text-sm">{skill.created ? new Date(skill.created).toLocaleDateString() : 'N/A'}</td>
   <td class="px-6 py-4">
     <ReviewActions {skill} />
   </td>

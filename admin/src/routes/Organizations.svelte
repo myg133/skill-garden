@@ -7,21 +7,33 @@
   import EmptyState from '../components/EmptyState.svelte';
 
   let organizations = [];
+  let tenants = [];
+  let tenantFilter = '';
   let loading = true;
   let error = '';
   let showCreateModal = false;
   let newOrgName = '';
+  let newOrgTenantId = '';
   let creating = false;
 
   onMount(async () => {
-    await loadOrganizations();
+    await Promise.all([loadOrganizations(), loadTenants()]);
   });
+
+  async function loadTenants() {
+    try {
+      const res = await api.listTenants({ limit: 100 });
+      tenants = res.data || [];
+    } catch (_) { }
+  }
 
   async function loadOrganizations() {
     loading = true;
     error = '';
     try {
-      const res = await api.listOrganizations({ limit: 100 });
+      const params = { limit: 100 };
+      if (tenantFilter) params.tenant_id = tenantFilter;
+      const res = await api.listOrganizations(params);
       organizations = res.data || [];
     } catch (e) {
       error = e.message;
@@ -30,12 +42,25 @@
     }
   }
 
+  function getTenantName(org) {
+    return org.tenant_name || (org.tenant_id ? 'Loading...' : 'No Tenant');
+  }
+
+  function handleClearFilter() {
+    tenantFilter = '';
+    loadOrganizations();
+  }
+
   async function handleCreate() {
     if (!newOrgName.trim()) return;
     creating = true;
     try {
-      await api.createOrganization({ name: newOrgName });
+      await api.createOrganization({
+        name: newOrgName,
+        tenant_id: newOrgTenantId || null
+      });
       newOrgName = '';
+      newOrgTenantId = '';
       showCreateModal = false;
       addToast('Organization created', 'success');
       await loadOrganizations();
@@ -65,13 +90,34 @@
         <h1 class="text-[28px] font-extrabold text-surface-800 tracking-tight">Organizations</h1>
         <p class="text-surface-500 text-sm mt-1.5 font-medium">Manage tenant organizations and their tools</p>
       </div>
-      <button
-        on:click={() => showCreateModal = true}
-        class="btn-primary px-5 py-2.5 rounded-xl font-semibold text-sm flex items-center gap-2"
-      >
-        <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 4v16m8-8H4"/></svg>
-        New Organization
-      </button>
+      <div class="flex items-center gap-3">
+        <select
+          bind:value={tenantFilter}
+          on:change={() => loadOrganizations()}
+          class="px-4 py-2.5 bg-sky-50 border border-indigo-200 rounded-xl text-sm text-surface-700 focus:outline-none focus:ring-2 focus:ring-brand-500/30 cursor-pointer"
+        >
+          <option value="" disabled selected hidden>Filter by tenant</option>
+          <option value="">All tenants</option>
+          {#each tenants as tenant}
+            <option value={tenant.id}>{tenant.name}</option>
+          {/each}
+        </select>
+        {#if tenantFilter}
+          <button
+            on:click={handleClearFilter}
+            class="px-3 py-2.5 text-surface-500 hover:text-surface-700 text-sm font-medium transition-colors"
+          >
+            Clear filter
+          </button>
+        {/if}
+        <button
+          on:click={() => showCreateModal = true}
+          class="btn-primary px-5 py-2.5 rounded-xl font-semibold text-sm flex items-center gap-2"
+        >
+          <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 4v16m8-8H4"/></svg>
+          New Organization
+        </button>
+      </div>
     </div>
   </div>
 
@@ -109,9 +155,10 @@
             </div>
           </div>
           <div class="mt-4 pt-4 border-t border-surface-100 flex items-center justify-between">
-            <p class="text-surface-400 text-xs">
-              Created {new Date(org.created_at).toLocaleDateString()}
-            </p>
+            <div>
+              <p class="text-surface-400 text-xs">Created {new Date(org.created_at).toLocaleDateString()}</p>
+              <p class="text-surface-400 text-xs mt-0.5">{getTenantName(org)}</p>
+            </div>
             <svg class="w-4 h-4 text-surface-300 group-hover:text-brand-500 group-hover:translate-x-0.5 transition-all" fill="none" stroke="currentColor" viewBox="0 0 24 24">
               <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5l7 7-7 7"/>
             </svg>
@@ -128,13 +175,27 @@
     <h2 class="text-lg font-bold text-surface-800 mb-5">Create Organization</h2>
     <div class="space-y-4">
       <div>
-        <label class="block text-xs font-semibold text-surface-500 uppercase tracking-wider mb-2">Name</label>
+        <label for="org-name" class="block text-xs font-semibold text-surface-500 uppercase tracking-wider mb-2">Name</label>
         <input
+          id="org-name"
           type="text"
           bind:value={newOrgName}
           placeholder="Organization name"
           class="w-full px-4 py-3 border border-surface-200 rounded-xl text-sm input-focus outline-none font-medium"
         />
+      </div>
+      <div>
+        <label for="org-tenant" class="block text-xs font-semibold text-surface-500 uppercase tracking-wider mb-2">Tenant</label>
+        <select
+          id="org-tenant"
+          bind:value={newOrgTenantId}
+          class="w-full px-4 py-3 border border-surface-200 rounded-xl text-sm input-focus outline-none font-medium bg-white"
+        >
+          <option value="" disabled selected hidden>Select tenant (optional)</option>
+          {#each tenants as tenant}
+            <option value={tenant.id}>{tenant.name}</option>
+          {/each}
+        </select>
       </div>
       <div class="flex gap-3 justify-end pt-1">
         <button

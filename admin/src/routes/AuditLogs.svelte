@@ -59,8 +59,8 @@
   <div class="gradient-card-sky rounded-2xl border border-sky-200/60 p-6 mb-6 shadow-card">
     <div class="grid grid-cols-5 gap-4 items-end">
       <div>
-        <label class="block text-xs font-semibold text-surface-500 uppercase tracking-wider mb-2">Action</label>
-        <select bind:value={filters.action} class="w-full px-4 py-2.5 border border-surface-200 rounded-xl text-sm font-medium text-surface-600 input-focus outline-none bg-sky-50 select-caret">
+        <label for="audit-action" class="block text-xs font-semibold text-surface-500 uppercase tracking-wider mb-2">Action</label>
+        <select id="audit-action" bind:value={filters.action} class="w-full px-4 py-2.5 border border-surface-200 rounded-xl text-sm font-medium text-surface-600 input-focus outline-none bg-sky-50 select-caret">
           <option value="">All Actions</option>
           <option value="skill_create">skill_create</option>
           <option value="skill_approve">skill_approve</option>
@@ -70,24 +70,27 @@
         </select>
       </div>
       <div>
-        <label class="block text-xs font-semibold text-surface-500 uppercase tracking-wider mb-2">Agent ID</label>
+        <label for="audit-agent" class="block text-xs font-semibold text-surface-500 uppercase tracking-wider mb-2">Agent ID</label>
         <input
+          id="audit-agent"
           bind:value={filters.agent_id}
           placeholder="Filter by agent"
           class="w-full px-4 py-2.5 border border-surface-200 rounded-xl text-sm input-focus outline-none placeholder:text-surface-300 bg-sky-50"
         />
       </div>
       <div>
-        <label class="block text-xs font-semibold text-surface-500 uppercase tracking-wider mb-2">From</label>
+        <label for="audit-from" class="block text-xs font-semibold text-surface-500 uppercase tracking-wider mb-2">From</label>
         <input
+          id="audit-from"
           type="date"
           bind:value={filters.from_date}
           class="w-full px-4 py-2.5 border border-surface-200 rounded-xl text-sm text-surface-600 input-focus outline-none bg-sky-50"
         />
       </div>
       <div>
-        <label class="block text-xs font-semibold text-surface-500 uppercase tracking-wider mb-2">To</label>
+        <label for="audit-to" class="block text-xs font-semibold text-surface-500 uppercase tracking-wider mb-2">To</label>
         <input
+          id="audit-to"
           type="date"
           bind:value={filters.to_date}
           class="w-full px-4 py-2.5 border border-surface-200 rounded-xl text-sm text-surface-600 input-focus outline-none bg-sky-50"

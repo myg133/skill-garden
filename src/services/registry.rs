@@ -80,6 +80,9 @@ impl RegistryService {
             description: new_skill.description.clone(),
             version: new_skill.version.clone(),
             author_agent_id: author_agent_id.to_string(),
+            author_identity_id: None,
+            owner_type: new_skill.owner_type.clone(),
+            owner_id: new_skill.owner_id,
             compatibility: ">=1.0.0".to_string(),
             content: new_skill.content.clone(),
             tags: new_skill.tags.clone(),
@@ -102,6 +105,9 @@ impl RegistryService {
             description: db_skill.description,
             version: db_skill.version,
             author_agent_id: db_skill.author_agent_id,
+            author_identity_id: db_skill.author_identity_id,
+            owner_type: db_skill.owner_type,
+            owner_id: db_skill.owner_id,
             created: db_skill.created_at,
             updated: db_skill.updated_at,
             compatibility: db_skill.compatibility,
@@ -112,6 +118,10 @@ impl RegistryService {
             git_url: db_skill.git_url,
             visibility: crate::models::skill_policy::Visibility::OrgVisible,
             tools: db_skill.tools,
+            review_status: db_skill.review_status,
+            reviewed_by: db_skill.reviewed_by,
+            reviewed_at: db_skill.reviewed_at,
+            review_comment: db_skill.review_comment,
         };
         search.add_skill(&skill)?;
         info!("Created skill: {}", skill.id);
@@ -225,6 +235,9 @@ impl RegistryService {
             description: db_skill.description,
             version: db_skill.version,
             author_agent_id: db_skill.author_agent_id,
+            author_identity_id: db_skill.author_identity_id,
+            owner_type: db_skill.owner_type,
+            owner_id: db_skill.owner_id,
             created: db_skill.created_at,
             updated: db_skill.updated_at,
             compatibility: db_skill.compatibility,
@@ -235,6 +248,10 @@ impl RegistryService {
             git_url: db_skill.git_url,
             visibility: crate::models::skill_policy::Visibility::OrgVisible,
             tools: db_skill.tools,
+            review_status: db_skill.review_status,
+            reviewed_by: db_skill.reviewed_by,
+            reviewed_at: db_skill.reviewed_at,
+            review_comment: db_skill.review_comment,
         };
         Ok(skill)
     }
@@ -248,12 +265,25 @@ impl RegistryService {
             description: m.description,
             version: m.version,
             author_agent_id: m.author_agent_id,
+            author_identity_id: m.author_identity_id,
+            owner_type: m.owner_type,
+            owner_id: m.owner_id,
             tags: m.tags,
             created: m.created_at,
             updated: m.updated_at,
             install_count: m.install_count as u32,
+            status: m.status,
             git_url: m.git_url,
-            visibility: crate::models::skill_policy::Visibility::OrgVisible,
+            visibility: match m.visibility.as_str() {
+                "private" => crate::models::skill_policy::Visibility::Private,
+                "shared" => crate::models::skill_policy::Visibility::Shared,
+                "marketplace" => crate::models::skill_policy::Visibility::Marketplace,
+                _ => crate::models::skill_policy::Visibility::OrgVisible,
+            },
+            review_status: m.review_status,
+            reviewed_by: m.reviewed_by,
+            reviewed_at: m.reviewed_at,
+            review_comment: m.review_comment,
         }).collect())
     }
 
@@ -386,6 +416,9 @@ dependencies: [{}]
             tags,
             version: meta.version.clone(),
             author_agent_id: meta.author_agent_id.clone(),
+            author_identity_id: meta.author_identity_id,
+            owner_type: meta.owner_type.clone(),
+            owner_id: meta.owner_id,
             created: meta.created,
             updated: meta.updated,
             compatibility,
@@ -395,6 +428,10 @@ dependencies: [{}]
             git_url: meta.git_url.clone(),
             visibility: meta.visibility.clone(),
             tools: Vec::new(),
+            review_status: meta.review_status.clone(),
+            reviewed_by: meta.reviewed_by,
+            reviewed_at: meta.reviewed_at,
+            review_comment: meta.review_comment.clone(),
         })
     }
 
@@ -424,11 +461,19 @@ dependencies: [{}]
                                 tags: Vec::new(),
                                 version: "1.0.0".to_string(),
                                 author_agent_id: String::new(),
+                                author_identity_id: None,
+                                owner_type: "user".to_string(),
+                                owner_id: None,
                                 created: Utc::now(),
                                 updated: Utc::now(),
                                 install_count: 0,
+                                status: "published".to_string(),
                                 git_url: None,
                                 visibility: crate::models::skill_policy::Visibility::OrgVisible,
+                                review_status: "published".to_string(),
+                                reviewed_by: None,
+                                reviewed_at: None,
+                                review_comment: None,
                             }) {
                                 if !existing_ids.contains(&skill.id) {
                                     index.skills.push((&skill).into());

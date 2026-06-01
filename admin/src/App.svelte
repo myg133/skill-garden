@@ -8,11 +8,21 @@
   import AuditLogs from './routes/AuditLogs.svelte';
   import Stats from './routes/Stats.svelte';
   import Login from './routes/Login.svelte';
+  import Register from './routes/Register.svelte';
   import Organizations from './routes/Organizations.svelte';
   import OrganizationDetail from './routes/OrganizationDetail.svelte';
   import Sessions from './routes/Sessions.svelte';
   import OrgTools from './routes/OrgTools.svelte';
   import Settings from './routes/Settings.svelte';
+  import Tenants from './routes/Tenants.svelte';
+  import Identities from './routes/Identities.svelte';
+  import Groups from './routes/Groups.svelte';
+  import GroupDetail from './routes/GroupDetail.svelte';
+  import Roles from './routes/Roles.svelte';
+  import ApiKeys from './routes/ApiKeys.svelte';
+  import Skills from './routes/Skills.svelte';
+  import Profile from './routes/Profile.svelte';
+  import MyApiKeys from './routes/MyApiKeys.svelte';
 
   export let url = '';
 
@@ -23,6 +33,7 @@
   {#if showLogin}
     <div class="min-h-screen bg-surface-950">
       <Route path="/login" component={Login} />
+      <Route path="/register" component={Register} />
       <Route path="*" component={Login} />
     </div>
   {:else}
@@ -33,6 +44,7 @@
           <Route path="/" component={Organizations} />
           <Route path="/review" component={Review} />
           <Route path="/skills/:id" component={SkillDetail} />
+          <Route path="/skills" component={Skills} />
           <Route path="/audit" component={AuditLogs} />
           <Route path="/stats" component={Stats} />
           <Route path="/organizations" component={Organizations} />
@@ -40,6 +52,14 @@
           <Route path="/sessions" component={Sessions} />
           <Route path="/org-tools" component={OrgTools} />
           <Route path="/settings" component={Settings} />
+          <Route path="/tenants" component={Tenants} />
+          <Route path="/identities" component={Identities} />
+          <Route path="/groups" component={Groups} />
+          <Route path="/groups/:id" component={GroupDetail} />
+          <Route path="/roles" component={Roles} />
+          <Route path="/api-keys" component={ApiKeys} />
+          <Route path="/profile" component={Profile} />
+          <Route path="/my-api-keys" component={MyApiKeys} />
         </main>
       </div>
       <Toast />

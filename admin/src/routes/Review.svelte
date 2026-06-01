@@ -12,7 +12,8 @@
   onMount(async () => {
     try {
       const res = await api.listSkills({ page_size: 100 });
-      skills = res.data || [];
+      const allSkills = res.data || [];
+      skills = allSkills.filter(s => s.status === 'pending_review');
     } catch (e) {
       error = e.message;
     } finally {

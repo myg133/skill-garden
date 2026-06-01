@@ -44,10 +44,10 @@ pub fn validate_skill_name(name: &str) -> Result<(), AppError> {
     // 检查字符
     if !name
         .chars()
-        .all(|c| c.is_alphanumeric() || c == '-' || c == '_')
+        .all(|c| c.is_alphanumeric() || c == '-' || c == '_' || c == ' ')
     {
         return Err(AppError::InvalidSkillName(format!(
-            "Invalid characters in '{}'. Only alphanumeric, hyphen, underscore allowed",
+            "Invalid characters in '{}'. Only alphanumeric, hyphen, underscore, space allowed",
             name
         )));
     }
@@ -193,8 +193,8 @@ mod tests {
         assert!(validate_skill_name("browse").is_ok());
         assert!(validate_skill_name("web-scraper").is_ok());
         assert!(validate_skill_name("my_skill_v2").is_ok());
+        assert!(validate_skill_name("Evolver Test Gene").is_ok());
         assert!(validate_skill_name("").is_err());
-        assert!(validate_skill_name("invalid name").is_err());
         assert!(validate_skill_name("invalid.name").is_err());
     }
 
@@ -234,7 +234,7 @@ mod tests {
     fn test_validate_skill_name_invalid_chars() {
         assert!(validate_skill_name("invalid.name").is_err());
         assert!(validate_skill_name("invalid/name").is_err());
-        assert!(validate_skill_name("invalid name").is_err());
+        assert!(validate_skill_name("invalid@name").is_err());
     }
 
     #[test]

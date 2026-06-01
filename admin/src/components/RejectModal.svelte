@@ -40,8 +40,9 @@ $: if (!show) resetForm();
     </div>
 
     <div class="mb-4">
-      <label class="block text-xs font-semibold text-surface-500 uppercase tracking-wider mb-2">Rejection Reason</label>
+      <label for="reject-reason" class="block text-xs font-semibold text-surface-500 uppercase tracking-wider mb-2">Rejection Reason</label>
       <textarea
+        id="reject-reason"
         bind:value={reason}
         placeholder="Explain why this skill is being rejected (min 10 characters)..."
         rows="4"

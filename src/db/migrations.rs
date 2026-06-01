@@ -17,6 +17,16 @@ const MIGRATIONS: &[(&str, &str)] = &[
     ("009_add_agent_id_column", include_str!("migrations/009_add_agent_id_column.sql")),
     ("010_add_admin_users", include_str!("migrations/010_add_admin_users.sql")),
     ("011_add_session_skill_fields", include_str!("migrations/011_add_session_skill_fields.sql")),
+    ("012_add_session_context", include_str!("migrations/012_add_session_context.sql")),
+    ("013_add_tenants", include_str!("migrations/013_add_tenants.sql")),
+    ("014_add_identities_and_roles", include_str!("migrations/014_add_identities_and_roles.sql")),
+    ("015_add_api_keys_and_audit", include_str!("migrations/015_add_api_keys_and_audit.sql")),
+    ("016_drop_skills_agent_fk", include_str!("migrations/016_drop_skills_agent_fk.sql")),
+    ("017_add_user_model_and_org_memberships", include_str!("migrations/017_add_user_model_and_org_memberships.sql")),
+    ("018_add_rbac_and_group_skills", include_str!("migrations/018_add_rbac_and_group_skills.sql")),
+    ("019_add_system_role_assignments", include_str!("migrations/019_add_system_role_assignments.sql")),
+    ("020_add_organization_slug_unique", include_str!("migrations/020_add_organization_slug_unique.sql")),
+    ("021_merge_admin_users_into_identities", include_str!("migrations/021_merge_admin_users_into_identities.sql")),
 ];
 
 fn split_sql_statements(sql: &str) -> Vec<&str> {

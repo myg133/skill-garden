@@ -51,6 +51,178 @@ export const api = {
     });
   },
 
+  // User Auth (self-service)
+  userLogin(username, password) {
+    return requestNoAuth('/auth/login', {
+      method: 'POST',
+      body: JSON.stringify({ username, password })
+    });
+  },
+
+  userRegister(username, password, displayName, email) {
+    return requestNoAuth('/auth/register', {
+      method: 'POST',
+      body: JSON.stringify({ 
+        username, 
+        password, 
+        display_name: displayName || undefined, 
+        email: email || undefined 
+      })
+    });
+  },
+
+  getMe() {
+    return request('/users/me');
+  },
+
+  updateMe(data) {
+    return request('/users/me', {
+      method: 'PUT',
+      body: JSON.stringify(data)
+    });
+  },
+
+  getUserOrgs() {
+    return request('/users/me/orgs');
+  },
+
+  getUserByUsername(username) {
+    return request(`/users/${username}`);
+  },
+
+  // Self-service API Keys (user)
+  listMyApiKeys(params = {}) {
+    const qs = new URLSearchParams(params).toString();
+    return request(`/api-keys${qs ? `?${qs}` : ''}`);
+  },
+
+  createMyApiKey(data) {
+    return request('/api-keys', {
+      method: 'POST',
+      body: JSON.stringify(data)
+    });
+  },
+
+  revokeMyApiKey(id) {
+    return request(`/api-keys/${id}`, { method: 'DELETE' });
+  },
+
+  // Tenants
+  listTenants(params = {}) {
+    const qs = new URLSearchParams(params).toString();
+    return request(`/admin/tenants${qs ? `?${qs}` : ''}`);
+  },
+
+  createTenant(data) {
+    return request('/admin/tenants', {
+      method: 'POST',
+      body: JSON.stringify(data)
+    });
+  },
+
+  getTenant(id) {
+    return request(`/admin/tenants/${id}`);
+  },
+
+  updateTenant(id, data) {
+    return request(`/admin/tenants/${id}`, {
+      method: 'PUT',
+      body: JSON.stringify(data)
+    });
+  },
+
+  deleteTenant(id) {
+    return request(`/admin/tenants/${id}`, { method: 'DELETE' });
+  },
+
+  // Identities
+  listIdentities(params = {}) {
+    const qs = new URLSearchParams(params).toString();
+    return request(`/admin/identities${qs ? `?${qs}` : ''}`);
+  },
+
+  createIdentity(data) {
+    return request('/admin/identities', {
+      method: 'POST',
+      body: JSON.stringify(data)
+    });
+  },
+
+  getIdentity(id) {
+    return request(`/admin/identities/${id}`);
+  },
+
+  updateIdentity(id, data) {
+    return request(`/admin/identities/${id}`, {
+      method: 'PUT',
+      body: JSON.stringify(data)
+    });
+  },
+
+  deleteIdentity(id) {
+    return request(`/admin/identities/${id}`, { method: 'DELETE' });
+  },
+
+  // Groups
+  listGroups(params = {}) {
+    const qs = new URLSearchParams(params).toString();
+    return request(`/admin/groups${qs ? `?${qs}` : ''}`);
+  },
+
+  createGroup(data) {
+    return request('/admin/groups', {
+      method: 'POST',
+      body: JSON.stringify(data)
+    });
+  },
+
+  getGroup(id) {
+    return request(`/admin/groups/${id}`);
+  },
+
+  updateGroup(id, data) {
+    return request(`/admin/groups/${id}`, {
+      method: 'PUT',
+      body: JSON.stringify(data)
+    });
+  },
+
+  deleteGroup(id) {
+    return request(`/admin/groups/${id}`, { method: 'DELETE' });
+  },
+
+  // Roles
+  listRoles() {
+    return request('/admin/roles');
+  },
+
+  getRole(id) {
+    return request(`/admin/roles/${id}`);
+  },
+
+  // API Keys
+  listApiKeys(params = {}) {
+    const qs = new URLSearchParams(params).toString();
+    return request(`/admin/api-keys${qs ? `?${qs}` : ''}`);
+  },
+
+  createApiKey(data) {
+    return request('/admin/api-keys', {
+      method: 'POST',
+      body: JSON.stringify(data)
+    });
+  },
+
+  deleteApiKey(id) {
+    return request(`/admin/api-keys/${id}`, { method: 'DELETE' });
+  },
+
+  // Audit Entries
+  listAuditEntries(params = {}) {
+    const qs = new URLSearchParams(params).toString();
+    return request(`/admin/audit-entries${qs ? `?${qs}` : ''}`);
+  },
+
   // Skills
   listSkills(params = {}) {
     const qs = new URLSearchParams(params).toString();
@@ -63,6 +235,13 @@ export const api = {
 
   getSkillStats(id) {
     return request(`/skills/${id}/stats`);
+  },
+
+  createSkill(body) {
+    return request('/skills', {
+      method: 'POST',
+      body: JSON.stringify(body)
+    });
   },
 
   listAuditLogs(params = {}) {
@@ -150,5 +329,139 @@ export const api = {
 
   getAdminStatus() {
     return request('/admin/status');
-  }
+  },
+
+  // Organization Members
+  listOrgMembers(slug) {
+    return request(`/orgs/${slug}/members`);
+  },
+
+  listOrgMembersById(orgId) {
+    return request(`/orgs/id/${orgId}/members`);
+  },
+
+  inviteOrgMember(slug, data) {
+    return request(`/orgs/${slug}/members`, {
+      method: 'POST',
+      body: JSON.stringify(data)
+    });
+  },
+
+  inviteOrgMemberById(orgId, data) {
+    return request(`/orgs/id/${orgId}/members/invite`, {
+      method: 'POST',
+      body: JSON.stringify(data)
+    });
+  },
+
+  updateOrgMember(slug, username, data) {
+    return request(`/orgs/${slug}/members/${username}`, {
+      method: 'PUT',
+      body: JSON.stringify(data)
+    });
+  },
+
+  updateOrgMemberById(orgId, username, data) {
+    return request(`/orgs/id/${orgId}/members/${username}`, {
+      method: 'PUT',
+      body: JSON.stringify(data)
+    });
+  },
+
+  removeOrgMember(slug, username) {
+    return request(`/orgs/${slug}/members/${username}`, { method: 'DELETE' });
+  },
+
+  removeOrgMemberById(orgId, username) {
+    return request(`/orgs/id/${orgId}/members/${username}`, { method: 'DELETE' });
+  },
+
+  // Organization Groups (by org slug)
+  listOrgGroups(slug) {
+    return request(`/orgs/${slug}/groups`);
+  },
+
+  createOrgGroup(slug, data) {
+    return request(`/orgs/${slug}/groups`, {
+      method: 'POST',
+      body: JSON.stringify(data)
+    });
+  },
+
+  getOrgGroup(slug, groupId) {
+    return request(`/orgs/${slug}/groups/${groupId}`);
+  },
+
+  updateOrgGroup(slug, groupId, data) {
+    return request(`/orgs/${slug}/groups/${groupId}`, {
+      method: 'PUT',
+      body: JSON.stringify(data)
+    });
+  },
+
+  deleteOrgGroup(slug, groupId) {
+    return request(`/orgs/${slug}/groups/${groupId}`, { method: 'DELETE' });
+  },
+
+  // Organization Group Members (by org slug + group id)
+  listOrgGroupMembers(slug, groupId) {
+    return request(`/orgs/${slug}/groups/${groupId}/members`);
+  },
+
+  updateOrgGroupMember(slug, groupId, username, data) {
+    return request(`/orgs/${slug}/groups/${groupId}/members/${username}`, {
+      method: 'PUT',
+      body: JSON.stringify(data)
+    });
+  },
+
+  removeOrgGroupMember(slug, groupId, username) {
+    return request(`/orgs/${slug}/groups/${groupId}/members/${username}`, { method: 'DELETE' });
+  },
+
+  // Group Members (by group id)
+  listGroupMembers(groupId) {
+    return request(`/groups/${groupId}/members`);
+  },
+
+  addGroupMember(groupId, data) {
+    return request(`/groups/${groupId}/members`, {
+      method: 'POST',
+      body: JSON.stringify(data)
+    });
+  },
+
+  updateGroupMember(groupId, agentId, data) {
+    return request(`/groups/${groupId}/members/${agentId}`, {
+      method: 'PUT',
+      body: JSON.stringify(data)
+    });
+  },
+
+  removeGroupMember(groupId, agentId) {
+    return request(`/groups/${groupId}/members/${agentId}`, { method: 'DELETE' });
+  },
+
+  // Group Permissions
+  listGroupDefaultPermissions() {
+    return request(`/groups/default-permissions`);
+  },
+
+  listGroupPermissions(groupId) {
+    return request(`/groups/${groupId}/permissions`);
+  },
+
+  updateGroupPermission(groupId, data) {
+    return request(`/groups/${groupId}/permissions`, {
+      method: 'PUT',
+      body: JSON.stringify(data),
+    });
+  },
+
+  deleteGroupPermission(groupId, permissionCode, data) {
+    return request(`/groups/${groupId}/permissions/${permissionCode}`, {
+      method: 'DELETE',
+      body: JSON.stringify(data),
+    });
+  },
 };

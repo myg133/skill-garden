@@ -155,8 +155,10 @@
 
 <!-- Register Modal -->
   {#if showRegisterModal}
-    <div class="fixed inset-0 bg-surface-900/40 backdrop-blur-sm flex items-center justify-center z-50 fade-in" on:click={() => showRegisterModal = false}>
-      <div class="bg-sky-50 rounded-2xl p-6 w-full max-w-lg shadow-elevated border border-indigo-200 max-h-[85vh] overflow-y-auto" on:click|stopPropagation>
+    <!-- svelte-ignore a11y-no-noninteractive-element-interactions -->
+    <div class="fixed inset-0 bg-surface-900/40 backdrop-blur-sm flex items-center justify-center z-50 fade-in" on:click={() => showRegisterModal = false} on:keydown={(e) => e.key === 'Escape' && (showRegisterModal = false)} role="button" tabindex="0">
+      <!-- svelte-ignore a11y-no-noninteractive-element-interactions -->
+      <div class="bg-sky-50 rounded-2xl p-6 w-full max-w-lg shadow-elevated border border-indigo-200 max-h-[85vh] overflow-y-auto" on:click|stopPropagation on:keydown|stopPropagation role="dialog" aria-modal="true">
         <div class="flex items-center justify-between mb-5">
           <h2 class="text-lg font-semibold text-surface-800">Register Tool</h2>
           <button
@@ -168,8 +170,9 @@
         </div>
         <div class="space-y-4">
       <div>
-        <label class="block text-sm font-semibold text-surface-500 mb-2">Organization</label>
+        <label for="org-select" class="block text-sm font-semibold text-surface-500 mb-2">Organization</label>
         <select
+          id="org-select"
           bind:value={selectedOrgId}
           class="w-full px-4 py-2.5 border border-surface-200 rounded-xl text-sm focus:ring-2 focus:ring-brand-500/30 focus:border-brand-500 outline-none bg-white transition-all"
         >
@@ -180,8 +183,9 @@
       </div>
 
       <div>
-        <label class="block text-sm font-semibold text-surface-500 mb-2">Tool Name</label>
+        <label for="tool-name" class="block text-sm font-semibold text-surface-500 mb-2">Tool Name</label>
         <input
+          id="tool-name"
           type="text"
           bind:value={newTool.name}
           placeholder="e.g., github-cli, docker-tool"
@@ -190,8 +194,9 @@
       </div>
 
       <div>
-        <label class="block text-sm font-semibold text-surface-500 mb-2">Tool ID</label>
+        <label for="tool-id" class="block text-sm font-semibold text-surface-500 mb-2">Tool ID</label>
         <input
+          id="tool-id"
           type="text"
           bind:value={newTool.tool_id}
           placeholder="e.g., github_issue_lister"
@@ -200,8 +205,9 @@
       </div>
 
       <div>
-        <label class="block text-sm font-semibold text-surface-500 mb-2">Description</label>
+        <label for="tool-desc" class="block text-sm font-semibold text-surface-500 mb-2">Description</label>
         <input
+          id="tool-desc"
           type="text"
           bind:value={newTool.description}
           placeholder="Describe what this tool does"
@@ -210,8 +216,9 @@
       </div>
 
       <div>
-        <label class="block text-sm font-semibold text-surface-500 mb-2">Schema (JSON)</label>
+        <label for="tool-schema" class="block text-sm font-semibold text-surface-500 mb-2">Schema (JSON)</label>
         <textarea
+          id="tool-schema"
           bind:value={newTool.schema}
           rows="3"
           placeholder={`{"type": "object", "properties": {}}`}
@@ -220,8 +227,9 @@
       </div>
 
       <div>
-        <label class="block text-sm font-semibold text-surface-500 mb-2">Implementation (JSON)</label>
+        <label for="tool-impl" class="block text-sm font-semibold text-surface-500 mb-2">Implementation (JSON)</label>
         <textarea
+          id="tool-impl"
           bind:value={newTool.implementation}
           rows="3"
           placeholder={`{"command": "gh", "args": ["issue", "list"]}`}

@@ -10,12 +10,18 @@ use std::path::PathBuf;
 use std::sync::Arc;
 use anyhow::Result;
 use axum::{
-    routing::{get, post, put, delete},
+    routing::{get, post},
     Router,
     extract::{State, Path},
     http::{StatusCode, header},
     response::{IntoResponse, sse::{Event, Sse}},
 };
+use axum::{
+    extract::Request,
+    middleware::{self, Next},
+    response::Response,
+};
+use std::time::Instant;
 use tokio_stream::StreamExt;
 use tracing::info;
 use tracing_subscriber::{layer::SubscriberExt, util::SubscriberInitExt};
@@ -23,18 +29,24 @@ use uuid::Uuid;
 
 use aion_hive::{AppState, mcp::McpServer};
 use aion_hive::api::http_state::{AppRouterState, HttpState, SseState};
-use aion_hive::api::handlers::{
-    list_skills_handler, get_skill_handler, create_skill_handler,
-    update_skill_handler, delete_skill_handler, get_skill_stats_handler,
-    create_evaluation_handler, register_agent_handler, get_token_handler,
-    admin_login_handler, list_audit_logs_handler, approve_skill_handler, reject_skill_handler,
-    get_admin_status_handler,
-    // v0.4 multi-tenant handlers
-    create_org_handler, get_org_handler, list_orgs_handler, update_org_handler, delete_org_handler,
-    create_session_handler, get_session_handler, list_sessions_handler, end_session_handler, session_declare_handler,
-    register_org_tool_handler, list_org_tools_handler, list_all_org_tools_handler, approve_org_tool_handler, reject_org_tool_handler,
-};
-use aion_hive::db::repositories::{AgentRepository, EvaluationRepository, AuditRepository, AdminUserRepository};
+use aion_hive::api::create_api_router;
+use aion_hive::db::repositories::{AgentRepository, EvaluationRepository, AuditRepository};
+
+async fn request_logging_middleware(
+    req: Request,
+    next: Next,
+) -> Response {
+    let start = Instant::now();
+    let method = req.method().to_string();
+    let uri = req.uri().to_string();
+    
+    let response = next.run(req).await;
+    let latency_ms = start.elapsed().as_millis();
+    let status = response.status();
+    
+    tracing::info!("{} {} {} {}ms", method, uri, status.as_u16(), latency_ms);
+    response
+}
 
 async fn mcp_handler(
     State(state): State<Arc<AppRouterState>>,
@@ -134,8 +146,9 @@ async fn run_http_server(state: AppState, port: u16) -> Result<()> {
     let eval_repo = EvaluationRepository::new(pool.clone());
     let agent_repo = AgentRepository::new(pool.clone());
     let audit_repo = AuditRepository::new(pool.clone());
-    let admin_user_repo = AdminUserRepository::new(pool.clone());
+    let group_perm_override_repo = aion_hive::db::repositories::group_permission_override::GroupPermissionOverrideRepository::new(pool.clone());
     let evaluator = aion_hive::services::EvaluatorService::new(state.data_dir.join("evaluations"), eval_repo);
+    let sandbox = aion_hive::services::SandboxService::new();
     let mcp_server = McpServer::new(
         state.registry.clone(),
         state.search.clone(),
@@ -143,6 +156,7 @@ async fn run_http_server(state: AppState, port: u16) -> Result<()> {
         state.session.clone(),
         state.org_tool.clone(),
         state.tool_router.clone(),
+        sandbox,
     );
     let mcp_server_arc = Arc::new(tokio::sync::RwLock::new(mcp_server));
 
@@ -157,49 +171,29 @@ async fn run_http_server(state: AppState, port: u16) -> Result<()> {
         evaluator,
         agent_repo,
         audit_repo,
-        admin_user_repo,
         organization: state.organization.clone(),
         session: state.session.clone(),
         org_tool: state.org_tool.clone(),
+        sandbox: state.sandbox.clone(),
+        git_proxy: state.git_proxy.clone(),
+        tenant: state.tenant.clone(),
+        identity: state.identity.clone(),
+        role: state.role.clone(),
+        group: state.group.clone(),
+        api_key: state.api_key.clone(),
+        audit: state.audit.clone(),
+        group_perm_override_repo: group_perm_override_repo.clone(),
     });
+
+    let api_router = create_api_router(app_state.clone());
 
     let app = Router::new()
         .route("/health", get(health_handler))
         .route("/mcp", post(mcp_handler))
         .route("/sse", get(sse_handler))
         .route("/sse/:session_id", post(sse_message_handler))
-        // v1 API routes
-        .route("/api/v1/skills", get(list_skills_handler))
-        .route("/api/v1/skills", post(create_skill_handler))
-        .route("/api/v1/skills/:id", get(get_skill_handler))
-        .route("/api/v1/skills/:id", put(update_skill_handler))
-        .route("/api/v1/skills/:id", delete(delete_skill_handler))
-        .route("/api/v1/skills/:id/stats", get(get_skill_stats_handler))
-        .route("/api/v1/evaluations", post(create_evaluation_handler))
-        .route("/api/v1/auth/agent/register", post(register_agent_handler))
-        .route("/api/v1/auth/agent/token", post(get_token_handler))
-        // Admin routes
-        .route("/api/v1/admin/login", post(admin_login_handler))
-        .route("/api/v1/admin/audit-logs", get(list_audit_logs_handler))
-        .route("/api/v1/admin/skills/:id/approve", post(approve_skill_handler))
-        .route("/api/v1/admin/skills/:id/reject", post(reject_skill_handler))
-        .route("/api/v1/admin/status", get(get_admin_status_handler))
-        // v0.4 multi-tenant routes
-        .route("/api/v1/organizations", post(create_org_handler))
-        .route("/api/v1/organizations", get(list_orgs_handler))
-        .route("/api/v1/organizations/:id", get(get_org_handler))
-        .route("/api/v1/organizations/:id", put(update_org_handler))
-        .route("/api/v1/organizations/:id", delete(delete_org_handler))
-        .route("/api/v1/sessions", post(create_session_handler))
-        .route("/api/v1/sessions", get(list_sessions_handler))
-        .route("/api/v1/sessions/:id", get(get_session_handler))
-        .route("/api/v1/sessions/:id/end", post(end_session_handler))
-        .route("/api/v1/sessions/:id/declare", post(session_declare_handler))
-        .route("/api/v1/org-tools", post(register_org_tool_handler))
-        .route("/api/v1/org-tools", get(list_all_org_tools_handler))
-        .route("/api/v1/org-tools/:org_id", get(list_org_tools_handler))
-        .route("/api/v1/org-tools/:id/approve", post(approve_org_tool_handler))
-        .route("/api/v1/org-tools/:id/reject", post(reject_org_tool_handler))
+        .merge(api_router)
+        .layer(middleware::from_fn(request_logging_middleware))
         .with_state(app_state);
 
     let addr = format!("127.0.0.1:{}", port);

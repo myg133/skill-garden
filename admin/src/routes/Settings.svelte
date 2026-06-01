@@ -57,10 +57,11 @@
       </div>
       <div class="p-6">
         <div class="mb-4">
-          <label class="block text-sm font-semibold text-surface-500 mb-2">
+          <label for="webhook-urls" class="block text-sm font-semibold text-surface-500 mb-2">
             Webhook URLs <span class="text-surface-400 font-normal">(comma-separated or one per line)</span>
           </label>
           <textarea
+            id="webhook-urls"
             bind:value={webhookUrls}
             rows="4"
             placeholder="https://analytics.example.com/webhookl"

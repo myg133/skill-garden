@@ -79,4 +79,10 @@ impl OrgToolService {
             .await
             .map_err(|e| AppError::InternalError(e.to_string()))
     }
+
+    pub async fn delete(&self, tool_id: Uuid) -> Result<(), AppError> {
+        self.org_tool_repo.delete(tool_id)
+            .await
+            .map_err(|e| AppError::InternalError(e.to_string()))
+    }
 }

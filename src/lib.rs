@@ -23,6 +23,11 @@ pub use models::organization::{Organization, NewOrganization};
 pub use models::session::{Session, SessionStatus, ToolRouter, RouteTarget};
 pub use models::org_tool::{OrgTool, ToolStatus, ToolImplementation};
 pub use models::skill_policy::{SkillPolicy, Visibility};
+pub use models::tenant::{Tenant, TenantStatus};
+pub use models::identity::{Identity, IdentityType, IdentityStatus};
+pub use models::role::{Role, RoleType, ScopeLevel, IdentityRole};
+pub use models::group::{Group, GroupType, Membership};
+pub use models::api_key::{ApiKey, ApiKeyStatus, AuditLog};
 
 // Services re-exports
 pub use services::storage::{StorageService, FileLock};
@@ -33,8 +38,11 @@ pub use services::organization::OrganizationService;
 pub use services::session::SessionService;
 pub use services::org_tool::OrgToolService;
 pub use services::tool_router::ToolRouterService;
-pub use services::sandbox::{SandboxService, ToolExecutionRequest, ToolExecutionResult};
-pub use services::git_proxy::{GitProxyService, GitRef, GitFile, GitDiff};
+pub use services::sandbox::{SandboxService, SandboxConfig, ToolExecutionRequest, ToolExecutionResult, SandboxInfo, SandboxStatus, PlatformTool};
+pub use services::git_proxy::{GitProxyService, GitRef, GitFile, GitDiff, GitProxyConfig, Webhook};
+pub use services::skill_dependency::{SkillDependencyService, SkillDependency, ResolvedSkill, DependencyTree};
+pub use services::admin::{TenantService, IdentityService, RoleService, GroupService, ApiKeyService, AuditService};
+pub use services::admin::*;
 
 pub use schemas::*;
 pub use utils::*;
@@ -52,6 +60,14 @@ pub struct AppState {
     pub tool_router: services::ToolRouterService,
     pub sandbox: services::SandboxService,
     pub git_proxy: services::GitProxyService,
+    pub skill_dependency: services::SkillDependencyService,
+    // Admin services
+    pub tenant: services::admin::TenantService,
+    pub identity: services::admin::IdentityService,
+    pub role: services::admin::RoleService,
+    pub group: services::admin::GroupService,
+    pub api_key: services::admin::ApiKeyService,
+    pub audit: services::admin::AuditService,
     pub data_dir: PathBuf,
 }
 
@@ -73,6 +89,7 @@ impl AppState {
         let _skill_policy_repo = db::repositories::skill_policy::SkillPolicyRepository::new(pool.clone());
         let _audit_repo = db::repositories::audit::AuditRepository::new(pool.clone());
         let eval_repo = db::repositories::evaluation::EvaluationRepository::new(pool.clone());
+        let session_context_repo = db::repositories::SessionContextRepository::new(pool.clone());
 
         // Create services
         let registry = services::RegistryService::new(skills_dir, data_dir.join("registry"), skill_repo.clone());
@@ -81,11 +98,27 @@ impl AppState {
 
         // v0.4 multi-tenant services
         let organization = services::OrganizationService::new(org_repo);
-        let session = services::SessionService::new(session_repo, agent_repo);
+        let session = services::SessionService::new(session_repo, agent_repo, session_context_repo.clone());
         let org_tool = services::OrgToolService::new(org_tool_repo);
         let tool_router = services::ToolRouterService::new();
         let sandbox = services::SandboxService::new();
         let git_proxy = services::GitProxyService::default();
+        let skill_dependency = services::SkillDependencyService::new(session_context_repo, skill_repo.clone());
+
+        // Admin services
+        let tenant_repo = db::repositories::TenantRepository::new(pool.clone());
+        let identity_repo = db::repositories::IdentityRepository::new(pool.clone());
+        let role_repo = db::repositories::RoleRepository::new(pool.clone());
+        let group_repo = db::repositories::GroupRepository::new(pool.clone());
+        let api_key_repo = db::repositories::ApiKeyRepository::new(pool.clone());
+        let audit_log_repo = db::repositories::AuditLogRepository::new(pool.clone());
+
+        let tenant = services::admin::TenantService::new(tenant_repo);
+        let identity = services::admin::IdentityService::new(identity_repo);
+        let role = services::admin::RoleService::new(role_repo);
+        let group = services::admin::GroupService::new(group_repo);
+        let api_key = services::admin::ApiKeyService::new(api_key_repo);
+        let audit = services::admin::AuditService::new(audit_log_repo);
 
         Ok(Self {
             registry,
@@ -98,6 +131,13 @@ impl AppState {
             tool_router,
             sandbox,
             git_proxy,
+            skill_dependency,
+            tenant,
+            identity,
+            role,
+            group,
+            api_key,
+            audit,
             data_dir,
         })
     }
