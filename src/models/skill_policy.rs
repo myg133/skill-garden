@@ -28,6 +28,18 @@ impl Default for Visibility {
     }
 }
 
+impl From<&str> for Visibility {
+    fn from(s: &str) -> Self {
+        match s.to_lowercase().as_str() {
+            "private" => Visibility::Private,
+            "org_visible" | "orgvisible" => Visibility::OrgVisible,
+            "marketplace" => Visibility::Marketplace,
+            "shared" => Visibility::Shared,
+            _ => Visibility::OrgVisible,
+        }
+    }
+}
+
 impl SkillPolicy {
     pub fn new(org_id: Uuid, skill_id: Uuid) -> Self {
         Self {

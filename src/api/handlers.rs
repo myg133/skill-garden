@@ -27,6 +27,524 @@ pub async fn health_handler(State(state): State<ApiState>) -> Result<impl IntoRe
     Ok((StatusCode::OK, Json(response)))
 }
 
+// Tenant handlers
+
+pub async fn list_tenants_handler(
+    State(state): State<ApiState>,
+    Query(query): Query<crate::api::models::PaginationQuery>,
+) -> Result<impl IntoResponse, ApiError> {
+    let limit = query.limit.unwrap_or(20).min(100);
+    let offset = query.offset.unwrap_or(0);
+    let tenants = state.tenant.list(limit, offset)
+        .await
+        .map_err(|e| ApiError::InternalError(e.to_string()))?;
+    Ok((StatusCode::OK, Json(serde_json::json!({ "data": tenants }))))
+}
+
+pub async fn create_tenant_handler(
+    State(state): State<ApiState>,
+    Json(body): Json<crate::api::models::CreateTenantBody>,
+) -> Result<impl IntoResponse, ApiError> {
+    let tenant = state.tenant.create(body.into())
+        .await
+        .map_err(|e| ApiError::BadRequest(e.to_string()))?;
+    Ok((StatusCode::CREATED, Json(serde_json::to_value(tenant).unwrap())))
+}
+
+pub async fn get_tenant_handler(
+    State(state): State<ApiState>,
+    Path(id): Path<Uuid>,
+) -> Result<impl IntoResponse, ApiError> {
+    let tenant = state.tenant.get(id)
+        .await
+        .map_err(|e| ApiError::NotFound(e.to_string()))?
+        .ok_or_else(|| ApiError::NotFound("Tenant not found".to_string()))?;
+    Ok((StatusCode::OK, Json(serde_json::to_value(tenant).unwrap())))
+}
+
+pub async fn update_tenant_handler(
+    State(state): State<ApiState>,
+    Path(id): Path<Uuid>,
+    Json(body): Json<crate::api::models::UpdateTenantBody>,
+) -> Result<impl IntoResponse, ApiError> {
+    let tenant = state.tenant.update(id, body.into())
+        .await
+        .map_err(|e| ApiError::BadRequest(e.to_string()))?;
+    Ok((StatusCode::OK, Json(serde_json::to_value(tenant).unwrap())))
+}
+
+pub async fn delete_tenant_handler(
+    State(state): State<ApiState>,
+    Path(id): Path<Uuid>,
+) -> Result<impl IntoResponse, ApiError> {
+    state.tenant.delete(id)
+        .await
+        .map_err(|e| ApiError::BadRequest(e.to_string()))?;
+    Ok((StatusCode::OK, Json(serde_json::json!({"deleted": id}))))
+}
+
+// Identity handlers
+
+pub async fn list_identities_handler(
+    State(state): State<ApiState>,
+    Query(query): Query<crate::api::models::PaginationQuery>,
+) -> Result<impl IntoResponse, ApiError> {
+    let limit = query.limit.unwrap_or(20).min(100);
+    let offset = query.offset.unwrap_or(0);
+    let identities = state.identity.list(limit, offset, None)
+        .await
+        .map_err(|e| ApiError::InternalError(e.to_string()))?;
+    Ok((StatusCode::OK, Json(serde_json::json!({ "data": identities }))))
+}
+
+pub async fn create_identity_handler(
+    State(state): State<ApiState>,
+    Json(body): Json<crate::api::models::CreateIdentityBody>,
+) -> Result<impl IntoResponse, ApiError> {
+    let identity = state.identity.create(body.into())
+        .await
+        .map_err(|e| ApiError::BadRequest(e.to_string()))?;
+    Ok((StatusCode::CREATED, Json(serde_json::to_value(identity).unwrap())))
+}
+
+pub async fn get_identity_handler(
+    State(state): State<ApiState>,
+    Path(id): Path<Uuid>,
+) -> Result<impl IntoResponse, ApiError> {
+    let identity = state.identity.get(id)
+        .await
+        .map_err(|e| ApiError::NotFound(e.to_string()))?
+        .ok_or_else(|| ApiError::NotFound("Identity not found".to_string()))?;
+    Ok((StatusCode::OK, Json(serde_json::to_value(identity).unwrap())))
+}
+
+pub async fn update_identity_handler(
+    State(state): State<ApiState>,
+    Path(id): Path<Uuid>,
+    Json(body): Json<crate::api::models::UpdateIdentityBody>,
+) -> Result<impl IntoResponse, ApiError> {
+    let identity = state.identity.update(id, body.into())
+        .await
+        .map_err(|e| ApiError::BadRequest(e.to_string()))?;
+    Ok((StatusCode::OK, Json(serde_json::to_value(identity).unwrap())))
+}
+
+pub async fn delete_identity_handler(
+    State(state): State<ApiState>,
+    Path(id): Path<Uuid>,
+) -> Result<impl IntoResponse, ApiError> {
+    state.identity.delete(id)
+        .await
+        .map_err(|e| ApiError::BadRequest(e.to_string()))?;
+    Ok((StatusCode::OK, Json(serde_json::json!({"deleted": id}))))
+}
+
+// Group handlers
+
+pub async fn list_groups_handler(
+    State(state): State<ApiState>,
+    Query(query): Query<crate::api::models::ListGroupsQuery>,
+) -> Result<impl IntoResponse, ApiError> {
+    let org_id = query.organization_id;
+    let groups = if let Some(org_id) = org_id {
+        state.group.list_by_organization(org_id)
+            .await
+            .map_err(|e| ApiError::InternalError(e.to_string()))?
+    } else {
+        state.group.list()
+            .await
+            .map_err(|e| ApiError::InternalError(e.to_string()))?
+    };
+    Ok((StatusCode::OK, Json(serde_json::json!({ "data": groups }))))
+}
+
+pub async fn create_group_handler(
+    State(state): State<ApiState>,
+    AgentContext { subject, .. }: AgentContext,
+    Json(body): Json<crate::api::models::CreateGroupBody>,
+) -> Result<impl IntoResponse, ApiError> {
+    let permission_overrides = body.permission_overrides.clone();
+    let new_group: crate::models::group::NewGroup = body.into();
+    let group = state.group.create(new_group)
+        .await
+        .map_err(|e| ApiError::BadRequest(e.to_string()))?;
+
+    if let Some(overrides) = permission_overrides {
+        let creator_id = uuid::Uuid::parse_str(&subject).ok();
+        for ov in overrides {
+            state.group_perm_override_repo
+                .upsert_override(crate::models::group_permission_override::NewGroupPermissionOverride {
+                    group_id: group.id,
+                    role_name: ov.role_name,
+                    permission_code: ov.permission_code,
+                    granted: ov.granted,
+                    created_by: creator_id,
+                })
+                .await
+                .map_err(|e| ApiError::BadRequest(e.to_string()))?;
+        }
+    }
+
+    state.audit_repo
+        .create(crate::db::repositories::audit::NewAuditLog {
+            agent_id: Some(subject),
+            action: "group_created".to_string(),
+            resource_type: "group".to_string(),
+            resource_id: Some(group.id.to_string()),
+            details: serde_json::json!({
+                "group_name": group.name,
+                "organization_id": group.organization_id,
+            }),
+        })
+        .await
+        .map_err(|e| ApiError::InternalError(e.to_string()))?;
+
+    Ok((StatusCode::CREATED, Json(serde_json::to_value(group).unwrap())))
+}
+
+pub async fn get_group_handler(
+    State(state): State<ApiState>,
+    Path(id): Path<Uuid>,
+) -> Result<impl IntoResponse, ApiError> {
+    let group = state.group.get(id)
+        .await
+        .map_err(|e| ApiError::NotFound(e.to_string()))?
+        .ok_or_else(|| ApiError::NotFound("Group not found".to_string()))?;
+    Ok((StatusCode::OK, Json(serde_json::to_value(group).unwrap())))
+}
+
+pub async fn update_group_handler(
+    State(state): State<ApiState>,
+    Path(id): Path<Uuid>,
+    Json(body): Json<crate::api::models::UpdateGroupBody>,
+) -> Result<impl IntoResponse, ApiError> {
+    let group = state.group.update(id, body.into())
+        .await
+        .map_err(|e| ApiError::BadRequest(e.to_string()))?;
+    Ok((StatusCode::OK, Json(serde_json::to_value(group).unwrap())))
+}
+
+pub async fn delete_group_handler(
+    State(state): State<ApiState>,
+    Path(id): Path<Uuid>,
+) -> Result<impl IntoResponse, ApiError> {
+    state.group.delete(id)
+        .await
+        .map_err(|e| ApiError::BadRequest(e.to_string()))?;
+    Ok((StatusCode::OK, Json(serde_json::json!({"deleted": id}))))
+}
+
+// Role handlers
+
+pub async fn list_roles_handler(
+    State(state): State<ApiState>,
+) -> Result<impl IntoResponse, ApiError> {
+    let roles = state.role.list()
+        .await
+        .map_err(|e| ApiError::InternalError(e.to_string()))?;
+    Ok((StatusCode::OK, Json(serde_json::json!({ "data": roles }))))
+}
+
+pub async fn get_role_handler(
+    State(state): State<ApiState>,
+    Path(id): Path<Uuid>,
+) -> Result<impl IntoResponse, ApiError> {
+    let role = state.role.get(id)
+        .await
+        .map_err(|e| ApiError::NotFound(e.to_string()))?
+        .ok_or_else(|| ApiError::NotFound("Role not found".to_string()))?;
+    Ok((StatusCode::OK, Json(serde_json::to_value(role).unwrap())))
+}
+
+// API Key handlers
+
+pub async fn list_api_keys_handler(
+    State(state): State<ApiState>,
+    Query(query): Query<crate::api::models::ListApiKeysQuery>,
+) -> Result<impl IntoResponse, ApiError> {
+    let identity_id = query.identity_id;
+    let org_id = query.organization_id;
+    let keys = if let Some(identity_id) = identity_id {
+        state.api_key.list_by_identity(identity_id)
+            .await
+            .map_err(|e| ApiError::InternalError(e.to_string()))?
+    } else if let Some(org_id) = org_id {
+        state.api_key.list_by_organization(org_id)
+            .await
+            .map_err(|e| ApiError::InternalError(e.to_string()))?
+    } else {
+        state.api_key.list()
+            .await
+            .map_err(|e| ApiError::InternalError(e.to_string()))?
+    };
+    Ok((StatusCode::OK, Json(serde_json::json!({ "data": keys }))))
+}
+
+pub async fn create_api_key_handler(
+    State(state): State<ApiState>,
+    Json(body): Json<crate::api::models::CreateApiKeyBody>,
+) -> Result<impl IntoResponse, ApiError> {
+    let request: crate::models::api_key::CreateApiKeyRequest = body.into();
+    let key = state.api_key.create(request)
+        .await
+        .map_err(|e| ApiError::BadRequest(e.to_string()))?;
+    Ok((StatusCode::CREATED, Json(serde_json::to_value(key).unwrap())))
+}
+
+pub async fn delete_api_key_handler(
+    State(state): State<ApiState>,
+    Path(id): Path<Uuid>,
+) -> Result<impl IntoResponse, ApiError> {
+    state.api_key.delete(id)
+        .await
+        .map_err(|e| ApiError::BadRequest(e.to_string()))?;
+    Ok((StatusCode::OK, Json(serde_json::json!({"deleted": id}))))
+}
+
+// User-facing self-service API Key handlers (6.5)
+
+pub async fn list_my_api_keys_handler(
+    State(state): State<ApiState>,
+    AgentContext { subject, .. }: AgentContext,
+) -> Result<impl IntoResponse, ApiError> {
+    let identity_id = uuid::Uuid::parse_str(&subject)
+        .map_err(|_| ApiError::BadRequest("Invalid subject".to_string()))?;
+
+    let keys = state.api_key.list_by_identity(identity_id)
+        .await
+        .map_err(|e| ApiError::InternalError(e.to_string()))?;
+    Ok((StatusCode::OK, Json(serde_json::json!({ "data": keys }))))
+}
+
+pub async fn create_my_api_key_handler(
+    State(state): State<ApiState>,
+    AgentContext { subject, .. }: AgentContext,
+    Json(body): Json<crate::api::models::CreateMyApiKeyBody>,
+) -> Result<impl IntoResponse, ApiError> {
+    let identity_id = uuid::Uuid::parse_str(&subject)
+        .map_err(|_| ApiError::BadRequest("Invalid subject".to_string()))?;
+
+    let request = crate::models::api_key::CreateApiKeyRequest {
+        identity_id,
+        organization_id: body.organization_id,
+        name: body.name,
+        scopes: body.scopes.unwrap_or_default(),
+        rate_limit: body.rate_limit.unwrap_or(1000),
+        expires_at: body.expires_at,
+    };
+    let key = state.api_key.create(request)
+        .await
+        .map_err(|e| ApiError::BadRequest(e.to_string()))?;
+    Ok((StatusCode::CREATED, Json(serde_json::to_value(key).unwrap())))
+}
+
+pub async fn revoke_my_api_key_handler(
+    State(state): State<ApiState>,
+    Path(id): Path<Uuid>,
+    AgentContext { subject, .. }: AgentContext,
+) -> Result<impl IntoResponse, ApiError> {
+    let identity_id = uuid::Uuid::parse_str(&subject)
+        .map_err(|_| ApiError::BadRequest("Invalid subject".to_string()))?;
+
+    let key = state.api_key.get(id)
+        .await
+        .map_err(|e| ApiError::InternalError(e.to_string()))?
+        .ok_or_else(|| ApiError::NotFound("API Key not found".to_string()))?;
+
+    if key.identity_id != identity_id {
+        return Err(ApiError::Forbidden("Cannot revoke another user's API key".to_string()));
+    }
+
+    state.api_key.revoke(id)
+        .await
+        .map_err(|e| ApiError::BadRequest(e.to_string()))?;
+
+    Ok((StatusCode::OK, Json(serde_json::json!({"revoked": id}))))
+}
+
+// Audit entries handler
+
+pub async fn list_audit_entries_handler(
+    State(state): State<ApiState>,
+    Query(query): Query<crate::api::models::ListAuditEntriesQuery>,
+) -> Result<impl IntoResponse, ApiError> {
+    let limit = query.limit.unwrap_or(50).min(200);
+    let offset = query.offset.unwrap_or(0);
+    let audit_query = crate::models::api_key::AuditLogQuery {
+        tenant_id: query.tenant_id,
+        organization_id: query.organization_id,
+        identity_id: query.identity_id,
+        action: query.action,
+        resource_type: None,
+        limit: Some(limit),
+        offset: Some(offset),
+    };
+    let entries = state.audit.query(audit_query)
+        .await
+        .map_err(|e| ApiError::InternalError(e.to_string()))?;
+    Ok((StatusCode::OK, Json(serde_json::json!({ "data": entries }))))
+}
+
+/// Sandbox Admin API Handlers
+
+pub async fn list_sandboxes_handler(
+    State(state): State<ApiState>,
+    agent_context: AgentContext,
+) -> Result<impl IntoResponse, ApiError> {
+    agent_context.require_admin()?;
+
+    let sandboxes = state.sandbox.list_containers().await
+        .map_err(|e| ApiError::InternalError(e.to_string()))?;
+
+    Ok((StatusCode::OK, Json(serde_json::json!({ "data": sandboxes }))))
+}
+
+pub async fn get_sandbox_health_handler(
+    State(state): State<ApiState>,
+    agent_context: AgentContext,
+) -> Result<impl IntoResponse, ApiError> {
+    agent_context.require_admin()?;
+
+    let docker_healthy = state.sandbox.health_check().await.unwrap_or(false);
+    let containers = state.sandbox.list_containers().await.unwrap_or_default();
+
+    let response = crate::api::models::SandboxHealthResponse {
+        docker_connected: docker_healthy,
+        active_containers: containers.len() as u32,
+        containers: containers.into_iter().map(serde_json::to_value).filter_map(|r| r.ok()).collect(),
+    };
+
+    Ok((StatusCode::OK, Json(response)))
+}
+
+pub async fn execute_tool_handler(
+    State(state): State<ApiState>,
+    AgentContext { subject, .. }: AgentContext,
+    Json(body): Json<crate::api::models::ExecuteToolBody>,
+) -> Result<impl IntoResponse, ApiError> {
+    let request = crate::services::ToolExecutionRequest {
+        tool_id: body.tool_id,
+        org_id: body.org_id,
+        parameters: body.parameters,
+        timeout_seconds: body.timeout_seconds.unwrap_or(30),
+    };
+
+    let result = state.sandbox.execute_org_tool(request).await
+        .map_err(|e| ApiError::InternalError(e.to_string()))?;
+
+    Ok((StatusCode::OK, Json(serde_json::json!({
+        "subject": subject,
+        "result": result
+    }))))
+}
+
+pub async fn remove_sandbox_handler(
+    State(state): State<ApiState>,
+    agent_context: AgentContext,
+    Path(key): Path<String>,
+) -> Result<impl IntoResponse, ApiError> {
+    agent_context.require_admin()?;
+
+    state.sandbox.remove_sandbox(&key).await
+        .map_err(|e| ApiError::InternalError(e.to_string()))?;
+
+    Ok((StatusCode::OK, Json(serde_json::json!({ "removed": key }))))
+}
+
+/// Git Proxy Admin API Handlers
+
+pub async fn list_git_branches_handler(
+    State(state): State<ApiState>,
+    agent_context: AgentContext,
+    Path(repo_id): Path<String>,
+) -> Result<impl IntoResponse, ApiError> {
+    agent_context.require_admin()?;
+
+    let branches = state.git_proxy.list_branches(&repo_id).await
+        .map_err(|e| ApiError::InternalError(e.to_string()))?;
+
+    Ok((StatusCode::OK, Json(serde_json::json!({ "data": branches }))))
+}
+
+pub async fn get_git_commits_handler(
+    State(state): State<ApiState>,
+    agent_context: AgentContext,
+    Path((repo_id, limit)): Path<(String, u32)>,
+) -> Result<impl IntoResponse, ApiError> {
+    agent_context.require_admin()?;
+
+    let commits = state.git_proxy.get_commits(&repo_id, limit).await
+        .map_err(|e| ApiError::InternalError(e.to_string()))?;
+
+    Ok((StatusCode::OK, Json(serde_json::json!({ "data": commits }))))
+}
+
+pub async fn get_git_file_handler(
+    State(state): State<ApiState>,
+    agent_context: AgentContext,
+    Path((repo_id, path, commit)): Path<(String, String, String)>,
+) -> Result<impl IntoResponse, ApiError> {
+    agent_context.require_admin()?;
+
+    let file = state.git_proxy.get_file_at_commit(&repo_id, &path, &commit).await
+        .map_err(|e| ApiError::InternalError(e.to_string()))?;
+
+    Ok((StatusCode::OK, Json(serde_json::json!({
+        "path": file.path,
+        "content": file.content,
+        "size": file.size
+    }))))
+}
+
+pub async fn get_git_diff_handler(
+    State(state): State<ApiState>,
+    agent_context: AgentContext,
+    Path((repo_id, from, to)): Path<(String, String, String)>,
+) -> Result<impl IntoResponse, ApiError> {
+    agent_context.require_admin()?;
+
+    let diff = state.git_proxy.get_diff(&repo_id, &from, &to).await
+        .map_err(|e| ApiError::InternalError(e.to_string()))?;
+
+    Ok((StatusCode::OK, Json(serde_json::json!({
+        "from_commit": diff.from_commit,
+        "to_commit": diff.to_commit,
+        "files_changed": diff.files_changed,
+        "additions": diff.additions,
+        "deletions": diff.deletions
+    }))))
+}
+
+pub async fn validate_git_url_handler(
+    State(state): State<ApiState>,
+    agent_context: AgentContext,
+    Json(body): Json<crate::api::models::ValidateGitUrlBody>,
+) -> Result<impl IntoResponse, ApiError> {
+    agent_context.require_admin()?;
+
+    let valid = state.git_proxy.validate_git_url(&body.git_url).await
+        .map_err(|e| ApiError::InternalError(e.to_string()))?;
+
+    Ok((StatusCode::OK, Json(serde_json::json!({ "valid": valid }))))
+}
+
+pub async fn get_git_proxy_health_handler(
+    State(state): State<ApiState>,
+    agent_context: AgentContext,
+) -> Result<impl IntoResponse, ApiError> {
+    agent_context.require_admin()?;
+
+    let healthy = state.git_proxy.health_check().await.unwrap_or(false);
+
+    let response = crate::api::models::GitProxyHealthResponse {
+        git_proxy_connected: healthy,
+        api_base: std::env::var("GIT_PROXY_API_BASE")
+            .unwrap_or_else(|_| "http://localhost:8081".to_string()),
+    };
+
+    Ok((StatusCode::OK, Json(response)))
+}
+
 pub async fn list_skills_handler(
     State(state): State<ApiState>,
     Query(query): Query<crate::api::models::ListSkillsQuery>,
@@ -83,7 +601,7 @@ pub async fn get_skill_handler(
 
 pub async fn create_skill_handler(
     State(state): State<ApiState>,
-    AgentContext { agent_id, .. }: AgentContext,
+    AgentContext { subject, .. }: AgentContext,
     Json(body): Json<crate::api::models::CreateSkillBody>,
 ) -> Result<impl IntoResponse, ApiError> {
     let visibility = body.visibility.as_ref().map(|v| match v.as_str() {
@@ -103,9 +621,11 @@ pub async fn create_skill_handler(
         git_url: body.git_url.clone(),
         visibility,
         tools: body.tools.clone(),
+        owner_type: "user".to_string(),
+        owner_id: None,
     };
 
-    let skill = state.registry.create_skill(new_skill, &agent_id, &state.search)
+    let skill = state.registry.create_skill(new_skill, &subject, &state.search)
         .await
         .map_err(|e| ApiError::BadRequest(format!("Failed to create skill: {}", e)))?;
 
@@ -119,7 +639,7 @@ pub async fn create_skill_handler(
 pub async fn update_skill_handler(
     State(state): State<ApiState>,
     Path(skill_id): Path<String>,
-    AgentContext { agent_id, .. }: AgentContext,
+    AgentContext { subject, .. }: AgentContext,
     Json(body): Json<crate::api::models::UpdateSkillBody>,
 ) -> Result<impl IntoResponse, ApiError> {
     let visibility = body.visibility.as_ref().map(|v| match v.as_str() {
@@ -139,7 +659,7 @@ pub async fn update_skill_handler(
         tools: body.tools.clone(),
     };
 
-    state.registry.update_skill(&skill_id, update, &agent_id, &state.search)
+    state.registry.update_skill(&skill_id, update, &subject, &state.search)
         .await
         .map_err(|e| ApiError::BadRequest(format!("Failed to update skill: {}", e)))?;
 
@@ -175,7 +695,7 @@ pub async fn get_skill_stats_handler(
 
 pub async fn create_evaluation_handler(
     State(state): State<ApiState>,
-    AgentContext { agent_id, .. }: AgentContext,
+    AgentContext { subject, .. }: AgentContext,
     Json(body): Json<crate::api::models::CreateEvaluationBody>,
 ) -> Result<(StatusCode, Json<crate::api::models::EvaluationCreatedResponse>), ApiError> {
     let error_type = body.error_type.as_ref().and_then(|e| {
@@ -199,7 +719,7 @@ pub async fn create_evaluation_handler(
 
     let result = state.evaluator.add_evaluation(
         body.skill_id,
-        agent_id,
+        subject,
         body.success,
         body.duration_ms,
         error_type,
@@ -258,7 +778,7 @@ pub async fn get_token_handler(
         return Err(ApiError::Unauthorized("Invalid credentials".to_string()));
     }
 
-    let token = crate::api::generate_token(&body.agent_id, vec![], vec![])
+    let token = crate::api::generate_token(&body.agent_id, &[], &[])
         .map_err(|e| ApiError::Unauthorized(format!("{:?}", e)))?;
 
     let response = crate::api::models::TokenResponse {
@@ -276,30 +796,27 @@ pub async fn admin_login_handler(
 ) -> Result<impl IntoResponse, ApiError> {
     tracing::debug!("Admin login attempt for username: {}", body.username);
 
-    // Verify username/password
-    let valid = state.admin_user_repo
-        .verify_password(&body.username, &body.password)
+    let valid = state.identity.verify_password(&body.username, &body.password)
         .await
         .map_err(|e| {
             tracing::error!("verify_password error: {}", e);
             ApiError::Unauthorized(format!("Authentication error: {}", e))
         })?;
 
-    tracing::debug!("verify_password result: {}", valid);
-
     if !valid {
         return Err(ApiError::Unauthorized("Invalid credentials".to_string()));
     }
 
-    // Get user info for response
-    let user = state.admin_user_repo
-        .find_by_username(&body.username)
+    let user = state.identity.get_by_username(&body.username)
         .await
         .map_err(|e| ApiError::Unauthorized(format!("Failed to get user: {}", e)))?
         .ok_or_else(|| ApiError::Unauthorized("User not found".to_string()))?;
 
-    // Generate token with admin role
-    let token = crate::api::generate_token(&body.username, vec!["admin".to_string()], vec![])
+    if !user.is_system_admin {
+        return Err(ApiError::Unauthorized("Not a system administrator".to_string()));
+    }
+
+    let token = crate::api::generate_token(&user.id.to_string(), &["admin"], &[])
         .map_err(|e| ApiError::Unauthorized(format!("{:?}", e)))?;
 
     tracing::info!("Admin login success for username: {}", body.username);
@@ -310,21 +827,227 @@ pub async fn admin_login_handler(
         expires_in: 86400,
         user: crate::api::models::AdminUserInfo {
             id: user.id.to_string(),
-            username: user.username,
+            username: user.username.unwrap_or_else(|| user.name.clone()),
             display_name: user.display_name,
         },
     };
     Ok((StatusCode::OK, Json(response)))
 }
 
+pub async fn user_login_handler(
+    State(state): State<ApiState>,
+    Json(body): Json<crate::api::models::UserLoginBody>,
+) -> Result<impl IntoResponse, ApiError> {
+    let valid = state.identity.verify_password(&body.username, &body.password)
+        .await
+        .map_err(|e| ApiError::Unauthorized(format!("Authentication error: {}", e)))?;
+
+    if !valid {
+        return Err(ApiError::Unauthorized("Invalid credentials".to_string()));
+    }
+
+    let user = state.identity.get_by_username(&body.username)
+        .await
+        .map_err(|e| ApiError::Unauthorized(format!("Failed to get user: {}", e)))?
+        .ok_or_else(|| ApiError::Unauthorized("User not found".to_string()))?;
+
+    let token = crate::api::generate_token(&user.id.to_string(), &["user"], &[])
+        .map_err(|e| ApiError::Unauthorized(format!("{:?}", e)))?;
+
+    Ok((StatusCode::OK, Json(crate::api::models::UserLoginResponse {
+        token,
+        token_type: "Bearer".to_string(),
+        expires_in: 86400,
+        user: crate::api::models::UserInfoResponse {
+            id: user.id,
+            username: user.username.unwrap_or_else(|| user.name.clone()),
+            display_name: user.display_name,
+            email: user.email,
+            avatar_url: user.avatar_url,
+            identity_type: user.identity_type.to_string(),
+            created_at: user.created_at,
+        },
+    })))
+}
+
+pub async fn user_register_handler(
+    State(state): State<ApiState>,
+    Json(body): Json<crate::api::models::UserRegisterBody>,
+) -> Result<impl IntoResponse, ApiError> {
+    let existing = state.identity.get_by_username(&body.username)
+        .await
+        .map_err(|e| ApiError::BadRequest(e.to_string()))?;
+
+    if existing.is_some() {
+        return Err(ApiError::BadRequest(format!("Username '{}' already exists", body.username)));
+    }
+
+    let password_hash = bcrypt::hash(&body.password, bcrypt::DEFAULT_COST)
+        .map_err(|e| ApiError::BadRequest(format!("Failed to hash password: {}", e)))?;
+
+    let new_identity = crate::models::identity::NewIdentity {
+        identity_type: crate::models::identity::IdentityType::User,
+        name: body.username.clone(),
+        external_id: None,
+        username: Some(body.username.clone()),
+        display_name: body.display_name.clone().or(Some(body.username.clone())),
+        email: body.email,
+        avatar_url: None,
+        password_hash: Some(password_hash),
+        is_system_admin: false,
+        metadata: None,
+    };
+
+    let user = state.identity.create(new_identity)
+        .await
+        .map_err(|e| ApiError::BadRequest(format!("Failed to create user: {}", e)))?;
+
+    let token = crate::api::generate_token(&user.id.to_string(), &["user"], &[])
+        .map_err(|e| ApiError::InternalError(format!("{:?}", e)))?;
+
+    Ok((StatusCode::CREATED, Json(crate::api::models::UserLoginResponse {
+        token,
+        token_type: "Bearer".to_string(),
+        expires_in: 86400,
+        user: crate::api::models::UserInfoResponse {
+            id: user.id,
+            username: user.username.unwrap_or_else(|| user.name.clone()),
+            display_name: user.display_name,
+            email: user.email,
+            avatar_url: user.avatar_url,
+            identity_type: user.identity_type.to_string(),
+            created_at: user.created_at,
+        },
+    })))
+}
+
+pub async fn get_user_me_handler(
+    State(state): State<ApiState>,
+    AgentContext { subject, .. }: AgentContext,
+) -> Result<impl IntoResponse, ApiError> {
+    let id = uuid::Uuid::parse_str(&subject)
+        .map_err(|_| ApiError::BadRequest("Invalid subject in token".to_string()))?;
+
+    let user = state.identity.get(id)
+        .await
+        .map_err(|e| ApiError::NotFound(format!("User not found: {}", e)))?
+        .ok_or_else(|| ApiError::NotFound("User not found".to_string()))?;
+
+    Ok((StatusCode::OK, Json(crate::api::models::UserInfoResponse {
+        id: user.id,
+        username: user.username.unwrap_or_else(|| user.name.clone()),
+        display_name: user.display_name,
+        email: user.email,
+        avatar_url: user.avatar_url,
+        identity_type: if user.is_system_admin {
+            "admin".to_string()
+        } else {
+            user.identity_type.to_string()
+        },
+        created_at: user.created_at,
+    })))
+}
+
+pub async fn update_user_me_handler(
+    State(state): State<ApiState>,
+    AgentContext { subject, .. }: AgentContext,
+    Json(body): Json<crate::api::models::UpdateUserBody>,
+) -> Result<impl IntoResponse, ApiError> {
+    let identity_id = uuid::Uuid::parse_str(&subject)
+        .map_err(|_| ApiError::BadRequest("Invalid subject in token".to_string()))?;
+
+    let password_hash = match body.password {
+        Some(pw) => Some(bcrypt::hash(&pw, bcrypt::DEFAULT_COST)
+            .map_err(|e| ApiError::BadRequest(format!("Failed to hash password: {}", e)))?),
+        None => None,
+    };
+
+    let update = crate::models::identity::IdentityUpdate {
+        display_name: body.display_name,
+        email: body.email,
+        avatar_url: body.avatar_url,
+        password_hash,
+        name: None,
+        status: None,
+        is_system_admin: None,
+        metadata: None,
+    };
+
+    let user = state.identity.update(identity_id, update)
+        .await
+        .map_err(|e| ApiError::BadRequest(format!("Failed to update user: {}", e)))?;
+
+    Ok((StatusCode::OK, Json(crate::api::models::UserInfoResponse {
+        id: user.id,
+        username: user.username.unwrap_or_else(|| user.name.clone()),
+        display_name: user.display_name,
+        email: user.email,
+        avatar_url: user.avatar_url,
+        identity_type: user.identity_type.to_string(),
+        created_at: user.created_at,
+    })))
+}
+
+pub async fn get_user_orgs_handler(
+    State(state): State<ApiState>,
+    AgentContext { subject, .. }: AgentContext,
+) -> Result<impl IntoResponse, ApiError> {
+    use crate::db::repositories::org_membership::OrgMembershipRepository;
+    use crate::db::repositories::organization::OrganizationRepository;
+    let identity_id = uuid::Uuid::parse_str(&subject)
+        .map_err(|_| ApiError::BadRequest("Invalid subject in token".to_string()))?;
+
+    let pool = state.agent_repo.pool().clone();
+    let org_membership_repo = OrgMembershipRepository::new(pool.clone());
+    let org_repo = OrganizationRepository::new(pool);
+
+    let orgs = org_membership_repo.list_user_organizations(identity_id)
+        .await
+        .map_err(|e| ApiError::BadRequest(format!("Failed to list orgs: {}", e)))?;
+
+    let mut result = Vec::new();
+    for (org_id, role) in &orgs {
+        let org = org_repo.find_by_id(*org_id)
+            .await
+            .map_err(|e| ApiError::BadRequest(format!("Failed to fetch org: {}", e)))?;
+
+        result.push(crate::api::models::UserOrgResponse {
+            id: *org_id,
+            name: org.as_ref().map(|o| o.name.clone()).unwrap_or_else(|| "Unknown".to_string()),
+            slug: org.and_then(|o| o.slug),
+            role: role.clone(),
+        });
+    }
+
+    Ok((StatusCode::OK, Json(result)))
+}
+
+pub async fn get_user_by_username_handler(
+    State(state): State<ApiState>,
+    Path(username): Path<String>,
+) -> Result<impl IntoResponse, ApiError> {
+    let user = state.identity.get_by_username(&username)
+        .await
+        .map_err(|e| ApiError::NotFound(format!("User not found: {}", e)))?
+        .ok_or_else(|| ApiError::NotFound(format!("User '{}' not found", username)))?;
+
+    Ok((StatusCode::OK, Json(crate::api::models::UserInfoResponse {
+        id: user.id,
+        username: user.username.unwrap_or_else(|| user.name.clone()),
+        display_name: user.display_name,
+        email: None,
+        avatar_url: user.avatar_url,
+        identity_type: user.identity_type.to_string(),
+        created_at: user.created_at,
+    })))
+}
+
 pub async fn list_audit_logs_handler(
     State(state): State<ApiState>,
-    AgentContext { roles, .. }: AgentContext,
+    agent_context: AgentContext,
     Query(query): Query<crate::api::models::AuditLogQuery>,
 ) -> Result<impl IntoResponse, ApiError> {
-    if !roles.iter().any(|r| r == "admin") {
-        return Err(ApiError::Unauthorized("Admin access required".to_string()));
-    }
+    agent_context.require_admin()?;
 
     let limit = query.limit.unwrap_or(50).min(100);
     let offset = query.offset.unwrap_or(0);
@@ -371,19 +1094,19 @@ pub async fn list_audit_logs_handler(
 
 pub async fn list_my_audit_logs_handler(
     State(state): State<ApiState>,
-    AgentContext { agent_id, .. }: AgentContext,
+    AgentContext { subject, .. }: AgentContext,
     Query(query): Query<crate::api::models::AuditLogQuery>,
 ) -> Result<impl IntoResponse, ApiError> {
     let limit = query.limit.unwrap_or(50).min(100);
     let offset = query.offset.unwrap_or(0);
 
     let logs = state.audit_repo
-        .list_with_filters(Some(&agent_id), query.action.as_deref(), query.resource_type.as_deref(), limit, offset)
+        .list_with_filters(Some(&subject), query.action.as_deref(), query.resource_type.as_deref(), limit, offset)
         .await
         .map_err(|e| ApiError::InternalError(e.to_string()))?;
 
     let total = state.audit_repo
-        .count_with_filters(Some(&agent_id), query.action.as_deref(), query.resource_type.as_deref())
+        .count_with_filters(Some(&subject), query.action.as_deref(), query.resource_type.as_deref())
         .await
         .map_err(|e| ApiError::InternalError(e.to_string()))?;
 
@@ -410,23 +1133,38 @@ pub async fn list_my_audit_logs_handler(
 pub async fn approve_skill_handler(
     State(state): State<ApiState>,
     Path(skill_id): Path<String>,
-    AgentContext { roles, .. }: AgentContext,
+    agent_context: AgentContext,
 ) -> Result<impl IntoResponse, ApiError> {
-    if !roles.iter().any(|r| r == "admin") {
-        return Err(ApiError::Unauthorized("Admin access required".to_string()));
-    }
+    agent_context.require_admin()?;
 
     use crate::db::repositories::skill::SkillRepository;
     let pool = state.agent_repo.pool().clone();
     let skill_repo = SkillRepository::new(pool);
 
+    let skill = skill_repo.find_by_id(&skill_id)
+        .await
+        .map_err(|e| ApiError::BadRequest(e.to_string()))?
+        .ok_or_else(|| ApiError::NotFound(format!("Skill {} not found", skill_id)))?;
+
+    let reviewer_id = Uuid::parse_str(&agent_context.subject).ok();
+
+    if let (Some(author_id), Some(reviewer_id_val)) = (skill.author_identity_id, reviewer_id) {
+        if author_id == reviewer_id_val {
+            return Err(ApiError::Forbidden("Cannot approve your own skill submission".to_string()));
+        }
+    }
+
     skill_repo.update_status(&skill_id, "published")
         .await
         .map_err(|e| ApiError::BadRequest(format!("Failed to approve skill: {}", e)))?;
 
+    skill_repo.update_review_status(&skill_id, "approved", reviewer_id, None)
+        .await
+        .map_err(|e| ApiError::BadRequest(format!("Failed to update review status: {}", e)))?;
+
     state.audit_repo
         .create(crate::db::repositories::audit::NewAuditLog {
-            agent_id: None,
+            agent_id: Some(agent_context.subject.clone()),
             action: "skill_reviewed".to_string(),
             resource_type: "skill".to_string(),
             resource_id: Some(skill_id.clone()),
@@ -444,24 +1182,39 @@ pub async fn approve_skill_handler(
 pub async fn reject_skill_handler(
     State(state): State<ApiState>,
     Path(skill_id): Path<String>,
-    AgentContext { roles, .. }: AgentContext,
+    agent_context: AgentContext,
     Json(body): Json<crate::api::models::RejectSkillBody>,
 ) -> Result<impl IntoResponse, ApiError> {
-    if !roles.iter().any(|r| r == "admin") {
-        return Err(ApiError::Unauthorized("Admin access required".to_string()));
-    }
+    agent_context.require_admin()?;
 
     use crate::db::repositories::skill::SkillRepository;
     let pool = state.agent_repo.pool().clone();
     let skill_repo = SkillRepository::new(pool);
 
+    let skill = skill_repo.find_by_id(&skill_id)
+        .await
+        .map_err(|e| ApiError::BadRequest(e.to_string()))?
+        .ok_or_else(|| ApiError::NotFound(format!("Skill {} not found", skill_id)))?;
+
+    let reviewer_id = Uuid::parse_str(&agent_context.subject).ok();
+
+    if let (Some(author_id), Some(reviewer_id_val)) = (skill.author_identity_id, reviewer_id) {
+        if author_id == reviewer_id_val {
+            return Err(ApiError::Forbidden("Cannot reject your own skill submission".to_string()));
+        }
+    }
+
     skill_repo.update_status(&skill_id, "rejected")
         .await
         .map_err(|e| ApiError::BadRequest(format!("Failed to reject skill: {}", e)))?;
 
+    skill_repo.update_review_status(&skill_id, "rejected", reviewer_id, body.reason.as_deref())
+        .await
+        .map_err(|e| ApiError::BadRequest(format!("Failed to update review status: {}", e)))?;
+
     state.audit_repo
         .create(crate::db::repositories::audit::NewAuditLog {
-            agent_id: None,
+            agent_id: Some(agent_context.subject.clone()),
             action: "skill_reviewed".to_string(),
             resource_type: "skill".to_string(),
             resource_id: Some(skill_id.clone()),
@@ -476,6 +1229,318 @@ pub async fn reject_skill_handler(
     })))
 }
 
+pub async fn submit_review_skill_handler(
+    State(state): State<ApiState>,
+    Path(skill_id): Path<String>,
+    AgentContext { subject, .. }: AgentContext,
+    Json(body): Json<crate::api::models::SubmitSkillReviewBody>,
+) -> Result<impl IntoResponse, ApiError> {
+    use crate::db::repositories::skill::SkillRepository;
+    let pool = state.agent_repo.pool().clone();
+    let skill_repo = SkillRepository::new(pool);
+
+    skill_repo.update_status(&skill_id, "in_review")
+        .await
+        .map_err(|e| ApiError::BadRequest(format!("Failed to submit skill for review: {}", e)))?;
+
+    skill_repo.update_review_status(&skill_id, "pending", None, body.comment.as_deref())
+        .await
+        .map_err(|e| ApiError::BadRequest(format!("Failed to update review status: {}", e)))?;
+
+    state.audit_repo
+        .create(crate::db::repositories::audit::NewAuditLog {
+            agent_id: Some(subject),
+            action: "skill_submitted_for_review".to_string(),
+            resource_type: "skill".to_string(),
+            resource_id: Some(skill_id.clone()),
+            details: serde_json::json!({"comment": body.comment}),
+        })
+        .await
+        .map_err(|e| ApiError::InternalError(e.to_string()))?;
+
+    Ok((StatusCode::OK, Json(crate::api::models::SkillReviewResponse {
+        message: "Skill submitted for review".to_string(),
+        skill_id,
+    })))
+}
+
+pub async fn publish_skill_handler(
+    State(state): State<ApiState>,
+    Path(skill_id): Path<String>,
+    AgentContext { subject, .. }: AgentContext,
+) -> Result<impl IntoResponse, ApiError> {
+    use crate::db::repositories::skill::SkillRepository;
+    let pool = state.agent_repo.pool().clone();
+    let skill_repo = SkillRepository::new(pool);
+
+    let skill = skill_repo.find_by_id(&skill_id)
+        .await
+        .map_err(|e| ApiError::BadRequest(e.to_string()))?
+        .ok_or_else(|| ApiError::NotFound(format!("Skill {} not found", skill_id)))?;
+
+    if skill.review_status != "approved" {
+        return Err(ApiError::BadRequest("Skill must be approved before publishing".to_string()));
+    }
+
+    skill_repo.update_status(&skill_id, "published")
+        .await
+        .map_err(|e| ApiError::BadRequest(format!("Failed to publish skill: {}", e)))?;
+
+    state.audit_repo
+        .create(crate::db::repositories::audit::NewAuditLog {
+            agent_id: Some(subject),
+            action: "skill_published".to_string(),
+            resource_type: "skill".to_string(),
+            resource_id: Some(skill_id.clone()),
+            details: serde_json::json!({}),
+        })
+        .await
+        .map_err(|e| ApiError::InternalError(e.to_string()))?;
+
+    Ok((StatusCode::OK, Json(crate::api::models::SkillReviewResponse {
+        message: "Skill published successfully".to_string(),
+        skill_id,
+    })))
+}
+
+pub async fn approve_org_skill_handler(
+    State(state): State<ApiState>,
+    Path(skill_id): Path<String>,
+    AgentContext { subject, .. }: AgentContext,
+) -> Result<impl IntoResponse, ApiError> {
+    use crate::db::repositories::skill::SkillRepository;
+    let pool = state.agent_repo.pool().clone();
+    let skill_repo = SkillRepository::new(pool);
+
+    let skill = skill_repo.find_by_id(&skill_id)
+        .await
+        .map_err(|e| ApiError::BadRequest(e.to_string()))?
+        .ok_or_else(|| ApiError::NotFound(format!("Skill {} not found", skill_id)))?;
+
+    if skill.review_status != "pending" && skill.status != "in_review" {
+        return Err(ApiError::BadRequest("Skill must be in pending_review status to approve".to_string()));
+    }
+
+    let reviewer_id = Uuid::parse_str(&subject).ok();
+
+    if let (Some(author_id), Some(reviewer_id_val)) = (skill.author_identity_id, reviewer_id) {
+        if author_id == reviewer_id_val {
+            return Err(ApiError::Forbidden("Cannot approve your own skill submission".to_string()));
+        }
+    }
+
+    skill_repo.update_status(&skill_id, "published")
+        .await
+        .map_err(|e| ApiError::BadRequest(format!("Failed to approve skill: {}", e)))?;
+
+    skill_repo.update_review_status(&skill_id, "approved", reviewer_id, None)
+        .await
+        .map_err(|e| ApiError::BadRequest(format!("Failed to update review status: {}", e)))?;
+
+    state.audit_repo
+        .create(crate::db::repositories::audit::NewAuditLog {
+            agent_id: Some(subject),
+            action: "skill_reviewed".to_string(),
+            resource_type: "skill".to_string(),
+            resource_id: Some(skill_id.clone()),
+            details: serde_json::json!({"action": "approved"}),
+        })
+        .await
+        .map_err(|e| ApiError::InternalError(e.to_string()))?;
+
+    Ok((StatusCode::OK, Json(crate::api::models::SkillReviewResponse {
+        message: "Skill approved successfully".to_string(),
+        skill_id,
+    })))
+}
+
+pub async fn reject_org_skill_handler(
+    State(state): State<ApiState>,
+    Path(skill_id): Path<String>,
+    AgentContext { subject, .. }: AgentContext,
+    Json(body): Json<crate::api::models::RejectSkillBody>,
+) -> Result<impl IntoResponse, ApiError> {
+    use crate::db::repositories::skill::SkillRepository;
+    let pool = state.agent_repo.pool().clone();
+    let skill_repo = SkillRepository::new(pool);
+
+    let skill = skill_repo.find_by_id(&skill_id)
+        .await
+        .map_err(|e| ApiError::BadRequest(e.to_string()))?
+        .ok_or_else(|| ApiError::NotFound(format!("Skill {} not found", skill_id)))?;
+
+    if skill.review_status != "pending" && skill.status != "in_review" {
+        return Err(ApiError::BadRequest("Skill must be in pending_review status to reject".to_string()));
+    }
+
+    let reviewer_id = Uuid::parse_str(&subject).ok();
+
+    if let (Some(author_id), Some(reviewer_id_val)) = (skill.author_identity_id, reviewer_id) {
+        if author_id == reviewer_id_val {
+            return Err(ApiError::Forbidden("Cannot reject your own skill submission".to_string()));
+        }
+    }
+
+    skill_repo.update_status(&skill_id, "rejected")
+        .await
+        .map_err(|e| ApiError::BadRequest(format!("Failed to reject skill: {}", e)))?;
+
+    skill_repo.update_review_status(&skill_id, "rejected", reviewer_id, body.reason.as_deref())
+        .await
+        .map_err(|e| ApiError::BadRequest(format!("Failed to update review status: {}", e)))?;
+
+    state.audit_repo
+        .create(crate::db::repositories::audit::NewAuditLog {
+            agent_id: Some(subject),
+            action: "skill_reviewed".to_string(),
+            resource_type: "skill".to_string(),
+            resource_id: Some(skill_id.clone()),
+            details: serde_json::json!({"action": "rejected", "reason": body.reason}),
+        })
+        .await
+        .map_err(|e| ApiError::InternalError(e.to_string()))?;
+
+    Ok((StatusCode::OK, Json(crate::api::models::SkillReviewResponse {
+        message: "Skill rejected".to_string(),
+        skill_id,
+    })))
+}
+
+pub async fn marketplace_handler(
+    State(state): State<ApiState>,
+    Query(query): Query<crate::api::models::MarketplaceQuery>,
+) -> Result<impl IntoResponse, ApiError> {
+    use crate::db::repositories::skill::SkillRepository;
+    let pool = state.agent_repo.pool().clone();
+    let skill_repo = SkillRepository::new(pool);
+
+    let limit = query.limit.unwrap_or(20).min(100);
+    let offset = query.offset.unwrap_or(0);
+
+    let skills = skill_repo.list_by_visibility("marketplace", limit, offset)
+        .await
+        .map_err(|e| ApiError::InternalError(e.to_string()))?;
+
+    Ok((StatusCode::OK, Json(skills)))
+}
+
+pub async fn install_skill_handler(
+    State(state): State<ApiState>,
+    Path(skill_id): Path<String>,
+) -> Result<impl IntoResponse, ApiError> {
+    use crate::db::repositories::skill::SkillRepository;
+    let pool = state.agent_repo.pool().clone();
+    let skill_repo = SkillRepository::new(pool);
+
+    let skill = skill_repo.find_by_id(&skill_id)
+        .await
+        .map_err(|e| ApiError::BadRequest(e.to_string()))?
+        .ok_or_else(|| ApiError::NotFound(format!("Skill {} not found", skill_id)))?;
+
+    skill_repo.increment_install_count(&skill_id)
+        .await
+        .map_err(|e| ApiError::BadRequest(format!("Failed to install skill: {}", e)))?;
+
+    Ok((StatusCode::OK, Json(crate::api::models::InstallSkillResponse {
+        message: "Skill installed successfully".to_string(),
+        skill_id: skill.id.clone(),
+        install_count: skill.install_count + 1,
+    })))
+}
+
+pub async fn list_skill_groups_handler(
+    State(state): State<ApiState>,
+    Path(skill_id): Path<String>,
+) -> Result<impl IntoResponse, ApiError> {
+    use crate::db::repositories::group_skill::GroupSkillRepository;
+    let pool = state.agent_repo.pool().clone();
+    let repo = GroupSkillRepository::new(pool);
+
+    let associations = repo.list_by_skill(&skill_id)
+        .await
+        .map_err(|e| ApiError::BadRequest(e.to_string()))?;
+
+    let responses: Vec<crate::api::models::SkillGroupResponse> = associations
+        .into_iter()
+        .map(|a| crate::api::models::SkillGroupResponse {
+            skill_id: a.skill_id,
+            group_id: a.group_id,
+            group_name: String::new(),
+            added_at: a.added_at,
+        })
+        .collect();
+
+    Ok((StatusCode::OK, Json(serde_json::to_value(responses).unwrap())))
+}
+
+pub async fn add_skill_to_group_handler(
+    State(state): State<ApiState>,
+    Path(skill_id): Path<String>,
+    AgentContext { subject, .. }: AgentContext,
+    Json(body): Json<crate::api::models::AddSkillToGroupBody>,
+) -> Result<impl IntoResponse, ApiError> {
+    use crate::db::repositories::group_skill::GroupSkillRepository;
+    use crate::models::group_skill::NewGroupSkill;
+    let pool = state.agent_repo.pool().clone();
+    let repo = GroupSkillRepository::new(pool);
+
+    repo.associate_skill(NewGroupSkill {
+        group_id: body.group_id,
+        skill_id: skill_id.clone(),
+        added_by: None,
+    })
+    .await
+    .map_err(|e| ApiError::BadRequest(format!("Failed to add skill to group: {}", e)))?;
+
+    state.audit_repo
+        .create(crate::db::repositories::audit::NewAuditLog {
+            agent_id: Some(subject),
+            action: "skill_added_to_group".to_string(),
+            resource_type: "skill".to_string(),
+            resource_id: Some(skill_id.clone()),
+            details: serde_json::json!({"group_id": body.group_id}),
+        })
+        .await
+        .map_err(|e| ApiError::InternalError(e.to_string()))?;
+
+    Ok((StatusCode::CREATED, Json(serde_json::json!({
+        "message": "Skill added to group",
+        "skill_id": skill_id,
+        "group_id": body.group_id,
+    }))))
+}
+
+pub async fn remove_skill_from_group_handler(
+    State(state): State<ApiState>,
+    Path((skill_id, group_id)): Path<(String, Uuid)>,
+    AgentContext { subject, .. }: AgentContext,
+) -> Result<impl IntoResponse, ApiError> {
+    use crate::db::repositories::group_skill::GroupSkillRepository;
+    let pool = state.agent_repo.pool().clone();
+    let repo = GroupSkillRepository::new(pool);
+
+    repo.dissociate_skill(group_id, &skill_id)
+        .await
+        .map_err(|e| ApiError::BadRequest(format!("Failed to remove skill from group: {}", e)))?;
+
+    state.audit_repo
+        .create(crate::db::repositories::audit::NewAuditLog {
+            agent_id: Some(subject),
+            action: "skill_removed_from_group".to_string(),
+            resource_type: "skill".to_string(),
+            resource_id: Some(skill_id.clone()),
+            details: serde_json::json!({"group_id": group_id}),
+        })
+        .await
+        .map_err(|e| ApiError::InternalError(e.to_string()))?;
+
+    Ok((StatusCode::OK, Json(serde_json::json!({
+        "message": "Skill removed from group",
+        "skill_id": skill_id,
+        "group_id": group_id,
+    }))))
+}
+
 // v0.4 multi-tenant handlers
 
 use uuid::Uuid;
@@ -486,7 +1551,7 @@ pub async fn create_org_handler(
     State(state): State<ApiState>,
     Json(body): Json<crate::api::models::CreateOrgBody>,
 ) -> Result<impl IntoResponse, ApiError> {
-    let org = state.organization.create_org(body.name)
+    let org = state.organization.create_org(body.name, body.slug, body.display_name, body.description, body.tenant_id)
         .await
         .map_err(|e| ApiError::BadRequest(e.to_string()))?;
 
@@ -511,9 +1576,15 @@ pub async fn list_orgs_handler(
     let limit = query.limit.unwrap_or(20).min(100);
     let offset = query.offset.unwrap_or(0);
 
-    let orgs = state.organization.list_orgs(limit, offset)
-        .await
-        .map_err(|e| ApiError::InternalError(e.to_string()))?;
+    let orgs = if let Some(tenant_id) = query.tenant_id {
+        state.organization.list_orgs_by_tenant(tenant_id, limit, offset)
+            .await
+            .map_err(|e| ApiError::InternalError(e.to_string()))?
+    } else {
+        state.organization.list_orgs(limit, offset)
+            .await
+            .map_err(|e| ApiError::InternalError(e.to_string()))?
+    };
 
     Ok((StatusCode::OK, Json(serde_json::json!({ "data": orgs }))))
 }
@@ -523,7 +1594,7 @@ pub async fn update_org_handler(
     Path(org_id): Path<Uuid>,
     Json(body): Json<crate::api::models::UpdateOrgBody>,
 ) -> Result<impl IntoResponse, ApiError> {
-    let org = state.organization.update_org(org_id, body.name)
+    let org = state.organization.update_org(org_id, body.name, body.display_name, body.description)
         .await
         .map_err(|e| ApiError::BadRequest(e.to_string()))?;
 
@@ -538,7 +1609,498 @@ pub async fn delete_org_handler(
         .await
         .map_err(|e| ApiError::BadRequest(e.to_string()))?;
 
-    Ok((StatusCode::NO_CONTENT, Json(serde_json::json!({"deleted": org_id}))))
+    Ok((StatusCode::OK, Json(serde_json::json!({"deleted": org_id}))))
+}
+
+/// Organization member handlers
+
+pub async fn list_org_members_handler(
+    State(state): State<ApiState>,
+    Path(org_id): Path<Uuid>,
+    agent_context: AgentContext,
+) -> Result<impl IntoResponse, ApiError> {
+    agent_context.require_admin()?;
+
+    let agents = state.agent_repo
+        .find_by_org(org_id)
+        .await
+        .map_err(|e| ApiError::InternalError(e.to_string()))?;
+
+    let members: Vec<_> = agents.into_iter().map(|a| {
+        crate::api::models::OrgMemberResponse {
+            agent_id: a.agent_id,
+            name: a.agent_name,
+            capabilities: a.capabilities,
+            joined_at: a.created_at.to_rfc3339(),
+        }
+    }).collect();
+
+    Ok((StatusCode::OK, Json(crate::api::models::OrgMemberListResponse { members })))
+}
+
+pub async fn add_org_member_handler(
+    State(state): State<ApiState>,
+    Path(org_id): Path<Uuid>,
+    agent_context: AgentContext,
+    Json(body): Json<crate::api::models::AddOrgMemberBody>,
+) -> Result<impl IntoResponse, ApiError> {
+    agent_context.require_admin()?;
+
+    use crate::db::repositories::agent::NewAgent;
+
+    let secret = uuid::Uuid::new_v4().to_string();
+
+    let new_agent = NewAgent {
+        agent_id: body.agent_id.clone(),
+        agent_secret: secret,
+        agent_name: body.name.clone(),
+        org_id: Some(org_id),
+        capabilities: Some(Vec::<String>::new()),
+    };
+
+    state.agent_repo
+        .create(new_agent)
+        .await
+        .map_err(|e| ApiError::BadRequest(format!("Failed to add member: {}", e)))?;
+
+    Ok((StatusCode::CREATED, Json(serde_json::json!({
+        "message": "Member added successfully",
+        "agent_id": body.agent_id
+    }))))
+}
+
+pub async fn remove_org_member_handler(
+    State(state): State<ApiState>,
+    Path((_org_id, subject)): Path<(Uuid, String)>,
+    agent_context: AgentContext,
+) -> Result<impl IntoResponse, ApiError> {
+    agent_context.require_admin()?;
+
+    state.agent_repo
+        .update_org(&subject, None)
+        .await
+        .map_err(|e| ApiError::BadRequest(format!("Failed to remove member: {}", e)))?;
+
+    Ok((StatusCode::OK, Json(serde_json::json!({"removed": subject}))))
+}
+
+pub async fn get_org_stats_handler(
+    State(state): State<ApiState>,
+    Path(org_id): Path<Uuid>,
+    agent_context: AgentContext,
+) -> Result<impl IntoResponse, ApiError> {
+    agent_context.require_admin()?;
+
+    let pool = state.agent_repo.pool();
+
+    let members_count = sqlx::query_scalar::<_, i64>(
+        "SELECT COUNT(*) FROM agents WHERE org_id = $1"
+    )
+    .bind(org_id)
+    .fetch_one(pool)
+    .await
+    .unwrap_or(0);
+
+    let skills_count = sqlx::query_scalar::<_, i64>(
+        "SELECT COUNT(*) FROM skills WHERE author_subject IN (SELECT subject FROM agents WHERE org_id = $1)"
+    )
+    .bind(org_id)
+    .fetch_one(pool)
+    .await
+    .unwrap_or(0);
+
+    let sessions_count = sqlx::query_scalar::<_, i64>(
+        "SELECT COUNT(*) FROM sessions WHERE org_id = $1"
+    )
+    .bind(org_id)
+    .fetch_one(pool)
+    .await
+    .unwrap_or(0);
+
+    let tools_count = sqlx::query_scalar::<_, i64>(
+        "SELECT COUNT(*) FROM org_tools WHERE org_id = $1"
+    )
+    .bind(org_id)
+    .fetch_one(pool)
+    .await
+    .unwrap_or(0);
+
+    let response = crate::api::models::OrgStatsResponse {
+        org_id,
+        members_count,
+        skills_count,
+        sessions_count,
+        tools_count,
+    };
+
+    Ok((StatusCode::OK, Json(response)))
+}
+
+pub async fn get_org_by_slug_handler(
+    State(state): State<ApiState>,
+    Path(slug): Path<String>,
+) -> Result<impl IntoResponse, ApiError> {
+    use crate::db::repositories::organization::OrganizationRepository;
+    let pool = state.agent_repo.pool().clone();
+    let repo = OrganizationRepository::new(pool);
+
+    let org = repo.find_by_slug(&slug)
+        .await
+        .map_err(|e| ApiError::BadRequest(e.to_string()))?
+        .ok_or_else(|| ApiError::NotFound(format!("Organization '{}' not found", slug)))?;
+
+    Ok((StatusCode::OK, Json(serde_json::to_value(org).unwrap())))
+}
+
+pub async fn create_org_skill_handler(
+    State(state): State<ApiState>,
+    Path(slug): Path<String>,
+    AgentContext { subject, .. }: AgentContext,
+    Json(body): Json<crate::api::models::CreateOrgSkillBody>,
+) -> Result<impl IntoResponse, ApiError> {
+    use crate::db::repositories::organization::OrganizationRepository;
+    use crate::db::repositories::org_membership::OrgMembershipRepository;
+    let pool = state.agent_repo.pool().clone();
+
+    let org_repo = OrganizationRepository::new(pool.clone());
+    let org = org_repo.find_by_slug(&slug)
+        .await
+        .map_err(|e| ApiError::BadRequest(e.to_string()))?
+        .ok_or_else(|| ApiError::NotFound(format!("Organization '{}' not found", slug)))?;
+
+    let identity_id = uuid::Uuid::parse_str(&subject)
+        .map_err(|_| ApiError::BadRequest("Invalid subject".to_string()))?;
+
+    let org_membership_repo = OrgMembershipRepository::new(pool);
+    let membership = org_membership_repo.get_member(identity_id, org.id)
+        .await
+        .map_err(|e| ApiError::BadRequest(e.to_string()))?
+        .ok_or_else(|| ApiError::Unauthorized("Not a member of this organization".to_string()))?;
+
+    let owner_type = body.owner_type.unwrap_or_else(|| "organization".to_string());
+
+    if owner_type == "organization" {
+        let role_str = membership.role.to_string();
+        if role_str != "owner" && role_str != "admin" && role_str != "developer" {
+            return Err(ApiError::Unauthorized("Need developer role to create org skills".to_string()));
+        }
+    }
+
+    let visibility = body.visibility.as_ref().map(|v| match v.as_str() {
+        "private" => crate::models::skill_policy::Visibility::Private,
+        "org_visible" => crate::models::skill_policy::Visibility::OrgVisible,
+        "marketplace" => crate::models::skill_policy::Visibility::Marketplace,
+        _ => crate::models::skill_policy::Visibility::OrgVisible,
+    });
+
+    let new_skill = crate::models::NewSkill {
+        name: body.name,
+        description: body.description,
+        tags: body.tags,
+        content: body.content,
+        version: body.version.unwrap_or_else(|| "1.0.0".to_string()),
+        git_url: body.git_url.clone(),
+        visibility,
+        tools: body.tools.clone(),
+        owner_type,
+        owner_id: Some(org.id),
+    };
+
+    let skill = state.registry.create_skill(new_skill, &subject, &state.search)
+        .await
+        .map_err(|e| ApiError::BadRequest(format!("Failed to create skill: {}", e)))?;
+
+    let response = crate::api::models::SkillCreatedResponse {
+        message: "Skill created successfully".to_string(),
+        skill_id: skill.id,
+    };
+    Ok((StatusCode::CREATED, Json(response)))
+}
+
+pub async fn invite_org_member_handler(
+    State(state): State<ApiState>,
+    Path(slug): Path<String>,
+    AgentContext { subject, .. }: AgentContext,
+    Json(body): Json<crate::api::models::InviteOrgMemberBody>,
+) -> Result<impl IntoResponse, ApiError> {
+    use crate::db::repositories::org_membership::OrgMembershipRepository;
+    use crate::db::repositories::organization::OrganizationRepository;
+    let pool = state.agent_repo.pool().clone();
+
+    let org_repo = OrganizationRepository::new(pool.clone());
+    let org = org_repo.find_by_slug(&slug)
+        .await
+        .map_err(|e| ApiError::BadRequest(e.to_string()))?
+        .ok_or_else(|| ApiError::NotFound(format!("Organization '{}' not found", slug)))?;
+
+    let target_identity = state.identity.get_by_email(&body.email)
+        .await
+        .map_err(|e| ApiError::BadRequest(e.to_string()))?
+        .ok_or_else(|| ApiError::NotFound(format!("User with email '{}' not found", body.email)))?;
+
+    let inviter_id = uuid::Uuid::parse_str(&subject)
+        .map_err(|_| ApiError::BadRequest("Invalid inviter subject".to_string()))?;
+
+    let org_membership_repo = OrgMembershipRepository::new(pool.clone());
+    org_membership_repo.add_member(target_identity.id, org.id, body.role.as_str().into(), Some(inviter_id))
+        .await
+        .map_err(|e| ApiError::BadRequest(format!("Failed to add member: {}", e)))?;
+
+    Ok((StatusCode::CREATED, Json(serde_json::json!({
+        "message": format!("{} added to {}", body.email, slug),
+        "organization_id": org.id,
+        "identity_id": target_identity.id,
+        "role": body.role,
+    }))))
+}
+
+pub async fn invite_org_member_by_id_handler(
+    State(state): State<ApiState>,
+    Path(org_id): Path<uuid::Uuid>,
+    AgentContext { subject, .. }: AgentContext,
+    Json(body): Json<crate::api::models::InviteOrgMemberBody>,
+) -> Result<impl IntoResponse, ApiError> {
+    use crate::db::repositories::org_membership::OrgMembershipRepository;
+    use crate::db::repositories::organization::OrganizationRepository;
+    let pool = state.agent_repo.pool().clone();
+
+    let org_repo = OrganizationRepository::new(pool.clone());
+    let org = org_repo.find_by_id(org_id)
+        .await
+        .map_err(|e| ApiError::BadRequest(e.to_string()))?
+        .ok_or_else(|| ApiError::NotFound(format!("Organization '{}' not found", org_id)))?;
+
+    let target_identity = state.identity.get_by_email(&body.email)
+        .await
+        .map_err(|e| ApiError::BadRequest(e.to_string()))?
+        .ok_or_else(|| ApiError::NotFound(format!("User with email '{}' not found", body.email)))?;
+
+    let inviter_id = uuid::Uuid::parse_str(&subject)
+        .map_err(|_| ApiError::BadRequest("Invalid inviter subject".to_string()))?;
+
+    let org_membership_repo = OrgMembershipRepository::new(pool.clone());
+    org_membership_repo.add_member(target_identity.id, org.id, body.role.as_str().into(), Some(inviter_id))
+        .await
+        .map_err(|e| ApiError::BadRequest(format!("Failed to add member: {}", e)))?;
+
+    Ok((StatusCode::CREATED, Json(serde_json::json!({
+        "message": format!("{} added to organization {}", body.email, org_id),
+        "organization_id": org.id,
+        "identity_id": target_identity.id,
+        "role": body.role,
+    }))))
+}
+
+pub async fn update_org_member_handler(
+    State(state): State<ApiState>,
+    Path((slug, username)): Path<(String, String)>,
+    Json(body): Json<crate::api::models::UpdateOrgMemberBody>,
+) -> Result<impl IntoResponse, ApiError> {
+    use crate::db::repositories::org_membership::OrgMembershipRepository;
+    use crate::db::repositories::organization::OrganizationRepository;
+    let pool = state.agent_repo.pool().clone();
+
+    let org_repo = OrganizationRepository::new(pool.clone());
+    let org = org_repo.find_by_slug(&slug)
+        .await
+        .map_err(|e| ApiError::BadRequest(e.to_string()))?
+        .ok_or_else(|| ApiError::NotFound(format!("Organization '{}' not found", slug)))?;
+
+    let identity = state.identity.get_by_username(&username)
+        .await
+        .map_err(|e| ApiError::BadRequest(e.to_string()))?
+        .ok_or_else(|| ApiError::NotFound(format!("User '{}' not found", username)))?;
+
+    let org_membership_repo = OrgMembershipRepository::new(pool);
+    org_membership_repo.update_role(identity.id, org.id, body.role.as_str().into())
+        .await
+        .map_err(|e| ApiError::BadRequest(format!("Failed to update role: {}", e)))?;
+
+    Ok((StatusCode::OK, Json(serde_json::json!({
+        "message": format!("{} role updated in {}", username, slug),
+        "role": body.role,
+    }))))
+}
+
+pub async fn remove_org_member_by_slug_handler(
+    State(state): State<ApiState>,
+    Path((slug, username)): Path<(String, String)>,
+) -> Result<impl IntoResponse, ApiError> {
+    use crate::db::repositories::org_membership::OrgMembershipRepository;
+    use crate::db::repositories::organization::OrganizationRepository;
+    let pool = state.agent_repo.pool().clone();
+
+    let org_repo = OrganizationRepository::new(pool.clone());
+    let org = org_repo.find_by_slug(&slug)
+        .await
+        .map_err(|e| ApiError::BadRequest(e.to_string()))?
+        .ok_or_else(|| ApiError::NotFound(format!("Organization '{}' not found", slug)))?;
+
+    let identity = state.identity.get_by_username(&username)
+        .await
+        .map_err(|e| ApiError::BadRequest(e.to_string()))?
+        .ok_or_else(|| ApiError::NotFound(format!("User '{}' not found", username)))?;
+
+    let org_membership_repo = OrgMembershipRepository::new(pool);
+    org_membership_repo.remove_member(identity.id, org.id)
+        .await
+        .map_err(|e| ApiError::BadRequest(format!("Failed to remove member: {}", e)))?;
+
+    Ok((StatusCode::OK, Json(serde_json::json!({
+        "message": format!("{} removed from {}", username, slug),
+    }))))
+}
+
+pub async fn update_org_member_by_id_handler(
+    State(state): State<ApiState>,
+    Path((org_id, username)): Path<(uuid::Uuid, String)>,
+    Json(body): Json<crate::api::models::UpdateOrgMemberBody>,
+) -> Result<impl IntoResponse, ApiError> {
+    use crate::db::repositories::org_membership::OrgMembershipRepository;
+    use crate::db::repositories::organization::OrganizationRepository;
+    let pool = state.agent_repo.pool().clone();
+
+    let org_repo = OrganizationRepository::new(pool.clone());
+    let org = org_repo.find_by_id(org_id)
+        .await
+        .map_err(|e| ApiError::BadRequest(e.to_string()))?
+        .ok_or_else(|| ApiError::NotFound(format!("Organization '{}' not found", org_id)))?;
+
+    let identity = state.identity.get_by_username(&username)
+        .await
+        .map_err(|e| ApiError::BadRequest(e.to_string()))?
+        .ok_or_else(|| ApiError::NotFound(format!("User '{}' not found", username)))?;
+
+    let org_membership_repo = OrgMembershipRepository::new(pool);
+    org_membership_repo.update_role(identity.id, org.id, body.role.as_str().into())
+        .await
+        .map_err(|e| ApiError::BadRequest(format!("Failed to update role: {}", e)))?;
+
+    Ok((StatusCode::OK, Json(serde_json::json!({
+        "message": format!("{} role updated in {}", username, org_id),
+        "role": body.role,
+    }))))
+}
+
+pub async fn remove_org_member_by_id_handler(
+    State(state): State<ApiState>,
+    Path((org_id, username)): Path<(uuid::Uuid, String)>,
+) -> Result<impl IntoResponse, ApiError> {
+    use crate::db::repositories::org_membership::OrgMembershipRepository;
+    use crate::db::repositories::organization::OrganizationRepository;
+    let pool = state.agent_repo.pool().clone();
+
+    let org_repo = OrganizationRepository::new(pool.clone());
+    let org = org_repo.find_by_id(org_id)
+        .await
+        .map_err(|e| ApiError::BadRequest(e.to_string()))?
+        .ok_or_else(|| ApiError::NotFound(format!("Organization '{}' not found", org_id)))?;
+
+    let identity = state.identity.get_by_username(&username)
+        .await
+        .map_err(|e| ApiError::BadRequest(e.to_string()))?
+        .ok_or_else(|| ApiError::NotFound(format!("User '{}' not found", username)))?;
+
+    let org_membership_repo = OrgMembershipRepository::new(pool);
+    org_membership_repo.remove_member(identity.id, org.id)
+        .await
+        .map_err(|e| ApiError::BadRequest(format!("Failed to remove member: {}", e)))?;
+
+    Ok((StatusCode::OK, Json(serde_json::json!({
+        "message": format!("{} removed from {}", username, org_id),
+    }))))
+}
+
+pub async fn list_org_members_by_slug_handler(
+    State(state): State<ApiState>,
+    Path(slug): Path<String>,
+) -> Result<impl IntoResponse, ApiError> {
+    use crate::db::repositories::org_membership::OrgMembershipRepository;
+    use crate::db::repositories::organization::OrganizationRepository;
+    let pool = state.agent_repo.pool().clone();
+
+    let org_repo = OrganizationRepository::new(pool.clone());
+    let org = org_repo.find_by_slug(&slug)
+        .await
+        .map_err(|e| ApiError::BadRequest(e.to_string()))?
+        .ok_or_else(|| ApiError::NotFound(format!("Organization '{}' not found", slug)))?;
+
+    let org_membership_repo = OrgMembershipRepository::new(pool);
+    let members = org_membership_repo.list_members(org.id)
+        .await
+        .map_err(|e| ApiError::BadRequest(format!("Failed to list members: {}", e)))?;
+
+    Ok((StatusCode::OK, Json(members)))
+}
+
+pub async fn list_org_members_by_id_handler(
+    State(state): State<ApiState>,
+    Path(org_id): Path<uuid::Uuid>,
+) -> Result<impl IntoResponse, ApiError> {
+    use crate::db::repositories::org_membership::OrgMembershipRepository;
+    use crate::db::repositories::organization::OrganizationRepository;
+    let pool = state.agent_repo.pool().clone();
+
+    let org_repo = OrganizationRepository::new(pool.clone());
+    let org = org_repo.find_by_id(org_id)
+        .await
+        .map_err(|e| ApiError::BadRequest(e.to_string()))?
+        .ok_or_else(|| ApiError::NotFound(format!("Organization '{}' not found", org_id)))?;
+
+    let org_membership_repo = OrgMembershipRepository::new(pool);
+    let members = org_membership_repo.list_members(org.id)
+        .await
+        .map_err(|e| ApiError::BadRequest(format!("Failed to list members: {}", e)))?;
+
+    Ok((StatusCode::OK, Json(members)))
+}
+
+pub async fn list_org_skills_handler(
+    State(state): State<ApiState>,
+    Path(slug): Path<String>,
+) -> Result<impl IntoResponse, ApiError> {
+    use crate::db::repositories::organization::OrganizationRepository;
+    use crate::db::repositories::skill::SkillRepository;
+    let pool = state.agent_repo.pool().clone();
+
+    let org_repo = OrganizationRepository::new(pool.clone());
+    let org = org_repo.find_by_slug(&slug)
+        .await
+        .map_err(|e| ApiError::BadRequest(e.to_string()))?
+        .ok_or_else(|| ApiError::NotFound(format!("Organization '{}' not found", slug)))?;
+
+    let skill_repo = SkillRepository::new(pool);
+    let skills = skill_repo.list_by_org(&org.id.to_string())
+        .await
+        .map_err(|e| ApiError::BadRequest(format!("Failed to list skills: {}", e)))?;
+
+    Ok((StatusCode::OK, Json(skills)))
+}
+
+pub async fn list_org_reviews_handler(
+    State(state): State<ApiState>,
+    Path(slug): Path<String>,
+) -> Result<impl IntoResponse, ApiError> {
+    use crate::db::repositories::organization::OrganizationRepository;
+    use crate::db::repositories::skill::SkillRepository;
+    let pool = state.agent_repo.pool().clone();
+
+    let org_repo = OrganizationRepository::new(pool.clone());
+    let org = org_repo.find_by_slug(&slug)
+        .await
+        .map_err(|e| ApiError::BadRequest(e.to_string()))?
+        .ok_or_else(|| ApiError::NotFound(format!("Organization '{}' not found", slug)))?;
+
+    let skill_repo = SkillRepository::new(pool);
+    let skills = skill_repo.list_by_org(&org.id.to_string())
+        .await
+        .map_err(|e| ApiError::BadRequest(format!("Failed to list skills: {}", e)))?;
+
+    let in_review: Vec<_> = skills.into_iter()
+        .filter(|s| s.review_status.as_str() == "pending" || s.status == "in_review")
+        .collect();
+
+    Ok((StatusCode::OK, Json(in_review)))
 }
 
 /// Session handlers
@@ -628,17 +2190,23 @@ pub async fn register_org_tool_handler(
 
 pub async fn list_org_tools_handler(
     State(state): State<ApiState>,
-    Path(org_id): Path<Uuid>,
+    Path(id): Path<Uuid>,
     Query(query): Query<crate::api::models::ListOrgToolsQuery>,
 ) -> Result<impl IntoResponse, ApiError> {
-    let approved_only = query.approved_only.unwrap_or(false);
-    let tools = if approved_only {
-        state.org_tool.list_approved_tools(org_id).await?
+    if let Some(approved_only) = query.approved_only {
+        let tools = if approved_only {
+            state.org_tool.list_approved_tools(id).await?
+        } else {
+            state.org_tool.list_org_tools(id).await?
+        };
+        Ok((StatusCode::OK, Json(serde_json::json!({ "data": tools }))))
     } else {
-        state.org_tool.list_org_tools(org_id).await?
-    };
-
-    Ok((StatusCode::OK, Json(serde_json::json!({ "data": tools }))))
+        let tool = state.org_tool.get_tool(id).await?;
+        match tool {
+            Some(t) => Ok((StatusCode::OK, Json(serde_json::json!({ "data": [t] })))),
+            None => Err(ApiError::NotFound("Tool not found".to_string())),
+        }
+    }
 }
 
 pub async fn list_all_org_tools_handler(
@@ -662,6 +2230,501 @@ pub async fn approve_org_tool_handler(
     Ok((StatusCode::OK, Json(serde_json::json!({"approved": tool_id}))))
 }
 
+// Group member management handlers (6.6)
+
+pub async fn list_group_members_handler(
+    State(state): State<ApiState>,
+    Path(group_id): Path<Uuid>,
+) -> Result<impl IntoResponse, ApiError> {
+    use crate::db::repositories::group::GroupRepository;
+    let pool = state.agent_repo.pool().clone();
+    let repo = GroupRepository::new(pool);
+
+    let members = repo.list_members(group_id)
+        .await
+        .map_err(|e| ApiError::BadRequest(format!("Failed to list group members: {}", e)))?;
+
+    let response: Vec<crate::api::models::GroupMemberInfo> = members
+        .into_iter()
+        .map(|m| crate::api::models::GroupMemberInfo {
+            agent_id: m.identity_id.to_string(),
+            name: m.identity_name,
+            email: m.email,
+            username: m.username,
+            role: m.role,
+            joined_at: m.joined_at,
+        })
+        .collect();
+
+    Ok((StatusCode::OK, Json(response)))
+}
+
+pub async fn add_group_member_handler(
+    State(state): State<ApiState>,
+    Path(group_id): Path<Uuid>,
+    AgentContext { subject, .. }: AgentContext,
+    Json(body): Json<crate::api::models::AddGroupMemberBody>,
+) -> Result<impl IntoResponse, ApiError> {
+    use crate::db::repositories::group::GroupRepository;
+    let pool = state.agent_repo.pool().clone();
+    let repo = GroupRepository::new(pool);
+
+    let target_id = uuid::Uuid::parse_str(&body.agent_id)
+        .map_err(|_| ApiError::BadRequest("Invalid subject".to_string()))?;
+
+    let role = body.role.unwrap_or_else(|| "member".to_string());
+
+    repo.add_member(target_id, group_id, &role)
+        .await
+        .map_err(|e| ApiError::BadRequest(format!("Failed to add group member: {}", e)))?;
+
+    state.audit_repo
+        .create(crate::db::repositories::audit::NewAuditLog {
+            agent_id: Some(subject),
+            action: "group_member_added".to_string(),
+            resource_type: "group".to_string(),
+            resource_id: Some(group_id.to_string()),
+            details: serde_json::json!({"member_id": body.agent_id, "role": role}),
+        })
+        .await
+        .map_err(|e| ApiError::InternalError(e.to_string()))?;
+
+    Ok((StatusCode::CREATED, Json(serde_json::json!({
+        "message": "Member added to group",
+        "group_id": group_id,
+        "member_id": body.agent_id,
+    }))))
+}
+
+pub async fn update_group_member_handler(
+    State(state): State<ApiState>,
+    Path((group_id, member_subject)): Path<(Uuid, String)>,
+    AgentContext { subject, .. }: AgentContext,
+    Json(body): Json<crate::api::models::UpdateGroupMemberBody>,
+) -> Result<impl IntoResponse, ApiError> {
+    use crate::db::repositories::group::GroupRepository;
+    let pool = state.agent_repo.pool().clone();
+    let repo = GroupRepository::new(pool);
+
+    let target_id = uuid::Uuid::parse_str(&member_subject)
+        .map_err(|_| ApiError::BadRequest("Invalid member subject".to_string()))?;
+
+    repo.add_member(target_id, group_id, &body.role)
+        .await
+        .map_err(|e| ApiError::BadRequest(format!("Failed to update group member: {}", e)))?;
+
+    state.audit_repo
+        .create(crate::db::repositories::audit::NewAuditLog {
+            agent_id: Some(subject),
+            action: "group_member_updated".to_string(),
+            resource_type: "group".to_string(),
+            resource_id: Some(group_id.to_string()),
+            details: serde_json::json!({"member_id": member_subject, "role": body.role}),
+        })
+        .await
+        .map_err(|e| ApiError::InternalError(e.to_string()))?;
+
+    Ok((StatusCode::OK, Json(serde_json::json!({
+        "message": "Group member updated",
+        "group_id": group_id,
+        "member_id": member_subject,
+    }))))
+}
+
+pub async fn remove_group_member_handler(
+    State(state): State<ApiState>,
+    Path((group_id, member_subject)): Path<(Uuid, String)>,
+    AgentContext { subject, .. }: AgentContext,
+) -> Result<impl IntoResponse, ApiError> {
+    use crate::db::repositories::group::GroupRepository;
+    let pool = state.agent_repo.pool().clone();
+    let repo = GroupRepository::new(pool);
+
+    let target_id = uuid::Uuid::parse_str(&member_subject)
+        .map_err(|_| ApiError::BadRequest("Invalid member subject".to_string()))?;
+
+    repo.remove_member(target_id, group_id)
+        .await
+        .map_err(|e| ApiError::BadRequest(format!("Failed to remove group member: {}", e)))?;
+
+    state.audit_repo
+        .create(crate::db::repositories::audit::NewAuditLog {
+            agent_id: Some(subject),
+            action: "group_member_removed".to_string(),
+            resource_type: "group".to_string(),
+            resource_id: Some(group_id.to_string()),
+            details: serde_json::json!({"member_id": member_subject}),
+        })
+        .await
+        .map_err(|e| ApiError::InternalError(e.to_string()))?;
+
+    Ok((StatusCode::OK, Json(serde_json::json!({
+        "message": "Group member removed",
+        "group_id": group_id,
+        "member_id": member_subject,
+    }))))
+}
+
+// Org slug-based Group management (6.6)
+
+pub async fn create_org_group_handler(
+    State(state): State<ApiState>,
+    Path(slug): Path<String>,
+    AgentContext { subject, .. }: AgentContext,
+    Json(body): Json<crate::api::models::CreateGroupBody>,
+) -> Result<impl IntoResponse, ApiError> {
+    use crate::db::repositories::organization::OrganizationRepository;
+    let pool = state.agent_repo.pool().clone();
+    let org_repo = OrganizationRepository::new(pool);
+    let org = org_repo.find_by_slug(&slug)
+        .await
+        .map_err(|e| ApiError::BadRequest(e.to_string()))?
+        .ok_or_else(|| ApiError::NotFound(format!("Organization '{}' not found", slug)))?;
+
+    let mut new_group: crate::models::group::NewGroup = body.into();
+    new_group.organization_id = org.id;
+
+    let group = state.group.create(new_group)
+        .await
+        .map_err(|e| ApiError::BadRequest(e.to_string()))?;
+
+    state.audit_repo
+        .create(crate::db::repositories::audit::NewAuditLog {
+            agent_id: Some(subject),
+            action: "group_created".to_string(),
+            resource_type: "group".to_string(),
+            resource_id: Some(group.id.to_string()),
+            details: serde_json::json!({"org_slug": slug}),
+        })
+        .await
+        .map_err(|e| ApiError::InternalError(e.to_string()))?;
+
+    Ok((StatusCode::CREATED, Json(serde_json::to_value(group).unwrap())))
+}
+
+pub async fn list_org_groups_handler(
+    State(state): State<ApiState>,
+    Path(slug): Path<String>,
+) -> Result<impl IntoResponse, ApiError> {
+    use crate::db::repositories::organization::OrganizationRepository;
+    let pool = state.agent_repo.pool().clone();
+    let org_repo = OrganizationRepository::new(pool);
+    let org = org_repo.find_by_slug(&slug)
+        .await
+        .map_err(|e| ApiError::BadRequest(e.to_string()))?
+        .ok_or_else(|| ApiError::NotFound(format!("Organization '{}' not found", slug)))?;
+
+    let groups = state.group.list_by_organization(org.id)
+        .await
+        .map_err(|e| ApiError::InternalError(e.to_string()))?;
+
+    Ok((StatusCode::OK, Json(serde_json::json!({ "data": groups }))))
+}
+
+pub async fn get_org_group_handler(
+    State(state): State<ApiState>,
+    Path((slug, group_id)): Path<(String, Uuid)>,
+) -> Result<impl IntoResponse, ApiError> {
+    use crate::db::repositories::organization::OrganizationRepository;
+    let pool = state.agent_repo.pool().clone();
+    let org_repo = OrganizationRepository::new(pool);
+    org_repo.find_by_slug(&slug)
+        .await
+        .map_err(|e| ApiError::BadRequest(e.to_string()))?
+        .ok_or_else(|| ApiError::NotFound(format!("Organization '{}' not found", slug)))?;
+
+    let group = state.group.get(group_id)
+        .await
+        .map_err(|e| ApiError::NotFound(e.to_string()))?
+        .ok_or_else(|| ApiError::NotFound("Group not found".to_string()))?;
+
+    Ok((StatusCode::OK, Json(serde_json::to_value(group).unwrap())))
+}
+
+pub async fn update_org_group_handler(
+    State(state): State<ApiState>,
+    Path((slug, group_id)): Path<(String, Uuid)>,
+    AgentContext { subject, .. }: AgentContext,
+    Json(body): Json<crate::api::models::UpdateGroupBody>,
+) -> Result<impl IntoResponse, ApiError> {
+    use crate::db::repositories::organization::OrganizationRepository;
+    let pool = state.agent_repo.pool().clone();
+    let org_repo = OrganizationRepository::new(pool);
+    org_repo.find_by_slug(&slug)
+        .await
+        .map_err(|e| ApiError::BadRequest(e.to_string()))?
+        .ok_or_else(|| ApiError::NotFound(format!("Organization '{}' not found", slug)))?;
+
+    let group = state.group.update(group_id, body.into())
+        .await
+        .map_err(|e| ApiError::BadRequest(e.to_string()))?;
+
+    state.audit_repo
+        .create(crate::db::repositories::audit::NewAuditLog {
+            agent_id: Some(subject),
+            action: "group_updated".to_string(),
+            resource_type: "group".to_string(),
+            resource_id: Some(group_id.to_string()),
+            details: serde_json::json!({"org_slug": slug}),
+        })
+        .await
+        .map_err(|e| ApiError::InternalError(e.to_string()))?;
+
+    Ok((StatusCode::OK, Json(serde_json::to_value(group).unwrap())))
+}
+
+pub async fn delete_org_group_handler(
+    State(state): State<ApiState>,
+    Path((slug, group_id)): Path<(String, Uuid)>,
+    AgentContext { subject, .. }: AgentContext,
+) -> Result<impl IntoResponse, ApiError> {
+    use crate::db::repositories::organization::OrganizationRepository;
+    let pool = state.agent_repo.pool().clone();
+    let org_repo = OrganizationRepository::new(pool);
+    org_repo.find_by_slug(&slug)
+        .await
+        .map_err(|e| ApiError::BadRequest(e.to_string()))?
+        .ok_or_else(|| ApiError::NotFound(format!("Organization '{}' not found", slug)))?;
+
+    state.group.delete(group_id)
+        .await
+        .map_err(|e| ApiError::BadRequest(e.to_string()))?;
+
+    state.audit_repo
+        .create(crate::db::repositories::audit::NewAuditLog {
+            agent_id: Some(subject),
+            action: "group_deleted".to_string(),
+            resource_type: "group".to_string(),
+            resource_id: Some(group_id.to_string()),
+            details: serde_json::json!({"org_slug": slug}),
+        })
+        .await
+        .map_err(|e| ApiError::InternalError(e.to_string()))?;
+
+    Ok((StatusCode::OK, Json(serde_json::json!({"deleted": group_id}))))
+}
+
+// Org slug-based Group member management (6.6)
+
+pub async fn list_org_group_members_handler(
+    State(state): State<ApiState>,
+    Path((slug, group_id)): Path<(String, Uuid)>,
+) -> Result<impl IntoResponse, ApiError> {
+    use crate::db::repositories::organization::OrganizationRepository;
+    use crate::db::repositories::group::GroupRepository;
+    let pool = state.agent_repo.pool().clone();
+    let org_repo = OrganizationRepository::new(pool.clone());
+    org_repo.find_by_slug(&slug)
+        .await
+        .map_err(|e| ApiError::BadRequest(e.to_string()))?
+        .ok_or_else(|| ApiError::NotFound(format!("Organization '{}' not found", slug)))?;
+
+    let repo = GroupRepository::new(pool);
+    let members = repo.list_members(group_id)
+        .await
+        .map_err(|e| ApiError::BadRequest(e.to_string()))?;
+
+    let member_info: Vec<crate::api::models::GroupMemberInfo> = members
+        .into_iter()
+        .map(|m| crate::api::models::GroupMemberInfo {
+            agent_id: m.identity_id.to_string(),
+            name: m.identity_name,
+            email: m.email,
+            username: m.username,
+            role: m.role,
+            joined_at: m.joined_at,
+        })
+        .collect();
+
+    Ok((StatusCode::OK, Json(serde_json::json!({ "data": member_info }))))
+}
+
+pub async fn update_org_group_member_handler(
+    State(state): State<ApiState>,
+    Path((slug, group_id, username)): Path<(String, Uuid, String)>,
+    AgentContext { subject, .. }: AgentContext,
+    Json(body): Json<crate::api::models::UpdateGroupMemberBody>,
+) -> Result<impl IntoResponse, ApiError> {
+    use crate::db::repositories::organization::OrganizationRepository;
+    use crate::db::repositories::group::GroupRepository;
+    let pool = state.agent_repo.pool().clone();
+    let org_repo = OrganizationRepository::new(pool.clone());
+    org_repo.find_by_slug(&slug)
+        .await
+        .map_err(|e| ApiError::BadRequest(e.to_string()))?
+        .ok_or_else(|| ApiError::NotFound(format!("Organization '{}' not found", slug)))?;
+
+    let target_id = uuid::Uuid::parse_str(&username)
+        .map_err(|_| ApiError::BadRequest("Invalid member id".to_string()))?;
+
+    let repo = GroupRepository::new(pool);
+    repo.update_member_role(target_id, group_id, &body.role)
+        .await
+        .map_err(|e| ApiError::BadRequest(format!("Failed to update group member: {}", e)))?;
+
+    state.audit_repo
+        .create(crate::db::repositories::audit::NewAuditLog {
+            agent_id: Some(subject),
+            action: "group_member_role_updated".to_string(),
+            resource_type: "group".to_string(),
+            resource_id: Some(group_id.to_string()),
+            details: serde_json::json!({"org_slug": slug, "member_id": username, "role": body.role}),
+        })
+        .await
+        .map_err(|e| ApiError::InternalError(e.to_string()))?;
+
+    Ok((StatusCode::OK, Json(serde_json::json!({
+        "message": "Group member role updated",
+        "group_id": group_id,
+        "member_id": username,
+    }))))
+}
+
+pub async fn remove_org_group_member_handler(
+    State(state): State<ApiState>,
+    Path((slug, group_id, username)): Path<(String, Uuid, String)>,
+    AgentContext { subject, .. }: AgentContext,
+) -> Result<impl IntoResponse, ApiError> {
+    use crate::db::repositories::organization::OrganizationRepository;
+    use crate::db::repositories::group::GroupRepository;
+    let pool = state.agent_repo.pool().clone();
+    let org_repo = OrganizationRepository::new(pool.clone());
+    org_repo.find_by_slug(&slug)
+        .await
+        .map_err(|e| ApiError::BadRequest(e.to_string()))?
+        .ok_or_else(|| ApiError::NotFound(format!("Organization '{}' not found", slug)))?;
+
+    let target_id = uuid::Uuid::parse_str(&username)
+        .map_err(|_| ApiError::BadRequest("Invalid member id".to_string()))?;
+
+    let repo = GroupRepository::new(pool);
+    repo.remove_member(target_id, group_id)
+        .await
+        .map_err(|e| ApiError::BadRequest(format!("Failed to remove group member: {}", e)))?;
+
+    state.audit_repo
+        .create(crate::db::repositories::audit::NewAuditLog {
+            agent_id: Some(subject),
+            action: "group_member_removed".to_string(),
+            resource_type: "group".to_string(),
+            resource_id: Some(group_id.to_string()),
+            details: serde_json::json!({"org_slug": slug, "member_id": username}),
+        })
+        .await
+        .map_err(|e| ApiError::InternalError(e.to_string()))?;
+
+    Ok((StatusCode::OK, Json(serde_json::json!({
+        "message": "Group member removed",
+        "group_id": group_id,
+        "member_id": username,
+    }))))
+}
+
+// Org slug-based Group-Skill association (6.6)
+
+pub async fn list_org_group_skills_handler(
+    State(state): State<ApiState>,
+    Path((slug, group_id)): Path<(String, Uuid)>,
+) -> Result<impl IntoResponse, ApiError> {
+    use crate::db::repositories::organization::OrganizationRepository;
+    use crate::db::repositories::group_skill::GroupSkillRepository;
+    let pool = state.agent_repo.pool().clone();
+    let org_repo = OrganizationRepository::new(pool.clone());
+    org_repo.find_by_slug(&slug)
+        .await
+        .map_err(|e| ApiError::BadRequest(e.to_string()))?
+        .ok_or_else(|| ApiError::NotFound(format!("Organization '{}' not found", slug)))?;
+
+    let repo = GroupSkillRepository::new(pool);
+    let skills = repo.list_by_group(group_id)
+        .await
+        .map_err(|e| ApiError::BadRequest(e.to_string()))?;
+
+    Ok((StatusCode::OK, Json(serde_json::json!({ "data": skills }))))
+}
+
+pub async fn add_org_group_skill_handler(
+    State(state): State<ApiState>,
+    Path((slug, group_id)): Path<(String, Uuid)>,
+    AgentContext { subject, .. }: AgentContext,
+    Json(body): Json<crate::api::models::AddSkillToGroupBody>,
+) -> Result<impl IntoResponse, ApiError> {
+    use crate::db::repositories::organization::OrganizationRepository;
+    use crate::db::repositories::group_skill::GroupSkillRepository;
+    let pool = state.agent_repo.pool().clone();
+    let org_repo = OrganizationRepository::new(pool.clone());
+    org_repo.find_by_slug(&slug)
+        .await
+        .map_err(|e| ApiError::BadRequest(e.to_string()))?
+        .ok_or_else(|| ApiError::NotFound(format!("Organization '{}' not found", slug)))?;
+
+    let skill_id = body.skill_id.clone()
+        .ok_or_else(|| ApiError::BadRequest("skill_id is required".to_string()))?;
+
+    let repo = GroupSkillRepository::new(pool);
+    repo.associate_skill(crate::models::group_skill::NewGroupSkill {
+        group_id,
+        skill_id: skill_id.clone(),
+        added_by: None,
+    })
+    .await
+    .map_err(|e| ApiError::BadRequest(format!("Failed to associate skill: {}", e)))?;
+
+    state.audit_repo
+        .create(crate::db::repositories::audit::NewAuditLog {
+            agent_id: Some(subject),
+            action: "group_skill_associated".to_string(),
+            resource_type: "group_skill".to_string(),
+            resource_id: Some(group_id.to_string()),
+            details: serde_json::json!({"org_slug": slug, "skill_id": skill_id}),
+        })
+        .await
+        .map_err(|e| ApiError::InternalError(e.to_string()))?;
+
+    Ok((StatusCode::CREATED, Json(serde_json::json!({
+        "message": "Skill associated to group",
+        "group_id": group_id,
+        "skill_id": skill_id,
+    }))))
+}
+
+pub async fn remove_org_group_skill_handler(
+    State(state): State<ApiState>,
+    Path((slug, group_id, skill_id)): Path<(String, Uuid, String)>,
+    AgentContext { subject, .. }: AgentContext,
+) -> Result<impl IntoResponse, ApiError> {
+    use crate::db::repositories::organization::OrganizationRepository;
+    use crate::db::repositories::group_skill::GroupSkillRepository;
+    let pool = state.agent_repo.pool().clone();
+    let org_repo = OrganizationRepository::new(pool.clone());
+    org_repo.find_by_slug(&slug)
+        .await
+        .map_err(|e| ApiError::BadRequest(e.to_string()))?
+        .ok_or_else(|| ApiError::NotFound(format!("Organization '{}' not found", slug)))?;
+
+    let repo = GroupSkillRepository::new(pool);
+    repo.dissociate_skill(group_id, &skill_id)
+        .await
+        .map_err(|e| ApiError::BadRequest(format!("Failed to dissociate skill: {}", e)))?;
+
+    state.audit_repo
+        .create(crate::db::repositories::audit::NewAuditLog {
+            agent_id: Some(subject),
+            action: "group_skill_dissociated".to_string(),
+            resource_type: "group_skill".to_string(),
+            resource_id: Some(group_id.to_string()),
+            details: serde_json::json!({"org_slug": slug, "skill_id": skill_id}),
+        })
+        .await
+        .map_err(|e| ApiError::InternalError(e.to_string()))?;
+
+    Ok((StatusCode::OK, Json(serde_json::json!({
+        "message": "Skill dissociated from group",
+        "group_id": group_id,
+        "skill_id": skill_id,
+    }))))
+}
+
 pub async fn reject_org_tool_handler(
     State(state): State<ApiState>,
     Path(tool_id): Path<Uuid>,
@@ -671,4 +2734,298 @@ pub async fn reject_org_tool_handler(
         .map_err(|e| ApiError::BadRequest(e.to_string()))?;
 
     Ok((StatusCode::OK, Json(serde_json::json!({"rejected": tool_id}))))
+}
+
+pub async fn delete_org_tool_handler(
+    State(state): State<ApiState>,
+    Path(tool_id): Path<Uuid>,
+    agent_context: AgentContext,
+) -> Result<impl IntoResponse, ApiError> {
+    agent_context.require_admin()?;
+
+    state.org_tool.delete(tool_id)
+        .await
+        .map_err(|e| ApiError::BadRequest(e.to_string()))?;
+
+    Ok((StatusCode::OK, Json(serde_json::json!({"deleted": tool_id}))))
+}
+
+pub async fn get_admin_me_handler(
+    State(state): State<ApiState>,
+    agent_context: AgentContext,
+) -> Result<impl IntoResponse, ApiError> {
+    agent_context.require_admin()?;
+
+    let id = uuid::Uuid::parse_str(&agent_context.subject)
+        .map_err(|_| ApiError::BadRequest("Invalid subject in token".to_string()))?;
+
+    let user = state.identity.get(id)
+        .await
+        .map_err(|e| ApiError::InternalError(e.to_string()))?
+        .ok_or_else(|| ApiError::NotFound("User not found".to_string()))?;
+
+    let response = crate::api::models::AdminMeResponse {
+        id: user.id.to_string(),
+        username: user.username.unwrap_or_else(|| user.name.clone()),
+        display_name: user.display_name,
+        is_active: user.status == crate::models::identity::IdentityStatus::Active,
+    };
+
+    Ok((StatusCode::OK, Json(response)))
+}
+
+pub async fn get_admin_stats_handler(
+    State(state): State<ApiState>,
+    agent_context: AgentContext,
+) -> Result<impl IntoResponse, ApiError> {
+    agent_context.require_admin()?;
+
+    let pool = state.agent_repo.pool();
+
+    let total_skills = sqlx::query_scalar::<_, i64>("SELECT COUNT(*) FROM skills")
+        .fetch_one(pool)
+        .await
+        .unwrap_or(0);
+
+    let total_agents = sqlx::query_scalar::<_, i64>("SELECT COUNT(*) FROM agents")
+        .fetch_one(pool)
+        .await
+        .unwrap_or(0);
+
+    let total_organizations = sqlx::query_scalar::<_, i64>("SELECT COUNT(*) FROM organizations")
+        .fetch_one(pool)
+        .await
+        .unwrap_or(0);
+
+    let total_evaluations = sqlx::query_scalar::<_, i64>("SELECT COUNT(*) FROM evaluations")
+        .fetch_one(pool)
+        .await
+        .unwrap_or(0);
+
+    let avg_success_rate = sqlx::query_scalar::<_, f64>(
+        "SELECT COALESCE(AVG(CASE WHEN success THEN 1.0 ELSE 0.0 END), 0) FROM evaluations"
+    )
+    .fetch_one(pool)
+    .await
+    .unwrap_or(0.0);
+
+    let response = crate::api::models::AdminStatsResponse {
+        total_skills,
+        total_agents,
+        total_organizations,
+        total_evaluations,
+        average_success_rate: avg_success_rate,
+    };
+
+    Ok((StatusCode::OK, Json(response)))
+}
+
+pub async fn get_admin_status_handler(
+    State(state): State<ApiState>,
+    agent_context: AgentContext,
+) -> Result<impl IntoResponse, ApiError> {
+    agent_context.require_admin()?;
+
+    let pool = state.agent_repo.pool();
+    let db_connected = sqlx::query("SELECT 1").execute(pool).await.is_ok();
+
+    let db_url = std::env::var("DATABASE_URL")
+        .unwrap_or_else(|_| "postgres://localhost:5432/aionhive".to_string());
+    let sanitized_url = db_url
+        .split('@')
+        .enumerate()
+        .map(|(i, part)| {
+            if i == 0 {
+                if let Some(colon) = part.rfind(':') {
+                    format!("{}:****", &part[..colon])
+                } else {
+                    part.to_string()
+                }
+            } else {
+                part.to_string()
+            }
+        })
+        .collect::<Vec<_>>()
+        .join("@");
+
+    let port: u16 = std::env::var("AION_HIVE_HTTP_PORT")
+        .unwrap_or_else(|_| "8080".to_string())
+        .parse()
+        .unwrap_or(8080);
+
+    let transport_mode = std::env::var("AION_HIVE_TRANSPORT")
+        .unwrap_or_else(|_| "http".to_string());
+
+    let data_dir = std::env::var("AION_HIVE_DATA_DIR")
+        .unwrap_or_else(|_| "./data".to_string());
+
+    let skills_dir = std::env::var("AION_HIVE_SKILLS_DIR")
+        .unwrap_or_else(|_| "./skills".to_string());
+
+    let response = crate::api::models::AdminStatusResponse {
+        version: env!("CARGO_PKG_VERSION").to_string(),
+        transport_mode,
+        http_port: port,
+        data_dir,
+        skills_dir,
+        db_connected,
+        db_url: sanitized_url,
+        jwt_expiry_hours: 24,
+    };
+
+    Ok((StatusCode::OK, Json(response)))
+}
+
+// Group permission override handlers
+
+pub async fn list_group_default_permissions_handler(
+    State(state): State<ApiState>,
+) -> Result<impl IntoResponse, ApiError> {
+    use crate::db::repositories::role_permission::RolePermissionRepository;
+
+    let pool = state.group_perm_override_repo.pool().clone();
+    let role_perm_repo = RolePermissionRepository::new(pool);
+
+    let lead_defaults = role_perm_repo
+        .list_by_role("group", "lead")
+        .await
+        .map_err(|e| ApiError::InternalError(e.to_string()))?;
+
+    let member_defaults = role_perm_repo
+        .list_by_role("group", "member")
+        .await
+        .map_err(|e| ApiError::InternalError(e.to_string()))?;
+
+    let to_codes = |perms: Vec<crate::models::role_permission::RolePermission>| -> Vec<String> {
+        perms.into_iter().map(|p| p.permission_code).collect()
+    };
+
+    Ok((StatusCode::OK, Json(serde_json::json!({
+        "lead": to_codes(lead_defaults),
+        "member": to_codes(member_defaults),
+    }))))
+}
+
+pub async fn list_group_permissions_handler(
+    State(state): State<ApiState>,
+    Path(group_id): Path<Uuid>,
+) -> Result<impl IntoResponse, ApiError> {
+    use crate::db::repositories::role_permission::RolePermissionRepository;
+    use crate::api::models::GroupPermissionInfo;
+
+    let pool = state.group_perm_override_repo.pool().clone();
+
+    let role_perm_repo = RolePermissionRepository::new(pool.clone());
+
+    let lead_defaults = role_perm_repo
+        .list_by_role("group", "lead")
+        .await
+        .map_err(|e| ApiError::InternalError(e.to_string()))?;
+
+    let member_defaults = role_perm_repo
+        .list_by_role("group", "member")
+        .await
+        .map_err(|e| ApiError::InternalError(e.to_string()))?;
+
+    let overrides = state.group_perm_override_repo
+        .list_by_group(group_id)
+        .await
+        .map_err(|e| ApiError::InternalError(e.to_string()))?;
+
+    let is_overridden = |perm_code: &str| -> Option<bool> {
+        overrides.iter().find(|o| o.permission_code == perm_code).map(|o| o.granted)
+    };
+
+    let to_info = |perms: Vec<crate::models::role_permission::RolePermission>| -> Vec<GroupPermissionInfo> {
+        perms.into_iter().map(|p| {
+            let code = p.permission_code;
+            let override_granted = is_overridden(&code);
+            GroupPermissionInfo {
+                permission_code: code,
+                granted: override_granted.unwrap_or(true),
+                is_default: override_granted.is_none(),
+            }
+        }).collect()
+    };
+
+    Ok((StatusCode::OK, Json(serde_json::json!({
+        "lead": to_info(lead_defaults),
+        "member": to_info(member_defaults),
+    }))))
+}
+
+pub async fn update_group_permission_handler(
+    State(state): State<ApiState>,
+    Path(group_id): Path<Uuid>,
+    AgentContext { subject, .. }: AgentContext,
+    Json(body): Json<crate::api::models::UpdateGroupPermissionBody>,
+) -> Result<impl IntoResponse, ApiError> {
+    use crate::models::group_permission_override::NewGroupPermissionOverride;
+
+    let role_name = body.role_name.clone();
+    let permission_code = body.permission_code.clone();
+
+    let creator_id = uuid::Uuid::parse_str(&subject).ok();
+
+    state.group_perm_override_repo
+        .upsert_override(NewGroupPermissionOverride {
+            group_id,
+            role_name: body.role_name,
+            permission_code: body.permission_code,
+            granted: body.granted,
+            created_by: creator_id,
+        })
+        .await
+        .map_err(|e| ApiError::BadRequest(e.to_string()))?;
+
+    state.audit_repo
+        .create(crate::db::repositories::audit::NewAuditLog {
+            agent_id: Some(subject),
+            action: "group_permission_updated".to_string(),
+            resource_type: "group".to_string(),
+            resource_id: Some(group_id.to_string()),
+            details: serde_json::json!({
+                "role_name": role_name,
+                "permission_code": permission_code,
+                "granted": body.granted,
+            }),
+        })
+        .await
+        .map_err(|e| ApiError::InternalError(e.to_string()))?;
+
+    Ok((StatusCode::OK, Json(serde_json::json!({
+        "message": "Group permission override updated"
+    }))))
+}
+
+pub async fn delete_group_permission_handler(
+    State(state): State<ApiState>,
+    Path((group_id, permission_code)): Path<(Uuid, String)>,
+    AgentContext { subject, .. }: AgentContext,
+    Json(body): Json<crate::api::models::UpdateGroupPermissionBody>,
+) -> Result<impl IntoResponse, ApiError> {
+    state.group_perm_override_repo
+        .delete_override(group_id, &body.role_name, &permission_code)
+        .await
+        .map_err(|e| ApiError::BadRequest(e.to_string()))?;
+
+    let role_name = body.role_name.clone();
+
+    state.audit_repo
+        .create(crate::db::repositories::audit::NewAuditLog {
+            agent_id: Some(subject),
+            action: "group_permission_deleted".to_string(),
+            resource_type: "group".to_string(),
+            resource_id: Some(group_id.to_string()),
+            details: serde_json::json!({
+                "role_name": role_name,
+                "permission_code": permission_code,
+            }),
+        })
+        .await
+        .map_err(|e| ApiError::InternalError(e.to_string()))?;
+
+    Ok((StatusCode::OK, Json(serde_json::json!({
+        "message": "Group permission override deleted"
+    }))))
 }

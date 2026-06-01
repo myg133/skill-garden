@@ -15,11 +15,12 @@ use std::sync::Arc;
 use tokio::sync::broadcast;
 use serde_json::Value;
 
-use crate::api::jwt::verify_token;
+use crate::api::jwt::{verify_token, AgentContext};
 use crate::models::evaluation::{ErrorType, EvalTag};
 use crate::models::skill::NewSkill;
-use crate::services::{EvaluatorService, OrgToolService, RegistryService, SearchService, SessionService, ToolRouterService};
+use crate::services::{EvaluatorService, OrgToolService, RegistryService, SandboxService, SearchService, SessionService, ToolRouterService};
 
+#[allow(dead_code)]
 pub struct McpServer {
     registry: RegistryService,
     search: SearchService,
@@ -27,17 +28,8 @@ pub struct McpServer {
     session: SessionService,
     org_tool: OrgToolService,
     tool_router: ToolRouterService,
+    sandbox: SandboxService,
     agent_context: Option<AgentContext>,
-}
-
-/// Agent context extracted from JWT token
-#[derive(Debug, Clone)]
-pub struct AgentContext {
-    pub agent_id: String,
-    pub org_id: Option<uuid::Uuid>,
-    pub session_id: Option<uuid::Uuid>,
-    pub roles: Vec<String>,
-    pub scope: Vec<String>,
 }
 
 impl McpServer {
@@ -48,6 +40,7 @@ impl McpServer {
         session: SessionService,
         org_tool: OrgToolService,
         tool_router: ToolRouterService,
+        sandbox: SandboxService,
     ) -> Self {
         // Try to extract and verify JWT from environment (for stdio transport)
         let agent_context = Self::extract_jwt_from_env();
@@ -58,6 +51,7 @@ impl McpServer {
             session,
             org_tool,
             tool_router,
+            sandbox,
             agent_context,
         }
     }
@@ -67,9 +61,7 @@ impl McpServer {
         let token = std::env::var("AION_HIVE_JWT_TOKEN").ok()?;
         let claims = verify_token(&token).ok()?;
         Some(AgentContext {
-            agent_id: claims.agent_id,
-            org_id: claims.org_id,
-            session_id: claims.session_id,
+            subject: claims.subject,
             roles: claims.roles,
             scope: claims.scope,
         })
@@ -269,6 +261,8 @@ impl McpServer {
                             git_url: None,
                             visibility: None,
                             tools: None,
+                            owner_type: "user".to_string(),
+                            owner_id: None,
                         };
                         let agent_id = "http-client";
                         match self.registry.create_skill(new_skill, agent_id, &self.search).await {
@@ -373,6 +367,110 @@ impl McpServer {
                         Err(e) => Self::json_error(format!("Get stats failed: {}", e)),
                     },
                     None => Self::json_error("skill_id is required".to_string()),
+                }
+            }
+
+            "session.info" => {
+                let session_id = args.get("session_id").and_then(|v| v.as_str());
+
+                match session_id {
+                    Some(id) => {
+                        let session_uuid = uuid::Uuid::parse_str(id);
+                        match session_uuid {
+                            Ok(uuid) => {
+                                match self.session.get_session(uuid).await {
+                                    Ok(Some(session)) => {
+                                        Self::json_success(serde_json::json!({
+                                            "session_id": session.id.to_string(),
+                                            "org_id": session.org_id.to_string(),
+                                            "agent_id": session.agent_id,
+                                            "status": session.status,
+                                            "created_at": session.created_at.to_rfc3339()
+                                        }))
+                                    }
+                                    Ok(None) => Self::json_error(format!("Session {} not found", id)),
+                                    Err(e) => Self::json_error(format!("Get session failed: {}", e)),
+                                }
+                            }
+                            Err(_) => Self::json_error("Invalid session ID format".to_string()),
+                        }
+                    }
+                    None => Self::json_error("session_id is required".to_string()),
+                }
+            }
+
+            "session.declare" => {
+                let session_id = args.get("session_id").and_then(|v| v.as_str());
+                let capabilities = args.get("capabilities").and_then(|v| v.as_array()).map(|arr| {
+                    arr.iter()
+                        .filter_map(|v| v.as_str().map(String::from))
+                        .collect::<Vec<_>>()
+                }).unwrap_or_default();
+
+                match session_id {
+                    Some(id) => {
+                        let session_uuid = uuid::Uuid::parse_str(id);
+                        match session_uuid {
+                            Ok(uuid) => {
+                                match self.session.declare_capabilities(uuid, capabilities).await {
+                                    Ok(router) => {
+                                        let browse = router.routes.get("browse").map(|t| match t {
+                                            crate::models::session::RouteTarget::Local => "local",
+                                            crate::models::session::RouteTarget::Platform => "platform",
+                                            crate::models::session::RouteTarget::OrgTool(s) => s.as_str(),
+                                        }).unwrap_or("platform");
+                                        let qa = router.routes.get("qa").map(|t| match t {
+                                            crate::models::session::RouteTarget::Local => "local",
+                                            crate::models::session::RouteTarget::Platform => "platform",
+                                            crate::models::session::RouteTarget::OrgTool(o) => o.as_str(),
+                                        }).unwrap_or("platform");
+                                        let tool_router_json = serde_json::json!({
+                                            "browse": browse,
+                                            "qa": qa
+                                        });
+                                        Self::json_success(tool_router_json)
+                                    }
+                                    Err(e) => Self::json_error(format!("Declare capabilities failed: {}", e)),
+                                }
+                            }
+                            Err(_) => Self::json_error("Invalid session ID format".to_string()),
+                        }
+                    }
+                    None => Self::json_error("session_id and capabilities are required".to_string()),
+                }
+            }
+
+            "tools.execute" => {
+                let tool_id = args.get("tool_id").and_then(|v| v.as_str());
+                let org_id = args.get("org_id").and_then(|v| v.as_str());
+                let parameters = args.get("parameters").and_then(|v| v.as_object()).map(|obj| {
+                    obj.iter()
+                        .map(|(k, v)| (k.clone(), v.clone()))
+                        .collect()
+                }).unwrap_or_default();
+
+                match (tool_id, org_id) {
+                    (Some(tid), Some(oid)) => {
+                        let request = crate::services::ToolExecutionRequest {
+                            tool_id: tid.to_string(),
+                            org_id: oid.to_string(),
+                            parameters,
+                            timeout_seconds: 30,
+                        };
+                        match self.sandbox.execute_org_tool(request).await {
+                            Ok(result) => {
+                                let response = serde_json::json!({
+                                    "success": result.success,
+                                    "output": result.output,
+                                    "error": result.error,
+                                    "execution_time_ms": result.execution_time_ms
+                                });
+                                Self::json_success(response)
+                            }
+                            Err(e) => Self::json_error(format!("Tool execution failed: {}", e)),
+                        }
+                    }
+                    _ => Self::json_error("tool_id and org_id are required".to_string()),
                 }
             }
 
@@ -514,6 +612,19 @@ impl McpServer {
                     "required": ["session_id", "capabilities"]
                 }).as_object().unwrap().clone()),
             ),
+            Tool::new(
+                "tools.execute",
+                "Execute an organization tool in sandboxed environment",
+                Arc::new(serde_json::json!({
+                    "type": "object",
+                    "properties": {
+                        "tool_id": {"type": "string", "description": "Tool ID to execute"},
+                        "org_id": {"type": "string", "description": "Organization ID"},
+                        "parameters": {"type": "object", "description": "Tool parameters as key-value pairs"}
+                    },
+                    "required": ["tool_id", "org_id"]
+                }).as_object().unwrap().clone()),
+            ),
         ]
     }
 
@@ -626,6 +737,8 @@ impl ServerHandler for McpServer {
                             git_url: None,
                             visibility: None,
                             tools: None,
+                            owner_type: "user".to_string(),
+                            owner_id: None,
                         };
                         let agent_id = "mcp-client";
                         match self.registry.create_skill(new_skill, agent_id, &self.search).await {
@@ -725,8 +838,6 @@ impl ServerHandler for McpServer {
             }
 
             "session.info" => {
-                let session_id = args.get("session_id").and_then(|v| v.as_str());
-
                 // Verify JWT authentication
                 let ctx = match self.agent_context.as_ref() {
                     Some(ctx) => ctx,
@@ -736,21 +847,9 @@ impl ServerHandler for McpServer {
                     }
                 };
 
-                // If session_id provided, verify it matches the JWT session
-                if let Some(req_session_id) = session_id {
-                    if let Some(jwt_session_id) = ctx.session_id {
-                        let expected = req_session_id.to_string();
-                        if expected != jwt_session_id.to_string() {
-                            return Ok(Self::json_error("Session ID mismatch. Cannot access other sessions.".to_string()));
-                        }
-                    }
-                }
-
                 // Return session info
                 let session_info = serde_json::json!({
-                    "session_id": ctx.session_id.map(|s| s.to_string()),
-                    "agent_id": ctx.agent_id,
-                    "org_id": ctx.org_id.map(|s| s.to_string()),
+                    "subject": ctx.subject,
                     "capabilities": ctx.scope,
                     "roles": ctx.roles,
                 });

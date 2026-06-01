@@ -3,9 +3,10 @@
 use std::sync::Arc;
 use tokio::sync::RwLock;
 
-use crate::db::repositories::{AgentRepository, AuditRepository, AdminUserRepository};
+use crate::db::repositories::{AgentRepository, AuditRepository, group_permission_override::GroupPermissionOverrideRepository};
 use crate::mcp::McpServer;
-use crate::services::{EvaluatorService, RegistryService, SearchService, OrganizationService, SessionService, OrgToolService};
+use crate::services::{EvaluatorService, RegistryService, SearchService, OrganizationService, SessionService, OrgToolService, SandboxService, GitProxyService};
+use crate::services::admin::{TenantService, IdentityService, RoleService, GroupService, ApiKeyService, AuditService};
 
 #[derive(Clone)]
 pub struct HttpState {
@@ -34,9 +35,18 @@ pub struct AppRouterState {
     pub evaluator: EvaluatorService,
     pub agent_repo: AgentRepository,
     pub audit_repo: AuditRepository,
-    pub admin_user_repo: AdminUserRepository,
     // v0.4 multi-tenant services
     pub organization: OrganizationService,
     pub session: SessionService,
     pub org_tool: OrgToolService,
+    pub sandbox: SandboxService,
+    pub git_proxy: GitProxyService,
+    // Admin services
+    pub tenant: TenantService,
+    pub identity: IdentityService,
+    pub role: RoleService,
+    pub group: GroupService,
+    pub api_key: ApiKeyService,
+    pub audit: AuditService,
+    pub group_perm_override_repo: GroupPermissionOverrideRepository,
 }

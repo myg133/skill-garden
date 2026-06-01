@@ -276,6 +276,7 @@ pub struct SearchResult {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::Visibility;
     use tempfile::TempDir;
 
     fn create_test_skill(id: &str, name: &str, description: &str, tags: Vec<&str>) -> Skill {
@@ -286,12 +287,22 @@ mod tests {
             tags: tags.into_iter().map(|s| s.to_string()).collect(),
             version: "1.0.0".to_string(),
             author_agent_id: "agent-test".to_string(),
+            author_identity_id: None,
+            owner_type: "user".to_string(),
+            owner_id: None,
             created: chrono::Utc::now(),
             updated: chrono::Utc::now(),
             compatibility: ">=1.0.0".to_string(),
             dependencies: vec![],
             content: format!("# {} Content", name),
             install_count: 10,
+            git_url: None,
+            visibility: Visibility::OrgVisible,
+            tools: vec![],
+            review_status: "approved".to_string(),
+            reviewed_by: None,
+            reviewed_at: None,
+            review_comment: None,
         }
     }
 

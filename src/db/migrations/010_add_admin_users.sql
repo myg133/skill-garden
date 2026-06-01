@@ -12,7 +12,6 @@ CREATE TABLE admin_users (
 );
 
 -- Insert default admin user (password: admin123)
--- Hash generated with bcrypt cost 12: $2b$12$LQv3c1yqBWVHxkd0LHAkCOYz6TtxMQJqhN8/X4d5GIHN3GGaKTau
 INSERT INTO admin_users (username, password_hash, display_name)
-VALUES ('admin', '$2b$12$LQv3c1yqBWVHxkd0LHAkCOYz6TtxMQJqhN8/X4d5GIHN3GGaKTau', 'Administrator')
+VALUES ('admin', '$2b$12$M9U0G1ezTX/Tge9NHC1qROH1nsj3UWM2ijFKRCD2vBneXgAhTcg5C', 'Administrator')
 ON CONFLICT (username) DO NOTHING;

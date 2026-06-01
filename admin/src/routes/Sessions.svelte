@@ -4,6 +4,7 @@
   import { addToast } from '../stores/app.js';
   import LoadingSpinner from '../components/LoadingSpinner.svelte';
   import EmptyState from '../components/EmptyState.svelte';
+  import Badge from '../components/Badge.svelte';
 
   let sessions = [];
   let loading = true;
@@ -53,78 +54,81 @@
   }
 </script>
 
-<div class="p-6 max-w-7xl mx-auto">
-  <div class="flex items-center justify-between mb-6">
-    <div>
-      <h1 class="text-2xl font-semibold text-slate-900">Sessions</h1>
-      <p class="text-slate-500 text-sm mt-1">Manage agent sessions</p>
-    </div>
-    <div class="flex gap-2">
-      <select
-        bind:value={filter}
-        on:change={handleFilterChange}
-        class="px-4 py-2 border border-slate-300 rounded-lg text-sm focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 outline-none"
-      >
-        <option value="all">All Sessions</option>
-        <option value="active">Active</option>
-        <option value="ended">Ended</option>
-      </select>
-      <button
-        on:click={loadSessions}
-        class="px-4 py-2 border border-slate-300 rounded-lg text-sm hover:bg-slate-50 transition-colors"
-      >
-        Refresh
-      </button>
+<div class="p-8">
+  <div class="page-header">
+    <div class="flex items-center justify-between">
+      <div>
+        <h1 class="text-[28px] font-extrabold text-surface-800 tracking-tight">Sessions</h1>
+        <p class="text-surface-500 text-sm mt-1.5 font-medium">Monitor active and past agent sessions</p>
+      </div>
+      <div class="flex gap-2.5">
+        <select
+          bind:value={filter}
+          on:change={handleFilterChange}
+          class="px-4 py-2.5 border border-surface-200 rounded-xl text-sm font-medium text-surface-600 input-focus outline-none bg-slate-50 select-caret"
+        >
+          <option value="all">All Sessions</option>
+          <option value="active">Active</option>
+          <option value="ended">Ended</option>
+        </select>
+        <button
+          on:click={loadSessions}
+          class="btn-secondary px-4 py-2.5 rounded-xl text-sm font-medium flex items-center gap-1.5"
+        >
+          <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"/></svg>
+          Refresh
+        </button>
+      </div>
     </div>
   </div>
 
   {#if loading}
     <LoadingSpinner />
   {:else if error}
-    <div class="bg-red-50 border border-red-200 text-red-700 px-4 py-3 rounded-lg">{error}</div>
+    <div class="bg-rose-50 border border-rose-100 text-rose-600 px-5 py-4 rounded-2xl text-sm font-medium">{error}</div>
   {:else if sessions.length === 0}
-    <EmptyState message="No sessions found" />
+    <div class="bg-sky-50 rounded-2xl border border-indigo-200 shadow-card">
+      <EmptyState message="No sessions found" />
+    </div>
   {:else}
-    <div class="bg-white rounded-xl border border-slate-200 overflow-hidden shadow-sm">
+    <div class="bg-sky-50 rounded-2xl border border-indigo-200 overflow-hidden shadow-card">
       <table class="w-full">
-        <thead class="bg-slate-50 border-b border-slate-200">
-          <tr>
-            <th class="px-6 py-3 text-left text-xs font-semibold text-slate-600 uppercase tracking-wider">Session ID</th>
-            <th class="px-6 py-3 text-left text-xs font-semibold text-slate-600 uppercase tracking-wider">Agent</th>
-            <th class="px-6 py-3 text-left text-xs font-semibold text-slate-600 uppercase tracking-wider">Organization</th>
-            <th class="px-6 py-3 text-left text-xs font-semibold text-slate-600 uppercase tracking-wider">Status</th>
-            <th class="px-6 py-3 text-left text-xs font-semibold text-slate-600 uppercase tracking-wider">Duration</th>
-            <th class="px-6 py-3 text-left text-xs font-semibold text-slate-600 uppercase tracking-wider">Created</th>
-            <th class="px-6 py-3 text-right text-xs font-semibold text-slate-600 uppercase tracking-wider">Actions</th>
+        <thead>
+          <tr class="border-b border-surface-100 bg-gradient-to-r from-surface-50/80 to-transparent">
+            <th class="px-5 py-4 text-left text-xs font-semibold text-surface-400 uppercase tracking-wider">Session ID</th>
+            <th class="px-5 py-4 text-left text-xs font-semibold text-surface-400 uppercase tracking-wider">Agent</th>
+            <th class="px-5 py-4 text-left text-xs font-semibold text-surface-400 uppercase tracking-wider">Organization</th>
+            <th class="px-5 py-4 text-left text-xs font-semibold text-surface-400 uppercase tracking-wider">Status</th>
+            <th class="px-5 py-4 text-left text-xs font-semibold text-surface-400 uppercase tracking-wider">Duration</th>
+            <th class="px-5 py-4 text-left text-xs font-semibold text-surface-400 uppercase tracking-wider">Created</th>
+            <th class="px-5 py-4 text-right text-xs font-semibold text-surface-400 uppercase tracking-wider">Actions</th>
           </tr>
         </thead>
-        <tbody class="divide-y divide-slate-100">
+        <tbody class="divide-y divide-surface-50">
           {#each sessions as session (session.id)}
-            <tr class="hover:bg-slate-50 transition-colors">
-              <td class="px-6 py-4 text-slate-900 text-sm font-mono">{session.id}</td>
-              <td class="px-6 py-4 text-slate-600 text-sm">{session.agent_id}</td>
-              <td class="px-6 py-4 text-slate-600 text-sm">{session.org_id}</td>
-              <td class="px-6 py-4">
-                <span class="px-2 py-1 text-xs rounded-full {session.status === 'active' ? 'bg-green-100 text-green-700' : 'bg-slate-100 text-slate-600'}">
-                  {session.status}
-                </span>
+            <tr class="table-row">
+              <td class="px-5 py-4 text-surface-700 text-xs font-mono font-medium">{session.id}</td>
+              <td class="px-5 py-4 text-surface-500 text-sm">{session.agent_id}</td>
+              <td class="px-5 py-4 text-surface-500 text-sm">{session.org_id}</td>
+              <td class="px-5 py-4">
+                <Badge status={session.status} />
               </td>
-              <td class="px-6 py-4 text-slate-600 text-sm">
+              <td class="px-5 py-4 text-surface-500 text-sm font-medium stat-number">
                 {formatDuration(session.created_at, session.ended_at)}
               </td>
-              <td class="px-6 py-4 text-slate-500 text-sm">
+              <td class="px-5 py-4 text-surface-400 text-sm">
                 {new Date(session.created_at).toLocaleString()}
               </td>
-              <td class="px-6 py-4 text-right">
+              <td class="px-5 py-4 text-right">
                 {#if session.status === 'active'}
                   <button
                     on:click={() => handleEndSession(session.id)}
-                    class="text-red-600 hover:text-red-800 text-sm font-medium"
+                    class="text-rose-500 hover:text-rose-600 text-sm font-semibold transition-colors"
                   >
-                    End
+                    End Session
                   </button>
                 {:else}
-                  <span class="text-slate-400 text-sm">Ended</span>
+                  <span class="text-surface-300 text-sm font-medium">Ended</span>
                 {/if}
               </td>
             </tr>

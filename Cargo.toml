@@ -63,6 +63,15 @@ reqwest = { version = "0.12", features = ["json"] }
 # Environment variables
 dotenvy = "0.15"
 
+# Docker container management (for Sandbox)
+bollard = "0.17"
+
+# Async mutex for container pool
+dashmap = "5"
+
+# Async stream utilities
+futures-util = "0.3"
+
 [dev-dependencies]
 tokio-test = "0.4"
 tempfile = "3"

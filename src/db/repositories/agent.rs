@@ -127,7 +127,7 @@ impl AgentRepository {
         Ok(())
     }
 
-    pub async fn update_org(&self, agent_id: &str, org_id: Uuid) -> DbResult<()> {
+    pub async fn update_org(&self, agent_id: &str, org_id: Option<Uuid>) -> DbResult<()> {
         sqlx::query("UPDATE agents SET org_id = $1, updated_at = NOW() WHERE agent_id = $2")
             .bind(org_id)
             .bind(agent_id)

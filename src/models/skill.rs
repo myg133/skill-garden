@@ -2,6 +2,8 @@
 
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
+use uuid::Uuid;
+
 use super::skill_policy::Visibility;
 
 /// Skill 完整模型
@@ -19,6 +21,15 @@ pub struct Skill {
     pub version: String,
     /// 创建者 Agent ID
     pub author_agent_id: String,
+    /// 创建者 Identity ID
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub author_identity_id: Option<Uuid>,
+    /// 所有权类型: 'user' | 'organization'
+    #[serde(default = "default_owner_type")]
+    pub owner_type: String,
+    /// 所有者 ID
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub owner_id: Option<Uuid>,
     /// 创建时间
     pub created: DateTime<Utc>,
     /// 更新时间
@@ -41,6 +52,26 @@ pub struct Skill {
     /// Skill 引用的工具列表
     #[serde(default)]
     pub tools: Vec<String>,
+    /// 审核状态
+    #[serde(default = "default_review_status")]
+    pub review_status: String,
+    /// 审核人 ID
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub reviewed_by: Option<Uuid>,
+    /// 审核时间
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub reviewed_at: Option<DateTime<Utc>>,
+    /// 审核评论
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub review_comment: Option<String>,
+}
+
+fn default_owner_type() -> String {
+    "user".to_string()
+}
+
+fn default_review_status() -> String {
+    "draft".to_string()
 }
 
 impl Skill {
@@ -63,6 +94,9 @@ impl Skill {
             tags,
             version,
             author_agent_id,
+            author_identity_id: None,
+            owner_type: "user".to_string(),
+            owner_id: None,
             created: now,
             updated: now,
             compatibility: ">=1.0.0".to_string(),
@@ -72,6 +106,10 @@ impl Skill {
             git_url: None,
             visibility: Visibility::OrgVisible,
             tools: Vec::new(),
+            review_status: "draft".to_string(),
+            reviewed_by: None,
+            reviewed_at: None,
+            review_comment: None,
         }
     }
 
@@ -90,15 +128,28 @@ pub struct SkillMetadata {
     pub tags: Vec<String>,
     pub version: String,
     pub author_agent_id: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub author_identity_id: Option<Uuid>,
+    #[serde(default = "default_owner_type")]
+    pub owner_type: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub owner_id: Option<Uuid>,
     pub created: DateTime<Utc>,
     pub updated: DateTime<Utc>,
     pub install_count: u32,
-    /// Git 仓库 URL
+    pub status: String,
     #[serde(default)]
     pub git_url: Option<String>,
-    /// 可见性
     #[serde(default)]
     pub visibility: Visibility,
+    #[serde(default = "default_review_status")]
+    pub review_status: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub reviewed_by: Option<Uuid>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub reviewed_at: Option<DateTime<Utc>>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub review_comment: Option<String>,
 }
 
 impl From<&Skill> for SkillMetadata {
@@ -110,11 +161,19 @@ impl From<&Skill> for SkillMetadata {
             tags: skill.tags.clone(),
             version: skill.version.clone(),
             author_agent_id: skill.author_agent_id.clone(),
+            author_identity_id: skill.author_identity_id,
+            owner_type: skill.owner_type.clone(),
+            owner_id: skill.owner_id,
             created: skill.created,
             updated: skill.updated,
             install_count: skill.install_count,
+            status: skill.review_status.clone(),
             git_url: skill.git_url.clone(),
             visibility: skill.visibility.clone(),
+            review_status: skill.review_status.clone(),
+            reviewed_by: skill.reviewed_by,
+            reviewed_at: skill.reviewed_at,
+            review_comment: skill.review_comment.clone(),
         }
     }
 }
@@ -178,6 +237,10 @@ pub struct NewSkill {
     pub visibility: Option<Visibility>,
     #[serde(default)]
     pub tools: Option<Vec<String>>,
+    #[serde(default = "default_owner_type")]
+    pub owner_type: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub owner_id: Option<Uuid>,
 }
 
 fn default_version() -> String {

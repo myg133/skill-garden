@@ -8,7 +8,6 @@ use axum::{
 use chrono::{Duration, Utc};
 use jsonwebtoken::{decode, encode, DecodingKey, EncodingKey, Header, Validation};
 use serde::{Deserialize, Serialize};
-use uuid::Uuid;
 
 use super::error::ApiError;
 
@@ -16,13 +15,17 @@ fn get_jwt_secret() -> String {
     std::env::var("AION_HIVE_JWT_SECRET")
         .unwrap_or_else(|_| "aion_hive_secret_key_change_in_production".to_string())
 }
-const TOKEN_EXPIRY_HOURS: i64 = 24;
+
+fn get_jwt_expiry_hours() -> i64 {
+    std::env::var("AION_HIVE_JWT_EXPIRY_HOURS")
+        .ok()
+        .and_then(|v| v.parse().ok())
+        .unwrap_or(24)
+}
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Claims {
-    pub agent_id: String,
-    pub org_id: Option<Uuid>,
-    pub session_id: Option<Uuid>,
+    pub subject: String,
     pub roles: Vec<String>,
     pub scope: Vec<String>,
     pub exp: i64,
@@ -31,9 +34,7 @@ pub struct Claims {
 
 #[derive(Debug, Clone)]
 pub struct AgentContext {
-    pub agent_id: String,
-    pub org_id: Option<Uuid>,
-    pub session_id: Option<Uuid>,
+    pub subject: String,
     pub roles: Vec<String>,
     pub scope: Vec<String>,
 }
@@ -41,24 +42,19 @@ pub struct AgentContext {
 pub struct JwtAuth;
 
 impl AgentContext {
-    pub fn new(agent_id: String) -> Self {
+    pub fn new(subject: String) -> Self {
         Self {
-            agent_id,
-            org_id: None,
-            session_id: None,
+            subject,
             roles: vec![],
             scope: vec![],
         }
     }
 
-    pub fn with_org(mut self, org_id: Uuid) -> Self {
-        self.org_id = Some(org_id);
-        self
-    }
-
-    pub fn with_session(mut self, session_id: Uuid) -> Self {
-        self.session_id = Some(session_id);
-        self
+    pub fn require_admin(&self) -> Result<(), ApiError> {
+        if !self.roles.iter().any(|r| r == "admin") {
+            return Err(ApiError::Unauthorized("Admin access required".to_string()));
+        }
+        Ok(())
     }
 
     pub fn with_roles(mut self, roles: Vec<String>) -> Self {
@@ -72,26 +68,14 @@ impl AgentContext {
     }
 }
 
-pub fn generate_token(agent_id: &str, roles: Vec<String>, scope: Vec<String>) -> Result<String, ApiError> {
-    generate_token_with_context(agent_id, None, None, roles, scope)
-}
-
-pub fn generate_token_with_context(
-    agent_id: &str,
-    org_id: Option<Uuid>,
-    session_id: Option<Uuid>,
-    roles: Vec<String>,
-    scope: Vec<String>,
-) -> Result<String, ApiError> {
+pub fn generate_token(subject: &str, roles: &[&str], scope: &[&str]) -> Result<String, ApiError> {
     let now = Utc::now();
-    let exp = now + Duration::hours(TOKEN_EXPIRY_HOURS);
+    let exp = now + Duration::hours(get_jwt_expiry_hours());
 
     let claims = Claims {
-        agent_id: agent_id.to_string(),
-        org_id,
-        session_id,
-        roles,
-        scope,
+        subject: subject.to_string(),
+        roles: roles.iter().map(|s| s.to_string()).collect(),
+        scope: scope.iter().map(|s| s.to_string()).collect(),
         exp: exp.timestamp(),
         iat: now.timestamp(),
     };
@@ -133,9 +117,7 @@ impl<S: Send + Sync> FromRequestParts<S> for AgentContext {
         let claims = verify_token(token)?;
 
         Ok(AgentContext {
-            agent_id: claims.agent_id,
-            org_id: claims.org_id,
-            session_id: claims.session_id,
+            subject: claims.subject,
             roles: claims.roles,
             scope: claims.scope,
         })
@@ -148,30 +130,9 @@ mod tests {
 
     #[test]
     fn test_generate_and_verify_token() {
-        let token = generate_token("agent-1", vec!["admin".to_string()], vec!["read".to_string()]).unwrap();
+        let token = generate_token("user-1", &["admin"], &["read"]).unwrap();
         let claims = verify_token(&token).unwrap();
-        assert_eq!(claims.agent_id, "agent-1");
-        assert_eq!(claims.roles, vec!["admin"]);
-        assert_eq!(claims.scope, vec!["read"]);
-        assert!(claims.org_id.is_none());
-        assert!(claims.session_id.is_none());
-    }
-
-    #[test]
-    fn test_generate_token_with_context() {
-        let org_id = Uuid::new_v4();
-        let session_id = Uuid::new_v4();
-        let token = generate_token_with_context(
-            "agent-1",
-            Some(org_id),
-            Some(session_id),
-            vec!["admin".to_string()],
-            vec!["read".to_string()],
-        ).unwrap();
-        let claims = verify_token(&token).unwrap();
-        assert_eq!(claims.agent_id, "agent-1");
-        assert_eq!(claims.org_id, Some(org_id));
-        assert_eq!(claims.session_id, Some(session_id));
+        assert_eq!(claims.subject, "user-1");
         assert_eq!(claims.roles, vec!["admin"]);
         assert_eq!(claims.scope, vec!["read"]);
     }
@@ -184,16 +145,10 @@ mod tests {
 
     #[test]
     fn test_agent_context_builder() {
-        let org_id = Uuid::new_v4();
-        let session_id = Uuid::new_v4();
-        let ctx = AgentContext::new("agent-1".to_string())
-            .with_org(org_id)
-            .with_session(session_id)
+        let ctx = AgentContext::new("user-1".to_string())
             .with_roles(vec!["admin".to_string()])
             .with_scope(vec!["write".to_string()]);
-        assert_eq!(ctx.agent_id, "agent-1");
-        assert_eq!(ctx.org_id, Some(org_id));
-        assert_eq!(ctx.session_id, Some(session_id));
+        assert_eq!(ctx.subject, "user-1");
         assert_eq!(ctx.roles, vec!["admin"]);
         assert_eq!(ctx.scope, vec!["write"]);
     }

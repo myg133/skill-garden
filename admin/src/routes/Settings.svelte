@@ -1,14 +1,26 @@
 <script>
+  import { onMount } from 'svelte';
   import { addToast } from '../stores/app.js';
+  import { api } from '../lib/api.js';
 
-  // Webhook URLs from env
   let webhookUrls = '';
   let saving = false;
+  let status = null;
+  let loading = true;
+  let error = null;
+
+  onMount(async () => {
+    try {
+      status = await api.getAdminStatus();
+    } catch (e) {
+      error = e.message;
+    } finally {
+      loading = false;
+    }
+  });
 
   function handleSaveWebhooks() {
     saving = true;
-    // In production, this would call an API to update the webhook configuration
-    // For now, we just show a success message
     setTimeout(() => {
       saving = false;
       addToast('Settings saved', 'success');
@@ -22,47 +34,54 @@
   }
 </script>
 
-<div class="p-6 max-w-4xl mx-auto">
-  <div class="mb-6">
-    <h1 class="text-2xl font-semibold text-slate-900">Settings</h1>
-    <p class="text-slate-500 text-sm mt-1">Configure system settings</p>
+<div class="p-6 max-w-4xl mx-auto fade-in">
+  <div class="page-header">
+    <h1 class="text-[28px] font-extrabold text-surface-800 tracking-tight">Settings</h1>
+    <p class="text-surface-500 text-sm mt-1.5 font-medium">Configure system and view runtime status</p>
   </div>
 
-  <div class="space-y-6">
-    <!-- Webhook Configuration -->
-    <div class="bg-white rounded-xl border border-slate-200 shadow-sm">
-      <div class="px-6 py-4 border-b border-slate-200">
-        <h2 class="text-lg font-semibold text-slate-900">Evaluation Webhooks</h2>
-        <p class="text-slate-500 text-sm mt-1">Receive evaluation events at multiple endpoints</p>
+  {#if loading}
+    <div class="bg-sky-50 rounded-2xl border border-indigo-200 shadow-card p-8 text-center">
+      <p class="text-surface-400 text-sm">Loading server status...</p>
+    </div>
+  {:else if error}
+    <div class="bg-sky-50 rounded-2xl border border-indigo-200 shadow-card p-8 text-center">
+      <p class="text-red-500 text-sm">Failed to load status: {error}</p>
+    </div>
+  {:else}
+  <div class="space-y-5">
+    <div class="gradient-card-sky-light rounded-2xl border border-sky-200/60 shadow-card">
+      <div class="px-6 py-4 border-b border-sky-200/60">
+        <h2 class="font-semibold text-surface-800 text-sm">Evaluation Webhooks</h2>
+        <p class="text-surface-400 text-xs mt-0.5">Receive evaluation events at multiple endpoints</p>
       </div>
       <div class="p-6">
         <div class="mb-4">
-          <label class="block text-sm font-medium text-slate-700 mb-2">
-            Webhook URLs <span class="text-slate-400 font-normal">(comma-separated or one per line)</span>
+          <label for="webhook-urls" class="block text-sm font-semibold text-surface-500 mb-2">
+            Webhook URLs <span class="text-surface-400 font-normal">(comma-separated or one per line)</span>
           </label>
           <textarea
+            id="webhook-urls"
             bind:value={webhookUrls}
             rows="4"
-            placeholder="https://analytics.example.com/webhook&#10;https://monitoring.example.com/eval"
-            class="w-full px-4 py-2 border border-slate-300 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 outline-none font-mono text-sm"
+            placeholder="https://analytics.example.com/webhookl"
+            class="w-full px-4 py-2.5 border border-surface-200 rounded-xl input-focus outline-none font-mono text-sm transition-all bg-surface-50"
           ></textarea>
-          <p class="text-slate-500 text-xs mt-2">
+          <p class="text-surface-400 text-xs mt-2">
             Set via AION_HIVE_EVAL_WEBHOOK_URLS environment variable
           </p>
         </div>
         <div class="flex items-center justify-between">
-          <div class="flex gap-2">
-            <button
-              on:click={addWebhookUrl}
-              class="text-indigo-600 hover:text-indigo-800 text-sm font-medium"
-            >
-              + Add Line
-            </button>
-          </div>
+          <button
+            on:click={addWebhookUrl}
+            class="text-brand-600 hover:text-brand-700 text-sm font-medium transition-colors"
+          >
+            + Add Line
+          </button>
           <button
             on:click={handleSaveWebhooks}
             disabled={saving}
-            class="bg-indigo-600 hover:bg-indigo-700 disabled:bg-slate-300 text-white px-4 py-2 rounded-lg font-medium text-sm transition-colors"
+            class="btn-primary px-4 py-2 rounded-xl font-semibold text-sm disabled:opacity-50 disabled:cursor-not-allowed"
           >
             {saving ? 'Saving...' : 'Save Settings'}
           </button>
@@ -70,75 +89,87 @@
       </div>
     </div>
 
-    <!-- Environment Info -->
-    <div class="bg-white rounded-xl border border-slate-200 shadow-sm">
-      <div class="px-6 py-4 border-b border-slate-200">
-        <h2 class="text-lg font-semibold text-slate-900">Environment</h2>
-        <p class="text-slate-500 text-sm mt-1">Runtime configuration</p>
+    <div class="gradient-card-brand-light rounded-2xl border border-brand-200/60 shadow-card">
+      <div class="px-6 py-4 border-b border-brand-200/60">
+        <h2 class="font-semibold text-surface-800 text-sm">Environment</h2>
+        <p class="text-surface-400 text-xs mt-0.5">Runtime configuration</p>
       </div>
       <div class="p-6">
         <div class="grid grid-cols-2 gap-4">
-          <div class="bg-slate-50 rounded-lg p-4">
-            <p class="text-slate-500 text-xs uppercase tracking-wider mb-1">Transport Mode</p>
-            <p class="text-slate-900 font-mono text-sm">stdio</p>
+          <div class=" bg-sky-50/80 rounded-xl p-4 border border-brand-200/40 card">
+            <p class="text-surface-400 text-[11px] uppercase tracking-wider font-semibold mb-1.5">Version</p>
+            <p class="text-surface-800 font-mono text-sm font-semibold">v{status.version}</p>
           </div>
-          <div class="bg-slate-50 rounded-lg p-4">
-            <p class="text-slate-500 text-xs uppercase tracking-wider mb-1">HTTP Port</p>
-            <p class="text-slate-900 font-mono text-sm">8080</p>
+          <div class=" bg-sky-50/80 rounded-xl p-4 border border-brand-200/40 card">
+            <p class="text-surface-400 text-[11px] uppercase tracking-wider font-semibold mb-1.5">Transport</p>
+            <p class="text-surface-800 font-mono text-sm font-semibold">{status.transport_mode}</p>
           </div>
-          <div class="bg-slate-50 rounded-lg p-4">
-            <p class="text-slate-500 text-xs uppercase tracking-wider mb-1">Data Directory</p>
-            <p class="text-slate-900 font-mono text-sm">./data</p>
+          <div class=" bg-sky-50/80 rounded-xl p-4 border border-brand-200/40 card">
+            <p class="text-surface-400 text-[11px] uppercase tracking-wider font-semibold mb-1.5">HTTP Port</p>
+            <p class="text-surface-800 font-mono text-sm font-semibold">{status.http_port}</p>
           </div>
-          <div class="bg-slate-50 rounded-lg p-4">
-            <p class="text-slate-500 text-xs uppercase tracking-wider mb-1">Skills Directory</p>
-            <p class="text-slate-900 font-mono text-sm">./skills</p>
+          <div class=" bg-sky-50/80 rounded-xl p-4 border border-brand-200/40 card">
+            <p class="text-surface-400 text-[11px] uppercase tracking-wider font-semibold mb-1.5">Data Directory</p>
+            <p class="text-surface-800 font-mono text-sm font-semibold">{status.data_dir}</p>
+          </div>
+          <div class=" bg-sky-50/80 rounded-xl p-4 border border-brand-200/40 card">
+            <p class="text-surface-400 text-[11px] uppercase tracking-wider font-semibold mb-1.5">Skills Directory</p>
+            <p class="text-surface-800 font-mono text-sm font-semibold">{status.skills_dir}</p>
           </div>
         </div>
       </div>
     </div>
 
-    <!-- Security -->
-    <div class="bg-white rounded-xl border border-slate-200 shadow-sm">
-      <div class="px-6 py-4 border-b border-slate-200">
-        <h2 class="text-lg font-semibold text-slate-900">Security</h2>
-        <p class="text-slate-500 text-sm mt-1">JWT and authentication settings</p>
+    <div class="gradient-card-green-light rounded-2xl border border-emerald-200/60 shadow-card">
+      <div class="px-6 py-4 border-b border-emerald-200/60">
+        <h2 class="font-semibold text-surface-800 text-sm">Security</h2>
+        <p class="text-surface-400 text-xs mt-0.5">JWT and authentication settings</p>
       </div>
       <div class="p-6">
         <div class="space-y-4">
           <div class="flex items-center justify-between py-2">
             <div>
-              <p class="text-slate-900 font-medium">JWT Token Expiry</p>
-              <p class="text-slate-500 text-sm">24 hours</p>
+              <p class="text-surface-800 font-semibold text-sm">JWT Token Expiry</p>
+              <p class="text-surface-400 text-xs">{status.jwt_expiry_hours} hours</p>
             </div>
-            <span class="px-2 py-1 text-xs rounded-full bg-green-100 text-green-700">Configured</span>
+            <span class="inline-flex px-2.5 py-1 text-xs font-semibold rounded-full bg-emerald-100 text-emerald-700 ring-1 ring-emerald-600/20">Configured</span>
           </div>
-          <div class="flex items-center justify-between py-2 border-t border-slate-100">
+          <div class="flex items-center justify-between py-2 border-t border-emerald-200/60">
             <div>
-              <p class="text-slate-900 font-medium">Secret Key</p>
-              <p class="text-slate-500 text-sm">Environment variable</p>
+              <p class="text-surface-800 font-semibold text-sm">Secret Key</p>
+              <p class="text-surface-400 text-xs">Environment variable</p>
             </div>
-            <span class="px-2 py-1 text-xs rounded-full bg-green-100 text-green-700">Set</span>
+            <span class="inline-flex px-2.5 py-1 text-xs font-semibold rounded-full bg-emerald-100 text-emerald-700 ring-1 ring-emerald-600/20">Set</span>
           </div>
         </div>
       </div>
     </div>
 
-    <!-- Database -->
-    <div class="bg-white rounded-xl border border-slate-200 shadow-sm">
-      <div class="px-6 py-4 border-b border-slate-200">
-        <h2 class="text-lg font-semibold text-slate-900">Database</h2>
-        <p class="text-slate-500 text-sm mt-1">PostgreSQL connection</p>
+    <div class="gradient-card-rose-light rounded-2xl border border-rose-200/60 shadow-card">
+      <div class="px-6 py-4 border-b border-rose-200/60">
+        <h2 class="font-semibold text-surface-800 text-sm">Database</h2>
+        <p class="text-surface-400 text-xs mt-0.5">PostgreSQL connection</p>
       </div>
       <div class="p-6">
         <div class="flex items-center justify-between">
           <div>
-            <p class="text-slate-900 font-medium">PostgreSQL</p>
-            <p class="text-slate-500 text-sm font-mono">postgres://localhost:5432/aionhive</p>
+            <p class="text-surface-800 font-semibold text-sm">PostgreSQL</p>
+            <p class="text-surface-400 text-xs font-mono">{status.db_url}</p>
           </div>
-          <span class="px-2 py-1 text-xs rounded-full bg-green-100 text-green-700">Connected</span>
+          {#if status.db_connected}
+            <span class="inline-flex items-center gap-1.5 px-2.5 py-1 text-xs font-semibold rounded-full bg-emerald-100 text-emerald-700 ring-1 ring-emerald-600/20">
+              <span class="w-1.5 h-1.5 rounded-full bg-emerald-500 pulse-dot"></span>
+              Connected
+            </span>
+          {:else}
+            <span class="inline-flex items-center gap-1.5 px-2.5 py-1 text-xs font-semibold rounded-full bg-rose-100 text-rose-700 ring-1 ring-rose-600/20">
+              <span class="w-1.5 h-1.5 rounded-full bg-rose-500"></span>
+              Disconnected
+            </span>
+          {/if}
         </div>
       </div>
     </div>
   </div>
+  {/if}
 </div>

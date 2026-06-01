@@ -2,6 +2,7 @@ import { writable, derived } from 'svelte/store';
 
 const TOKEN_KEY = 'admin_token';
 const USERNAME_KEY = 'admin_username';
+const NAV_KEY = 'admin_selected_nav';
 
 function createAuthStore() {
   const { subscribe, set, update } = writable({
@@ -23,6 +24,7 @@ function createAuthStore() {
     logout() {
       localStorage.removeItem(TOKEN_KEY);
       localStorage.removeItem(USERNAME_KEY);
+      localStorage.removeItem(NAV_KEY);
       set({ token: null, username: null, loading: false, error: null });
     },
 
@@ -43,3 +45,9 @@ function createAuthStore() {
 export const auth = createAuthStore();
 
 export const isAuthenticated = derived(auth, $auth => !!$auth.token);
+
+export const selectedNav = writable(localStorage.getItem(NAV_KEY) || '/');
+
+selectedNav.subscribe(value => {
+  localStorage.setItem(NAV_KEY, value);
+});

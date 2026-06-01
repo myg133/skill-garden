@@ -4,7 +4,6 @@
   import SkillRow from '../components/SkillRow.svelte';
   import EmptyState from '../components/EmptyState.svelte';
   import LoadingSpinner from '../components/LoadingSpinner.svelte';
-  import Badge from '../components/Badge.svelte';
 
   let skills = [];
   let loading = true;
@@ -12,8 +11,9 @@
 
   onMount(async () => {
     try {
-      const res = await api.listSkills({ status: 'pending_review', limit: 50 });
-      skills = res.data || [];
+      const res = await api.listSkills({ page_size: 100 });
+      const allSkills = res.data || [];
+      skills = allSkills.filter(s => s.status === 'pending_review');
     } catch (e) {
       error = e.message;
     } finally {
@@ -22,28 +22,38 @@
   });
 </script>
 
-<div class="p-6">
-  <div class="flex items-center justify-between mb-6">
-    <h1 class="text-2xl font-semibold">Review Queue</h1>
-    <Badge status="pending_review" />
+<div class="p-8">
+  <div class="page-header flex items-center justify-between">
+    <div>
+      <h1 class="text-[28px] font-extrabold text-surface-800 tracking-tight">Review Queue</h1>
+      <p class="text-surface-500 text-sm mt-1.5 font-medium">Review and approve pending skill submissions</p>
+    </div>
+    <div class="flex items-center gap-3">
+      <span class="inline-flex items-center gap-1.5 px-3.5 py-2 bg-amber-50 text-amber-700 rounded-xl text-sm font-semibold ring-1 ring-amber-600/20">
+        <span class="w-1.5 h-1.5 rounded-full bg-amber-500 pulse-dot"></span>
+        {skills.length} pending
+      </span>
+    </div>
   </div>
 
   {#if loading}
     <LoadingSpinner />
   {:else if error}
-    <div class="text-red-500">{error}</div>
+    <div class="bg-rose-50 border border-rose-100 text-rose-600 px-5 py-4 rounded-2xl text-sm font-medium">{error}</div>
   {:else if skills.length === 0}
-    <EmptyState message="No pending skills to review" />
+    <div class="bg-sky-50 rounded-2xl border border-indigo-200 shadow-card">
+      <EmptyState message="No pending skills to review" />
+    </div>
   {:else}
-    <div class="bg-white rounded-lg border border-gray-200 overflow-hidden">
+    <div class="bg-sky-50 rounded-2xl border border-indigo-200 overflow-hidden shadow-card">
       <table class="w-full">
-        <thead class="bg-gray-50">
-          <tr>
-            <th class="px-4 py-3 text-left text-sm font-medium text-gray-600">Name</th>
-            <th class="px-4 py-3 text-left text-sm font-medium text-gray-600">Agent</th>
-            <th class="px-4 py-3 text-left text-sm font-medium text-gray-600">Tags</th>
-            <th class="px-4 py-3 text-left text-sm font-medium text-gray-600">Created</th>
-            <th class="px-4 py-3 text-left text-sm font-medium text-gray-600">Actions</th>
+        <thead>
+          <tr class="border-b border-surface-100 bg-gradient-to-r from-surface-50/80 to-transparent">
+            <th class="px-6 py-4 text-left text-xs font-semibold text-surface-400 uppercase tracking-wider">Name</th>
+            <th class="px-6 py-4 text-left text-xs font-semibold text-surface-400 uppercase tracking-wider">Agent</th>
+            <th class="px-6 py-4 text-left text-xs font-semibold text-surface-400 uppercase tracking-wider">Tags</th>
+            <th class="px-6 py-4 text-left text-xs font-semibold text-surface-400 uppercase tracking-wider">Created</th>
+            <th class="px-6 py-4 text-left text-xs font-semibold text-surface-400 uppercase tracking-wider">Actions</th>
           </tr>
         </thead>
         <tbody>

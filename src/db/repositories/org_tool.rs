@@ -158,6 +158,15 @@ impl OrgToolRepository {
 
         Ok(tool.map(|t| t.into()))
     }
+
+    pub async fn delete(&self, id: Uuid) -> DbResult<()> {
+        sqlx::query("DELETE FROM org_tools WHERE id = $1")
+            .bind(id)
+            .execute(&self.pool)
+            .await
+            .map_err(|e| DbError::QueryError(e.to_string()))?;
+        Ok(())
+    }
 }
 
 #[derive(sqlx::FromRow)]
