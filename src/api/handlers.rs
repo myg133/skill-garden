@@ -2496,9 +2496,13 @@ pub async fn list_org_reviews_handler(
 /// Session handlers
 
 pub async fn create_session_handler(
+    user: AdminUser,
     State(state): State<ApiState>,
     Json(body): Json<crate::api::models::CreateSessionBody>,
 ) -> Result<impl IntoResponse, ApiError> {
+    let tenant_id = org_tenant_id(&state, body.org_id).await?;
+    require_tenant_access(&state, &user, tenant_id).await?;
+
     let session = state.session.create_session(body.agent_id, body.org_id)
         .await
         .map_err(|e| ApiError::BadRequest(e.to_string()))?;
@@ -2507,20 +2511,23 @@ pub async fn create_session_handler(
 }
 
 pub async fn get_session_handler(
+    user: AdminUser,
     State(state): State<ApiState>,
     Path(session_id): Path<Uuid>,
 ) -> Result<impl IntoResponse, ApiError> {
     let session = state.session.get_session(session_id)
         .await
-        .map_err(|e| ApiError::InternalError(e.to_string()))?;
+        .map_err(|e| ApiError::InternalError(e.to_string()))?
+        .ok_or_else(|| ApiError::NotFound(format!("Session {} not found", session_id)))?;
 
-    match session {
-        Some(s) => Ok((StatusCode::OK, Json(serde_json::to_value(s).unwrap()))),
-        None => Err(ApiError::NotFound(format!("Session {} not found", session_id))),
-    }
+    let tenant_id = org_tenant_id(&state, session.org_id).await?;
+    require_tenant_access(&state, &user, tenant_id).await?;
+
+    Ok((StatusCode::OK, Json(serde_json::to_value(session).unwrap())))
 }
 
 pub async fn list_sessions_handler(
+    user: AdminUser,
     State(state): State<ApiState>,
     Query(query): Query<crate::api::models::ListSessionsQuery>,
 ) -> Result<impl IntoResponse, ApiError> {
@@ -2528,17 +2535,30 @@ pub async fn list_sessions_handler(
     let offset = query.offset.unwrap_or(0);
     let status = query.status.as_deref();
 
-    let sessions = state.session.list_sessions(limit, offset, status)
-        .await
-        .map_err(|e| ApiError::InternalError(e.to_string()))?;
+    let (is_super, allowed) = tenant_filter_for_user(&state, &user).await?;
+    let sessions = if is_super {
+        state.session.list_sessions(limit, offset, status).await
+    } else {
+        state.session.list_by_org_tenants(&allowed, limit, offset, status).await
+    }
+    .map_err(|e| ApiError::InternalError(e.to_string()))?;
 
     Ok((StatusCode::OK, Json(serde_json::json!({ "data": sessions }))))
 }
 
 pub async fn end_session_handler(
+    user: AdminUser,
     State(state): State<ApiState>,
     Path(session_id): Path<Uuid>,
 ) -> Result<impl IntoResponse, ApiError> {
+    let session = state.session.get_session(session_id)
+        .await
+        .map_err(|e| ApiError::InternalError(e.to_string()))?
+        .ok_or_else(|| ApiError::NotFound(format!("Session {} not found", session_id)))?;
+
+    let tenant_id = org_tenant_id(&state, session.org_id).await?;
+    require_tenant_access(&state, &user, tenant_id).await?;
+
     state.session.end_session(session_id)
         .await
         .map_err(|e| ApiError::BadRequest(e.to_string()))?;
@@ -2547,10 +2567,19 @@ pub async fn end_session_handler(
 }
 
 pub async fn session_declare_handler(
+    user: AdminUser,
     State(state): State<ApiState>,
     Path(session_id): Path<Uuid>,
     Json(body): Json<crate::api::models::SessionDeclareBody>,
 ) -> Result<impl IntoResponse, ApiError> {
+    let session = state.session.get_session(session_id)
+        .await
+        .map_err(|e| ApiError::InternalError(e.to_string()))?
+        .ok_or_else(|| ApiError::NotFound(format!("Session {} not found", session_id)))?;
+
+    let tenant_id = org_tenant_id(&state, session.org_id).await?;
+    require_tenant_access(&state, &user, tenant_id).await?;
+
     let router = state.session.declare_capabilities(session_id, body.capabilities)
         .await
         .map_err(|e| ApiError::BadRequest(e.to_string()))?;
