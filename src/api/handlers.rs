@@ -207,6 +207,23 @@ async fn group_tenant_id(state: &ApiState, group_id: Uuid) -> Result<Uuid, ApiEr
         .ok_or_else(|| ApiError::InternalError("Organization has no tenant".to_string()))
 }
 
+/// Resolve the tenant_id for a given organization. Used by the
+/// orgs-by-slug, sessions, and org-tools handler groups (Task 12) to
+/// drive the access check for single-resource endpoints where the
+/// resource is keyed by `org_id` (or via a join through it). Returns
+/// `InternalError` when the org has no tenant (i.e. tenant_id IS NULL) —
+/// per the org handler convention, tenant-less orgs are super_admin
+/// only and those handlers branch on `is_super_admin` directly.
+async fn org_tenant_id(state: &ApiState, org_id: Uuid) -> Result<Uuid, ApiError> {
+    let org = state
+        .organization
+        .get_org(org_id)
+        .await
+        .map_err(|e| ApiError::InternalError(e.to_string()))?;
+    org.tenant_id
+        .ok_or_else(|| ApiError::InternalError("Organization has no tenant".to_string()))
+}
+
 pub async fn list_groups_handler(
     user: AdminUser,
     State(state): State<ApiState>,
@@ -2052,6 +2069,7 @@ pub async fn get_org_stats_handler(
 }
 
 pub async fn get_org_by_slug_handler(
+    user: AdminUser,
     State(state): State<ApiState>,
     Path(slug): Path<String>,
 ) -> Result<impl IntoResponse, ApiError> {
@@ -2064,10 +2082,26 @@ pub async fn get_org_by_slug_handler(
         .map_err(|e| ApiError::BadRequest(e.to_string()))?
         .ok_or_else(|| ApiError::NotFound(format!("Organization '{}' not found", slug)))?;
 
+    if let Some(tenant_id) = org.tenant_id {
+        require_tenant_access(&state, &user, tenant_id).await?;
+    } else {
+        let is_super = state
+            .permission
+            .is_super_admin_user(user.identity_id)
+            .await
+            .map_err(|e| ApiError::InternalError(e.to_string()))?;
+        if !is_super {
+            return Err(ApiError::Forbidden(
+                "Organization is not tenant-scoped".to_string(),
+            ));
+        }
+    }
+
     Ok((StatusCode::OK, Json(serde_json::to_value(org).unwrap())))
 }
 
 pub async fn create_org_skill_handler(
+    user: AdminUser,
     State(state): State<ApiState>,
     Path(slug): Path<String>,
     AgentContext { subject, .. }: AgentContext,
@@ -2082,6 +2116,11 @@ pub async fn create_org_skill_handler(
         .await
         .map_err(|e| ApiError::BadRequest(e.to_string()))?
         .ok_or_else(|| ApiError::NotFound(format!("Organization '{}' not found", slug)))?;
+
+    let tenant_id = org
+        .tenant_id
+        .ok_or_else(|| ApiError::InternalError("Organization has no tenant".to_string()))?;
+    require_tenant_access(&state, &user, tenant_id).await?;
 
     let identity_id = uuid::Uuid::parse_str(&subject)
         .map_err(|_| ApiError::BadRequest("Invalid subject".to_string()))?;
@@ -2133,6 +2172,7 @@ pub async fn create_org_skill_handler(
 }
 
 pub async fn invite_org_member_handler(
+    user: AdminUser,
     State(state): State<ApiState>,
     Path(slug): Path<String>,
     AgentContext { subject, .. }: AgentContext,
@@ -2147,6 +2187,11 @@ pub async fn invite_org_member_handler(
         .await
         .map_err(|e| ApiError::BadRequest(e.to_string()))?
         .ok_or_else(|| ApiError::NotFound(format!("Organization '{}' not found", slug)))?;
+
+    let tenant_id = org
+        .tenant_id
+        .ok_or_else(|| ApiError::InternalError("Organization has no tenant".to_string()))?;
+    require_tenant_access(&state, &user, tenant_id).await?;
 
     let target_identity = state.identity.get_by_email(&body.email)
         .await
@@ -2207,6 +2252,7 @@ pub async fn invite_org_member_by_id_handler(
 }
 
 pub async fn update_org_member_handler(
+    user: AdminUser,
     State(state): State<ApiState>,
     Path((slug, username)): Path<(String, String)>,
     Json(body): Json<crate::api::models::UpdateOrgMemberBody>,
@@ -2220,6 +2266,11 @@ pub async fn update_org_member_handler(
         .await
         .map_err(|e| ApiError::BadRequest(e.to_string()))?
         .ok_or_else(|| ApiError::NotFound(format!("Organization '{}' not found", slug)))?;
+
+    let tenant_id = org
+        .tenant_id
+        .ok_or_else(|| ApiError::InternalError("Organization has no tenant".to_string()))?;
+    require_tenant_access(&state, &user, tenant_id).await?;
 
     let identity = state.identity.get_by_username(&username)
         .await
@@ -2238,6 +2289,7 @@ pub async fn update_org_member_handler(
 }
 
 pub async fn remove_org_member_by_slug_handler(
+    user: AdminUser,
     State(state): State<ApiState>,
     Path((slug, username)): Path<(String, String)>,
 ) -> Result<impl IntoResponse, ApiError> {
@@ -2250,6 +2302,11 @@ pub async fn remove_org_member_by_slug_handler(
         .await
         .map_err(|e| ApiError::BadRequest(e.to_string()))?
         .ok_or_else(|| ApiError::NotFound(format!("Organization '{}' not found", slug)))?;
+
+    let tenant_id = org
+        .tenant_id
+        .ok_or_else(|| ApiError::InternalError("Organization has no tenant".to_string()))?;
+    require_tenant_access(&state, &user, tenant_id).await?;
 
     let identity = state.identity.get_by_username(&username)
         .await
@@ -2327,6 +2384,7 @@ pub async fn remove_org_member_by_id_handler(
 }
 
 pub async fn list_org_members_by_slug_handler(
+    user: AdminUser,
     State(state): State<ApiState>,
     Path(slug): Path<String>,
 ) -> Result<impl IntoResponse, ApiError> {
@@ -2339,6 +2397,11 @@ pub async fn list_org_members_by_slug_handler(
         .await
         .map_err(|e| ApiError::BadRequest(e.to_string()))?
         .ok_or_else(|| ApiError::NotFound(format!("Organization '{}' not found", slug)))?;
+
+    let tenant_id = org
+        .tenant_id
+        .ok_or_else(|| ApiError::InternalError("Organization has no tenant".to_string()))?;
+    require_tenant_access(&state, &user, tenant_id).await?;
 
     let org_membership_repo = OrgMembershipRepository::new(pool);
     let members = org_membership_repo.list_members(org.id)
@@ -2371,6 +2434,7 @@ pub async fn list_org_members_by_id_handler(
 }
 
 pub async fn list_org_skills_handler(
+    user: AdminUser,
     State(state): State<ApiState>,
     Path(slug): Path<String>,
 ) -> Result<impl IntoResponse, ApiError> {
@@ -2383,6 +2447,11 @@ pub async fn list_org_skills_handler(
         .await
         .map_err(|e| ApiError::BadRequest(e.to_string()))?
         .ok_or_else(|| ApiError::NotFound(format!("Organization '{}' not found", slug)))?;
+
+    let tenant_id = org
+        .tenant_id
+        .ok_or_else(|| ApiError::InternalError("Organization has no tenant".to_string()))?;
+    require_tenant_access(&state, &user, tenant_id).await?;
 
     let skill_repo = SkillRepository::new(pool);
     let skills = skill_repo.list_by_org(&org.id.to_string())
@@ -2393,6 +2462,7 @@ pub async fn list_org_skills_handler(
 }
 
 pub async fn list_org_reviews_handler(
+    user: AdminUser,
     State(state): State<ApiState>,
     Path(slug): Path<String>,
 ) -> Result<impl IntoResponse, ApiError> {
@@ -2405,6 +2475,11 @@ pub async fn list_org_reviews_handler(
         .await
         .map_err(|e| ApiError::BadRequest(e.to_string()))?
         .ok_or_else(|| ApiError::NotFound(format!("Organization '{}' not found", slug)))?;
+
+    let tenant_id = org
+        .tenant_id
+        .ok_or_else(|| ApiError::InternalError("Organization has no tenant".to_string()))?;
+    require_tenant_access(&state, &user, tenant_id).await?;
 
     let skill_repo = SkillRepository::new(pool);
     let skills = skill_repo.list_by_org(&org.id.to_string())
