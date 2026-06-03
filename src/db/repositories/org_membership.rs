@@ -130,6 +130,28 @@ impl OrgMembershipRepository {
 
         Ok(orgs.into_iter().map(|o| (o.id, o.role)).collect())
     }
+
+    /// Return all distinct tenant_ids that the given identity is a member of,
+    /// via any of their organization memberships. Used by the tenant-scope
+    /// guard (Task 3) to verify single-tenant access and filter list
+    /// endpoints (Task 6+).
+    pub async fn list_user_tenants(&self, identity_id: Uuid) -> DbResult<Vec<Uuid>> {
+        let rows: Vec<(Uuid,)> = sqlx::query_as(
+            r#"
+            SELECT DISTINCT o.tenant_id
+            FROM org_memberships om
+            JOIN organizations o ON o.id = om.organization_id
+            WHERE om.identity_id = $1
+              AND o.tenant_id IS NOT NULL
+            "#,
+        )
+        .bind(identity_id)
+        .fetch_all(&self.pool)
+        .await
+        .map_err(|e| DbError::QueryError(e.to_string()))?;
+
+        Ok(rows.into_iter().map(|r| r.0).collect())
+    }
 }
 
 #[derive(sqlx::FromRow)]
