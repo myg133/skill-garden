@@ -186,28 +186,61 @@ pub async fn delete_identity_handler(
 
 // Group handlers
 
+/// Resolve the tenant_id that owns a group, via the join path
+/// `groups.organization_id -> organizations.id -> organizations.tenant_id`.
+/// The Group model has no direct `tenant_id`, so the access check has to
+/// walk one hop through the parent organization (mirrors the identity
+/// pattern from Task 7, which walks through `org_memberships`).
+async fn group_tenant_id(state: &ApiState, group_id: Uuid) -> Result<Uuid, ApiError> {
+    let group = state
+        .group
+        .get(group_id)
+        .await
+        .map_err(|e| ApiError::InternalError(e.to_string()))?
+        .ok_or_else(|| ApiError::NotFound("Group not found".to_string()))?;
+    let org = state
+        .organization
+        .get_org(group.organization_id)
+        .await
+        .map_err(|e| ApiError::InternalError(e.to_string()))?;
+    org.tenant_id
+        .ok_or_else(|| ApiError::InternalError("Organization has no tenant".to_string()))
+}
+
 pub async fn list_groups_handler(
+    user: AdminUser,
     State(state): State<ApiState>,
     Query(query): Query<crate::api::models::ListGroupsQuery>,
 ) -> Result<impl IntoResponse, ApiError> {
-    let org_id = query.organization_id;
-    let groups = if let Some(org_id) = org_id {
-        state.group.list_by_organization(org_id)
-            .await
-            .map_err(|e| ApiError::InternalError(e.to_string()))?
+    let limit = query.limit.unwrap_or(50).min(200);
+    let offset = query.offset.unwrap_or(0);
+    let (is_super, allowed) = tenant_filter_for_user(&state, &user).await?;
+    let groups = if is_super {
+        state.group.list().await
     } else {
-        state.group.list()
-            .await
-            .map_err(|e| ApiError::InternalError(e.to_string()))?
-    };
+        state.group.list_by_org_tenants(&allowed, limit, offset).await
+    }
+    .map_err(|e| ApiError::InternalError(e.to_string()))?;
     Ok((StatusCode::OK, Json(serde_json::json!({ "data": groups }))))
 }
 
 pub async fn create_group_handler(
+    user: AdminUser,
     State(state): State<ApiState>,
     AgentContext { subject, .. }: AgentContext,
     Json(body): Json<crate::api::models::CreateGroupBody>,
 ) -> Result<impl IntoResponse, ApiError> {
+    let org_id = body.organization_id;
+    let org = state
+        .organization
+        .get_org(org_id)
+        .await
+        .map_err(|e| ApiError::InternalError(e.to_string()))?;
+    let tenant_id = org
+        .tenant_id
+        .ok_or_else(|| ApiError::InternalError("Organization has no tenant".to_string()))?;
+    require_tenant_access(&state, &user, tenant_id).await?;
+
     let permission_overrides = body.permission_overrides.clone();
     let new_group: crate::models::group::NewGroup = body.into();
     let group = state.group.create(new_group)
@@ -248,9 +281,12 @@ pub async fn create_group_handler(
 }
 
 pub async fn get_group_handler(
+    user: AdminUser,
     State(state): State<ApiState>,
     Path(id): Path<Uuid>,
 ) -> Result<impl IntoResponse, ApiError> {
+    let tenant_id = group_tenant_id(&state, id).await?;
+    require_tenant_access(&state, &user, tenant_id).await?;
     let group = state.group.get(id)
         .await
         .map_err(|e| ApiError::NotFound(e.to_string()))?
@@ -259,10 +295,13 @@ pub async fn get_group_handler(
 }
 
 pub async fn update_group_handler(
+    user: AdminUser,
     State(state): State<ApiState>,
     Path(id): Path<Uuid>,
     Json(body): Json<crate::api::models::UpdateGroupBody>,
 ) -> Result<impl IntoResponse, ApiError> {
+    let tenant_id = group_tenant_id(&state, id).await?;
+    require_tenant_access(&state, &user, tenant_id).await?;
     let group = state.group.update(id, body.into())
         .await
         .map_err(|e| ApiError::BadRequest(e.to_string()))?;
@@ -270,9 +309,12 @@ pub async fn update_group_handler(
 }
 
 pub async fn delete_group_handler(
+    user: AdminUser,
     State(state): State<ApiState>,
     Path(id): Path<Uuid>,
 ) -> Result<impl IntoResponse, ApiError> {
+    let tenant_id = group_tenant_id(&state, id).await?;
+    require_tenant_access(&state, &user, tenant_id).await?;
     state.group.delete(id)
         .await
         .map_err(|e| ApiError::BadRequest(e.to_string()))?;

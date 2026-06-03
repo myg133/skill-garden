@@ -109,6 +109,38 @@ impl GroupRepository {
         Ok(groups.into_iter().map(|g| g.into()).collect())
     }
 
+    /// Return all groups that belong to an organization whose tenant_id is
+    /// in `tenant_ids`. Used by the tenant-scope guard (Task 8) to filter
+    /// the groups list endpoint to the caller's accessible tenants. The
+    /// join path is `groups.organization_id -> organizations.id ->
+    /// organizations.tenant_id` because the Group model has no direct
+    /// tenant_id.
+    pub async fn list_by_org_tenants(
+        &self,
+        tenant_ids: &[Uuid],
+        limit: i64,
+        offset: i64,
+    ) -> DbResult<Vec<Group>> {
+        let groups = sqlx::query_as::<_, GroupRow>(
+            r#"
+            SELECT g.id, g.organization_id, g.name, g.slug, g.description, g.group_type, g.settings, g.created_at, g.updated_at
+            FROM groups g
+            JOIN organizations o ON o.id = g.organization_id
+            WHERE o.tenant_id = ANY($1)
+            ORDER BY g.created_at DESC
+            LIMIT $2 OFFSET $3
+            "#,
+        )
+        .bind(tenant_ids)
+        .bind(limit)
+        .bind(offset)
+        .fetch_all(&self.pool)
+        .await
+        .map_err(|e| DbError::QueryError(e.to_string()))?;
+
+        Ok(groups.into_iter().map(|g| g.into()).collect())
+    }
+
     pub async fn update(&self, id: Uuid, update: GroupUpdate) -> DbResult<Group> {
         let current = self.find_by_id(id).await?.ok_or_else(|| DbError::NotFound("Group not found".to_string()))?;
 
