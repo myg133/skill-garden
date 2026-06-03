@@ -44,10 +44,10 @@ pub fn validate_skill_name(name: &str) -> Result<(), AppError> {
     // 检查字符
     if !name
         .chars()
-        .all(|c| c.is_alphanumeric() || c == '-' || c == '_' || c == ' ')
+        .all(|c| c.is_alphanumeric() || c == '-' || c == '_')
     {
         return Err(AppError::InvalidSkillName(format!(
-            "Invalid characters in '{}'. Only alphanumeric, hyphen, underscore, space allowed",
+            "Invalid characters in '{}'. Only alphanumeric, hyphen, underscore allowed",
             name
         )));
     }
