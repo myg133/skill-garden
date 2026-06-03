@@ -1755,10 +1755,32 @@ use uuid::Uuid;
 
 /// Organization handlers
 
+/// Create a new organization.
+///
+/// The body carries an optional `tenant_id`. If supplied, the caller
+/// must be a member of that tenant (or super_admin). If absent, the
+/// resulting org is "global" (not tenant-scoped) and only super_admin
+/// may create it — non-super callers cannot mint global orgs.
 pub async fn create_org_handler(
+    user: AdminUser,
     State(state): State<ApiState>,
     Json(body): Json<crate::api::models::CreateOrgBody>,
 ) -> Result<impl IntoResponse, ApiError> {
+    if let Some(tenant_id) = body.tenant_id {
+        require_tenant_access(&state, &user, tenant_id).await?;
+    } else {
+        let is_super = state
+            .permission
+            .is_super_admin_user(user.identity_id)
+            .await
+            .map_err(|e| ApiError::InternalError(e.to_string()))?;
+        if !is_super {
+            return Err(ApiError::Forbidden(
+                "Creating a tenant-less organization requires super_admin".to_string(),
+            ));
+        }
+    }
+
     let org = state.organization.create_org(body.name, body.slug, body.display_name, body.description, body.tenant_id)
         .await
         .map_err(|e| ApiError::BadRequest(e.to_string()))?;
@@ -1766,7 +1788,13 @@ pub async fn create_org_handler(
     Ok((StatusCode::CREATED, Json(serde_json::to_value(org).unwrap())))
 }
 
+/// Get an organization by id.
+///
+/// The org's `tenant_id` (if set) drives the access check via
+/// `require_tenant_access`. A `None` tenant means the org is global /
+/// not tenant-scoped — only super_admin may read it.
 pub async fn get_org_handler(
+    user: AdminUser,
     State(state): State<ApiState>,
     Path(org_id): Path<Uuid>,
 ) -> Result<impl IntoResponse, ApiError> {
@@ -1774,45 +1802,124 @@ pub async fn get_org_handler(
         .await
         .map_err(|e| ApiError::NotFound(e.to_string()))?;
 
+    if let Some(tenant_id) = org.tenant_id {
+        require_tenant_access(&state, &user, tenant_id).await?;
+    } else {
+        let is_super = state
+            .permission
+            .is_super_admin_user(user.identity_id)
+            .await
+            .map_err(|e| ApiError::InternalError(e.to_string()))?;
+        if !is_super {
+            return Err(ApiError::Forbidden(
+                "Organization is not tenant-scoped".to_string(),
+            ));
+        }
+    }
+
     Ok((StatusCode::OK, Json(serde_json::to_value(org).unwrap())))
 }
 
+/// List organizations.
+///
+/// super_admin sees all rows (including tenant-less / global orgs).
+/// Everyone else sees only orgs in the tenants returned by
+/// `tenant_filter_for_user`. The query's `tenant_id` is intentionally
+/// dropped for non-super callers — the caller's accessible tenants are
+/// the truth.
 pub async fn list_orgs_handler(
+    user: AdminUser,
     State(state): State<ApiState>,
     Query(query): Query<crate::api::models::ListOrgsQuery>,
 ) -> Result<impl IntoResponse, ApiError> {
     let limit = query.limit.unwrap_or(20).min(100);
     let offset = query.offset.unwrap_or(0);
 
-    let orgs = if let Some(tenant_id) = query.tenant_id {
-        state.organization.list_orgs_by_tenant(tenant_id, limit, offset)
-            .await
-            .map_err(|e| ApiError::InternalError(e.to_string()))?
+    let (is_super, allowed) = tenant_filter_for_user(&state, &user).await?;
+    let orgs = if is_super {
+        // super_admin: honor the optional `tenant_id` filter from the
+        // query when present, otherwise list everything.
+        if let Some(tenant_id) = query.tenant_id {
+            state.organization.list_orgs_by_tenant(tenant_id, limit, offset).await
+        } else {
+            state.organization.list_orgs(limit, offset).await
+        }
     } else {
-        state.organization.list_orgs(limit, offset)
-            .await
-            .map_err(|e| ApiError::InternalError(e.to_string()))?
-    };
+        // Non-super: caller's accessible tenants are the truth;
+        // drop the `tenant_id` filter from the query.
+        let _ = query.tenant_id;
+        state.organization.list_by_tenants(&allowed, limit, offset).await
+    }
+    .map_err(|e| ApiError::InternalError(e.to_string()))?;
 
     Ok((StatusCode::OK, Json(serde_json::json!({ "data": orgs }))))
 }
 
+/// Update an organization.
+///
+/// Pre-fetches the org to run the tenant-scope check before the
+/// mutation (one extra round-trip, but the cleanest place to enforce
+/// scope). Same None-tenant rule as `get_org_handler`.
 pub async fn update_org_handler(
+    user: AdminUser,
     State(state): State<ApiState>,
     Path(org_id): Path<Uuid>,
     Json(body): Json<crate::api::models::UpdateOrgBody>,
 ) -> Result<impl IntoResponse, ApiError> {
-    let org = state.organization.update_org(org_id, body.name, body.display_name, body.description)
+    let org = state.organization.get_org(org_id)
+        .await
+        .map_err(|e| ApiError::NotFound(e.to_string()))?;
+
+    if let Some(tenant_id) = org.tenant_id {
+        require_tenant_access(&state, &user, tenant_id).await?;
+    } else {
+        let is_super = state
+            .permission
+            .is_super_admin_user(user.identity_id)
+            .await
+            .map_err(|e| ApiError::InternalError(e.to_string()))?;
+        if !is_super {
+            return Err(ApiError::Forbidden(
+                "Organization is not tenant-scoped".to_string(),
+            ));
+        }
+    }
+
+    let updated = state.organization.update_org(org_id, body.name, body.display_name, body.description)
         .await
         .map_err(|e| ApiError::BadRequest(e.to_string()))?;
 
-    Ok((StatusCode::OK, Json(serde_json::to_value(org).unwrap())))
+    Ok((StatusCode::OK, Json(serde_json::to_value(updated).unwrap())))
 }
 
+/// Delete an organization.
+///
+/// Pre-fetches the org to run the tenant-scope check before the
+/// mutation. Same None-tenant rule as `get_org_handler`.
 pub async fn delete_org_handler(
+    user: AdminUser,
     State(state): State<ApiState>,
     Path(org_id): Path<Uuid>,
 ) -> Result<impl IntoResponse, ApiError> {
+    let org = state.organization.get_org(org_id)
+        .await
+        .map_err(|e| ApiError::NotFound(e.to_string()))?;
+
+    if let Some(tenant_id) = org.tenant_id {
+        require_tenant_access(&state, &user, tenant_id).await?;
+    } else {
+        let is_super = state
+            .permission
+            .is_super_admin_user(user.identity_id)
+            .await
+            .map_err(|e| ApiError::InternalError(e.to_string()))?;
+        if !is_super {
+            return Err(ApiError::Forbidden(
+                "Organization is not tenant-scoped".to_string(),
+            ));
+        }
+    }
+
     state.organization.delete_org(org_id)
         .await
         .map_err(|e| ApiError::BadRequest(e.to_string()))?;

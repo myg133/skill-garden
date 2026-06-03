@@ -1,9 +1,9 @@
 //! Organization Service
 
-use uuid::Uuid;
 use crate::db::repositories::organization::OrganizationRepository;
-use crate::models::organization::{Organization, NewOrganization};
 use crate::models::error::AppError;
+use crate::models::organization::{NewOrganization, Organization};
+use uuid::Uuid;
 
 #[derive(Clone)]
 pub struct OrganizationService {
@@ -41,38 +41,74 @@ impl OrganizationService {
             settings: None,
         };
 
-        self.org_repo.create(new_org)
+        self.org_repo
+            .create(new_org)
             .await
             .map_err(|e| AppError::InternalError(e.to_string()))
     }
 
     pub async fn get_org(&self, id: Uuid) -> Result<Organization, AppError> {
-        self.org_repo.find_by_id(id)
+        self.org_repo
+            .find_by_id(id)
             .await
             .map_err(|e| AppError::InternalError(e.to_string()))?
             .ok_or_else(|| AppError::ValidationError(format!("Organization {} not found", id)))
     }
 
     pub async fn list_orgs(&self, limit: i64, offset: i64) -> Result<Vec<Organization>, AppError> {
-        self.org_repo.list(limit, offset)
+        self.org_repo
+            .list(limit, offset)
             .await
             .map_err(|e| AppError::InternalError(e.to_string()))
     }
 
-    pub async fn list_orgs_by_tenant(&self, tenant_id: Uuid, limit: i64, offset: i64) -> Result<Vec<Organization>, AppError> {
-        self.org_repo.list_by_tenant(tenant_id, limit, offset)
+    pub async fn list_orgs_by_tenant(
+        &self,
+        tenant_id: Uuid,
+        limit: i64,
+        offset: i64,
+    ) -> Result<Vec<Organization>, AppError> {
+        self.org_repo
+            .list_by_tenant(tenant_id, limit, offset)
             .await
             .map_err(|e| AppError::InternalError(e.to_string()))
     }
 
-    pub async fn update_org(&self, id: Uuid, name: String, display_name: Option<String>, description: Option<String>) -> Result<Organization, AppError> {
-        self.org_repo.update(id, name, display_name, description)
+    /// List organizations whose `tenant_id` is in `tenant_ids`. Used by
+    /// the tenant-scope guard (Task 11) to restrict list endpoints to
+    /// the caller's accessible tenants. An empty `tenant_ids` returns
+    /// an empty result (caller should branch on `is_super` first).
+    pub async fn list_by_tenants(
+        &self,
+        tenant_ids: &[Uuid],
+        limit: i64,
+        offset: i64,
+    ) -> Result<Vec<Organization>, AppError> {
+        if tenant_ids.is_empty() {
+            return Ok(Vec::new());
+        }
+        self.org_repo
+            .list_by_tenants(tenant_ids, limit, offset)
+            .await
+            .map_err(|e| AppError::InternalError(e.to_string()))
+    }
+
+    pub async fn update_org(
+        &self,
+        id: Uuid,
+        name: String,
+        display_name: Option<String>,
+        description: Option<String>,
+    ) -> Result<Organization, AppError> {
+        self.org_repo
+            .update(id, name, display_name, description)
             .await
             .map_err(|e| AppError::InternalError(e.to_string()))
     }
 
     pub async fn delete_org(&self, id: Uuid) -> Result<(), AppError> {
-        self.org_repo.delete(id)
+        self.org_repo
+            .delete(id)
             .await
             .map_err(|e| AppError::InternalError(e.to_string()))
     }

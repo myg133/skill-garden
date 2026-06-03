@@ -1,12 +1,12 @@
 //! Organization repository
 
 use chrono::{DateTime, Utc};
+use serde_json::Value as JsonValue;
 use sqlx::PgPool;
 use uuid::Uuid;
-use serde_json::Value as JsonValue;
 
 use crate::db::error::{DbError, DbResult};
-use crate::models::organization::{Organization, NewOrganization};
+use crate::models::organization::{NewOrganization, Organization};
 
 #[derive(Clone)]
 pub struct OrganizationRepository {
@@ -105,7 +105,12 @@ impl OrganizationRepository {
         Ok(orgs.into_iter().map(|o| o.into()).collect())
     }
 
-    pub async fn list_by_tenant(&self, tenant_id: Uuid, limit: i64, offset: i64) -> DbResult<Vec<Organization>> {
+    pub async fn list_by_tenant(
+        &self,
+        tenant_id: Uuid,
+        limit: i64,
+        offset: i64,
+    ) -> DbResult<Vec<Organization>> {
         let orgs = sqlx::query_as::<_, OrganizationRow>(
             r#"
             SELECT o.id, o.name, o.slug, o.display_name, o.description, o.tenant_id,
@@ -128,7 +133,50 @@ impl OrganizationRepository {
         Ok(orgs.into_iter().map(|o| o.into()).collect())
     }
 
-    pub async fn update(&self, id: Uuid, name: String, display_name: Option<String>, description: Option<String>) -> DbResult<Organization> {
+    /// List organizations whose `tenant_id` is in `tenant_ids` (any-of).
+    /// Used by the tenant-scope guard (Task 11) for list endpoints
+    /// restricted to the caller's accessible tenants. An empty
+    /// `tenant_ids` slice returns no rows (caller should branch on
+    /// `is_super` first and only call this for non-super callers with
+    /// a non-empty set).
+    pub async fn list_by_tenants(
+        &self,
+        tenant_ids: &[Uuid],
+        limit: i64,
+        offset: i64,
+    ) -> DbResult<Vec<Organization>> {
+        if tenant_ids.is_empty() {
+            return Ok(Vec::new());
+        }
+        let orgs = sqlx::query_as::<_, OrganizationRow>(
+            r#"
+            SELECT o.id, o.name, o.slug, o.display_name, o.description, o.tenant_id,
+                   t.name AS tenant_name,
+                   o.org_type, o.visibility, o.avatar_url, o.status, o.settings, o.created_at, o.updated_at
+            FROM organizations o
+            LEFT JOIN tenants t ON o.tenant_id = t.id
+            WHERE o.tenant_id = ANY($1)
+            ORDER BY o.created_at DESC
+            LIMIT $2 OFFSET $3
+            "#,
+        )
+        .bind(tenant_ids)
+        .bind(limit)
+        .bind(offset)
+        .fetch_all(&self.pool)
+        .await
+        .map_err(|e| DbError::QueryError(e.to_string()))?;
+
+        Ok(orgs.into_iter().map(|o| o.into()).collect())
+    }
+
+    pub async fn update(
+        &self,
+        id: Uuid,
+        name: String,
+        display_name: Option<String>,
+        description: Option<String>,
+    ) -> DbResult<Organization> {
         sqlx::query(
             "UPDATE organizations SET name = $1, display_name = $2, description = $3, updated_at = NOW() WHERE id = $4",
         )
