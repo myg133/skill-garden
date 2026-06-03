@@ -1,10 +1,10 @@
 //! Session repository
 
 use chrono::{DateTime, Utc};
-use sqlx::PgPool;
-use uuid::Uuid;
 use serde::{Deserialize, Serialize};
 use serde_json::Value as JsonValue;
+use sqlx::PgPool;
+use uuid::Uuid;
 
 use crate::db::error::{DbError, DbResult};
 
@@ -86,7 +86,12 @@ impl SessionRepository {
         Ok(sessions.into_iter().map(|s| s.into()).collect())
     }
 
-    pub async fn list_all(&self, limit: i64, offset: i64, status: Option<&str>) -> DbResult<Vec<Session>> {
+    pub async fn list_all(
+        &self,
+        limit: i64,
+        offset: i64,
+        status: Option<&str>,
+    ) -> DbResult<Vec<Session>> {
         let sessions = match status {
             Some("active") => {
                 sqlx::query_as::<_, SessionRow>(
@@ -135,6 +140,43 @@ impl SessionRepository {
         }.map_err(|e| DbError::QueryError(e.to_string()))?;
 
         Ok(sessions.into_iter().map(|s| s.into()).collect())
+    }
+
+    pub async fn list_by_org_tenants(
+        &self,
+        tenant_ids: &[Uuid],
+        limit: i64,
+        offset: i64,
+        status: Option<&str>,
+    ) -> DbResult<Vec<Session>> {
+        if tenant_ids.is_empty() {
+            return Ok(Vec::new());
+        }
+        let status_filter = match status {
+            Some("active") => " AND s.status = 'active'",
+            Some("ended") => " AND s.status = 'ended'",
+            _ => "",
+        };
+        let sql = format!(
+            r#"
+            SELECT s.id, s.agent_id, s.org_id, s.status, s.tool_router, s.capabilities,
+                   s.created_at, s.last_active_at, s.ended_at
+            FROM sessions s
+            JOIN organizations o ON o.id = s.org_id
+            WHERE o.tenant_id = ANY($1){}
+            ORDER BY s.last_active_at DESC
+            LIMIT $2 OFFSET $3
+            "#,
+            status_filter
+        );
+        let rows = sqlx::query_as::<_, SessionRow>(&sql)
+            .bind(tenant_ids)
+            .bind(limit)
+            .bind(offset)
+            .fetch_all(&self.pool)
+            .await
+            .map_err(|e| DbError::QueryError(e.to_string()))?;
+        Ok(rows.into_iter().map(|s| s.into()).collect())
     }
 
     pub async fn end_session(&self, id: Uuid) -> DbResult<()> {

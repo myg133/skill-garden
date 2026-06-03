@@ -1,10 +1,10 @@
 //! Organization Tool repository
 
 use chrono::{DateTime, Utc};
-use sqlx::PgPool;
-use uuid::Uuid;
 use serde::{Deserialize, Serialize};
 use serde_json::Value as JsonValue;
+use sqlx::PgPool;
+use uuid::Uuid;
 
 use crate::db::error::{DbError, DbResult};
 
@@ -110,6 +110,35 @@ impl OrgToolRepository {
             "#,
         )
         .bind(org_id)
+        .fetch_all(&self.pool)
+        .await
+        .map_err(|e| DbError::QueryError(e.to_string()))?;
+
+        Ok(tools.into_iter().map(|t| t.into()).collect())
+    }
+
+    pub async fn list_by_org_tenants(
+        &self,
+        tenant_ids: &[Uuid],
+        limit: i64,
+        offset: i64,
+    ) -> DbResult<Vec<OrgTool>> {
+        if tenant_ids.is_empty() {
+            return Ok(Vec::new());
+        }
+        let tools = sqlx::query_as::<_, OrgToolRow>(
+            r#"
+            SELECT id, tool_id, org_id, name, description, schema, implementation, status, created_at
+            FROM org_tools t
+            JOIN organizations o ON o.id = t.org_id
+            WHERE o.tenant_id = ANY($1)
+            ORDER BY t.created_at DESC
+            LIMIT $2 OFFSET $3
+            "#,
+        )
+        .bind(tenant_ids)
+        .bind(limit)
+        .bind(offset)
         .fetch_all(&self.pool)
         .await
         .map_err(|e| DbError::QueryError(e.to_string()))?;

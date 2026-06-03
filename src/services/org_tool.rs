@@ -1,9 +1,9 @@
 //! Organization Tool Service
 
-use uuid::Uuid;
-use serde_json::Value as JsonValue;
-use crate::db::repositories::org_tool::{OrgToolRepository, NewOrgTool, OrgTool as OrgToolRepo};
+use crate::db::repositories::org_tool::{NewOrgTool, OrgTool as OrgToolRepo, OrgToolRepository};
 use crate::models::error::AppError;
+use serde_json::Value as JsonValue;
+use uuid::Uuid;
 
 #[derive(Clone)]
 pub struct OrgToolService {
@@ -39,49 +39,72 @@ impl OrgToolService {
             implementation,
         };
 
-        self.org_tool_repo.create(new_tool)
+        self.org_tool_repo
+            .create(new_tool)
             .await
             .map_err(|e| AppError::InternalError(e.to_string()))
     }
 
     pub async fn approve_tool(&self, tool_id: Uuid) -> Result<(), AppError> {
-        self.org_tool_repo.update_status(tool_id, "approved")
+        self.org_tool_repo
+            .update_status(tool_id, "approved")
             .await
             .map_err(|e| AppError::InternalError(e.to_string()))
     }
 
     pub async fn reject_tool(&self, tool_id: Uuid) -> Result<(), AppError> {
-        self.org_tool_repo.update_status(tool_id, "rejected")
+        self.org_tool_repo
+            .update_status(tool_id, "rejected")
             .await
             .map_err(|e| AppError::InternalError(e.to_string()))
     }
 
     pub async fn list_org_tools(&self, org_id: Uuid) -> Result<Vec<OrgToolRepo>, AppError> {
-        self.org_tool_repo.find_by_org(org_id)
+        self.org_tool_repo
+            .find_by_org(org_id)
             .await
             .map_err(|e| AppError::InternalError(e.to_string()))
     }
 
     pub async fn list_all(&self) -> Result<Vec<OrgToolRepo>, AppError> {
-        self.org_tool_repo.find_all()
+        self.org_tool_repo
+            .find_all()
+            .await
+            .map_err(|e| AppError::InternalError(e.to_string()))
+    }
+
+    pub async fn list_by_org_tenants(
+        &self,
+        tenant_ids: &[Uuid],
+        limit: i64,
+        offset: i64,
+    ) -> Result<Vec<OrgToolRepo>, AppError> {
+        if tenant_ids.is_empty() {
+            return Ok(Vec::new());
+        }
+        self.org_tool_repo
+            .list_by_org_tenants(tenant_ids, limit, offset)
             .await
             .map_err(|e| AppError::InternalError(e.to_string()))
     }
 
     pub async fn list_approved_tools(&self, org_id: Uuid) -> Result<Vec<OrgToolRepo>, AppError> {
-        self.org_tool_repo.find_approved_by_org(org_id)
+        self.org_tool_repo
+            .find_approved_by_org(org_id)
             .await
             .map_err(|e| AppError::InternalError(e.to_string()))
     }
 
     pub async fn get_tool(&self, tool_id: Uuid) -> Result<Option<OrgToolRepo>, AppError> {
-        self.org_tool_repo.find_by_id(tool_id)
+        self.org_tool_repo
+            .find_by_id(tool_id)
             .await
             .map_err(|e| AppError::InternalError(e.to_string()))
     }
 
     pub async fn delete(&self, tool_id: Uuid) -> Result<(), AppError> {
-        self.org_tool_repo.delete(tool_id)
+        self.org_tool_repo
+            .delete(tool_id)
             .await
             .map_err(|e| AppError::InternalError(e.to_string()))
     }
