@@ -63,6 +63,26 @@ impl ApiKeyService {
             .map_err(|e| AppError::InternalError(e.to_string()))
     }
 
+    /// Used by the tenant-scope guard (Task 9) to filter the api-keys
+    /// list endpoint to the caller's accessible tenants. Returns an
+    /// empty Vec for an empty slice — the caller never asks "for an
+    /// empty tenant set", and avoiding the repository call also avoids
+    /// the `tenant_id = ANY('{}')` semantics.
+    pub async fn list_by_tenants(
+        &self,
+        tenant_ids: &[Uuid],
+        limit: i64,
+        offset: i64,
+    ) -> Result<Vec<ApiKey>, AppError> {
+        if tenant_ids.is_empty() {
+            return Ok(Vec::new());
+        }
+        self.repo
+            .list_by_tenants(tenant_ids, limit, offset)
+            .await
+            .map_err(|e| AppError::InternalError(e.to_string()))
+    }
+
     pub async fn revoke(&self, id: Uuid) -> Result<(), AppError> {
         self.repo.revoke(id)
             .await

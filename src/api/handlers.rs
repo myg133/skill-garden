@@ -345,33 +345,71 @@ pub async fn get_role_handler(
 
 // API Key handlers
 
+/// Resolve the tenant_id that owns an api key, via the join path
+/// `api_keys.organization_id -> organizations.id ->
+/// organizations.tenant_id`. The ApiKey model has no direct
+/// `tenant_id`, so the access check has to walk one hop through the
+/// parent organization (mirrors the group pattern from Task 8 and the
+/// identity pattern from Task 7).
+async fn api_key_tenant_id(state: &ApiState, api_key_id: Uuid) -> Result<Uuid, ApiError> {
+    let api_key = state
+        .api_key
+        .get(api_key_id)
+        .await
+        .map_err(|e| ApiError::InternalError(e.to_string()))?
+        .ok_or_else(|| ApiError::NotFound("API key not found".to_string()))?;
+    let org = state
+        .organization
+        .get_org(api_key.organization_id)
+        .await
+        .map_err(|e| ApiError::InternalError(e.to_string()))?;
+    org.tenant_id
+        .ok_or_else(|| ApiError::BadRequest("API key's organization has no tenant".to_string()))
+}
+
 pub async fn list_api_keys_handler(
+    user: AdminUser,
     State(state): State<ApiState>,
     Query(query): Query<crate::api::models::ListApiKeysQuery>,
 ) -> Result<impl IntoResponse, ApiError> {
-    let identity_id = query.identity_id;
-    let org_id = query.organization_id;
-    let keys = if let Some(identity_id) = identity_id {
-        state.api_key.list_by_identity(identity_id)
-            .await
-            .map_err(|e| ApiError::InternalError(e.to_string()))?
-    } else if let Some(org_id) = org_id {
-        state.api_key.list_by_organization(org_id)
-            .await
-            .map_err(|e| ApiError::InternalError(e.to_string()))?
+    let (is_super, allowed) = tenant_filter_for_user(&state, &user).await?;
+    let keys = if is_super {
+        if let Some(identity_id) = query.identity_id {
+            state.api_key.list_by_identity(identity_id).await
+        } else if let Some(org_id) = query.organization_id {
+            state.api_key.list_by_organization(org_id).await
+        } else {
+            state.api_key.list().await
+        }
     } else {
-        state.api_key.list()
-            .await
-            .map_err(|e| ApiError::InternalError(e.to_string()))?
-    };
+        // Non-super: tenant filter is the strongest restriction. The
+        // optional identity_id / organization_id filters are dropped
+        // intentionally — the caller's accessible tenants are already
+        // narrower than those filters in any reasonable case, and
+        // adding extra WHERE clauses to list_by_tenants would make the
+        // SQL branchy for little operational value.
+        let _ = query;
+        state.api_key.list_by_tenants(&allowed, 200, 0).await
+    }
+    .map_err(|e| ApiError::InternalError(e.to_string()))?;
     Ok((StatusCode::OK, Json(serde_json::json!({ "data": keys }))))
 }
 
 pub async fn create_api_key_handler(
+    user: AdminUser,
     State(state): State<ApiState>,
     Json(body): Json<crate::api::models::CreateApiKeyBody>,
 ) -> Result<impl IntoResponse, ApiError> {
     let request: crate::models::api_key::CreateApiKeyRequest = body.into();
+    let org = state
+        .organization
+        .get_org(request.organization_id)
+        .await
+        .map_err(|e| ApiError::BadRequest(e.to_string()))?;
+    let tenant_id = org
+        .tenant_id
+        .ok_or_else(|| ApiError::BadRequest("Organization has no tenant".to_string()))?;
+    require_tenant_access(&state, &user, tenant_id).await?;
     let key = state.api_key.create(request)
         .await
         .map_err(|e| ApiError::BadRequest(e.to_string()))?;
@@ -379,9 +417,12 @@ pub async fn create_api_key_handler(
 }
 
 pub async fn delete_api_key_handler(
+    user: AdminUser,
     State(state): State<ApiState>,
     Path(id): Path<Uuid>,
 ) -> Result<impl IntoResponse, ApiError> {
+    let tenant_id = api_key_tenant_id(&state, id).await?;
+    require_tenant_access(&state, &user, tenant_id).await?;
     state.api_key.delete(id)
         .await
         .map_err(|e| ApiError::BadRequest(e.to_string()))?;

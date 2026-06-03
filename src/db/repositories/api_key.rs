@@ -121,6 +121,38 @@ impl ApiKeyRepository {
         Ok(keys.into_iter().map(|k| k.into()).collect())
     }
 
+    /// Return all api keys whose organization belongs to one of the
+    /// given tenants. Used by the tenant-scope guard (Task 9) to filter
+    /// the api-keys list endpoint to the caller's accessible tenants.
+    /// The api_keys table has no direct `tenant_id` — the join path is
+    /// `api_keys.organization_id -> organizations.id ->
+    /// organizations.tenant_id`.
+    pub async fn list_by_tenants(
+        &self,
+        tenant_ids: &[Uuid],
+        limit: i64,
+        offset: i64,
+    ) -> DbResult<Vec<ApiKey>> {
+        let keys = sqlx::query_as::<_, ApiKeyRow>(
+            r#"
+            SELECT ak.id, ak.identity_id, ak.organization_id, ak.key_hash, ak.key_prefix, ak.name, ak.scopes, ak.rate_limit, ak.status, ak.expires_at, ak.created_at, ak.last_used_at
+            FROM api_keys ak
+            JOIN organizations o ON o.id = ak.organization_id
+            WHERE o.tenant_id = ANY($1)
+            ORDER BY ak.created_at DESC
+            LIMIT $2 OFFSET $3
+            "#,
+        )
+        .bind(tenant_ids)
+        .bind(limit)
+        .bind(offset)
+        .fetch_all(&self.pool)
+        .await
+        .map_err(|e| DbError::QueryError(e.to_string()))?;
+
+        Ok(keys.into_iter().map(|k| k.into()).collect())
+    }
+
     pub async fn revoke(&self, id: Uuid) -> DbResult<()> {
         sqlx::query("UPDATE api_keys SET status = 'revoked' WHERE id = $1")
             .bind(id)
