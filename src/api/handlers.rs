@@ -8,9 +8,10 @@ use axum::{
 };
 use std::sync::Arc;
 
+use crate::api::auth::require_tenant_access;
 use crate::api::error::ApiError;
 use crate::api::http_state::AppRouterState;
-use crate::api::jwt::AgentContext;
+use crate::api::jwt::{AdminUser, AgentContext};
 use crate::models::{NewSkill, SkillUpdate};
 use crate::models::evaluation::{ErrorType as EvalErrorType, EvalTag};
 use crate::models::error::AppError;
@@ -30,9 +31,18 @@ pub async fn health_handler(State(state): State<ApiState>) -> Result<impl IntoRe
 // Tenant handlers
 
 pub async fn list_tenants_handler(
+    user: AdminUser,
     State(state): State<ApiState>,
     Query(query): Query<crate::api::models::PaginationQuery>,
 ) -> Result<impl IntoResponse, ApiError> {
+    let is_super = state
+        .permission
+        .is_super_admin_user(user.identity_id)
+        .await
+        .map_err(|e| ApiError::InternalError(e.to_string()))?;
+    if !is_super {
+        return Err(ApiError::Forbidden("super_admin only".to_string()));
+    }
     let limit = query.limit.unwrap_or(20).min(100);
     let offset = query.offset.unwrap_or(0);
     let tenants = state.tenant.list(limit, offset)
@@ -42,9 +52,18 @@ pub async fn list_tenants_handler(
 }
 
 pub async fn create_tenant_handler(
+    user: AdminUser,
     State(state): State<ApiState>,
     Json(body): Json<crate::api::models::CreateTenantBody>,
 ) -> Result<impl IntoResponse, ApiError> {
+    let is_super = state
+        .permission
+        .is_super_admin_user(user.identity_id)
+        .await
+        .map_err(|e| ApiError::InternalError(e.to_string()))?;
+    if !is_super {
+        return Err(ApiError::Forbidden("super_admin only".to_string()));
+    }
     let tenant = state.tenant.create(body.into())
         .await
         .map_err(|e| ApiError::BadRequest(e.to_string()))?;
@@ -52,9 +71,11 @@ pub async fn create_tenant_handler(
 }
 
 pub async fn get_tenant_handler(
+    user: AdminUser,
     State(state): State<ApiState>,
     Path(id): Path<Uuid>,
 ) -> Result<impl IntoResponse, ApiError> {
+    require_tenant_access(&state, &user, id).await?;
     let tenant = state.tenant.get(id)
         .await
         .map_err(|e| ApiError::NotFound(e.to_string()))?
@@ -63,10 +84,12 @@ pub async fn get_tenant_handler(
 }
 
 pub async fn update_tenant_handler(
+    user: AdminUser,
     State(state): State<ApiState>,
     Path(id): Path<Uuid>,
     Json(body): Json<crate::api::models::UpdateTenantBody>,
 ) -> Result<impl IntoResponse, ApiError> {
+    require_tenant_access(&state, &user, id).await?;
     let tenant = state.tenant.update(id, body.into())
         .await
         .map_err(|e| ApiError::BadRequest(e.to_string()))?;
@@ -74,9 +97,11 @@ pub async fn update_tenant_handler(
 }
 
 pub async fn delete_tenant_handler(
+    user: AdminUser,
     State(state): State<ApiState>,
     Path(id): Path<Uuid>,
 ) -> Result<impl IntoResponse, ApiError> {
+    require_tenant_access(&state, &user, id).await?;
     state.tenant.delete(id)
         .await
         .map_err(|e| ApiError::BadRequest(e.to_string()))?;
