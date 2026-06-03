@@ -2590,9 +2590,13 @@ pub async fn session_declare_handler(
 /// Org Tool handlers
 
 pub async fn register_org_tool_handler(
+    user: AdminUser,
     State(state): State<ApiState>,
     Json(body): Json<crate::api::models::RegisterOrgToolBody>,
 ) -> Result<impl IntoResponse, ApiError> {
+    let tenant_id = org_tenant_id(&state, body.org_id).await?;
+    require_tenant_access(&state, &user, tenant_id).await?;
+
     let tool = state.org_tool.register_tool(
         body.org_id,
         body.tool_id,
@@ -2608,11 +2612,16 @@ pub async fn register_org_tool_handler(
 }
 
 pub async fn list_org_tools_handler(
+    user: AdminUser,
     State(state): State<ApiState>,
     Path(id): Path<Uuid>,
     Query(query): Query<crate::api::models::ListOrgToolsQuery>,
 ) -> Result<impl IntoResponse, ApiError> {
     if let Some(approved_only) = query.approved_only {
+        // List-by-org path: `id` is the org_id. Tenant check is on the org.
+        let tenant_id = org_tenant_id(&state, id).await?;
+        require_tenant_access(&state, &user, tenant_id).await?;
+
         let tools = if approved_only {
             state.org_tool.list_approved_tools(id).await?
         } else {
@@ -2620,28 +2629,44 @@ pub async fn list_org_tools_handler(
         };
         Ok((StatusCode::OK, Json(serde_json::json!({ "data": tools }))))
     } else {
-        let tool = state.org_tool.get_tool(id).await?;
-        match tool {
-            Some(t) => Ok((StatusCode::OK, Json(serde_json::json!({ "data": [t] })))),
-            None => Err(ApiError::NotFound("Tool not found".to_string())),
-        }
+        // Get-by-id path: `id` is the tool_id. Tenant check walks
+        // tool.org_id -> org.tenant_id.
+        let tool = state.org_tool.get_tool(id)
+            .await?
+            .ok_or_else(|| ApiError::NotFound("Tool not found".to_string()))?;
+        let tenant_id = org_tenant_id(&state, tool.org_id).await?;
+        require_tenant_access(&state, &user, tenant_id).await?;
+
+        Ok((StatusCode::OK, Json(serde_json::json!({ "data": [tool] }))))
     }
 }
 
 pub async fn list_all_org_tools_handler(
+    user: AdminUser,
     State(state): State<ApiState>,
 ) -> Result<impl IntoResponse, ApiError> {
-    let tools = state.org_tool.list_all()
-        .await
-        .map_err(|e| ApiError::InternalError(e.to_string()))?;
+    let (is_super, allowed) = tenant_filter_for_user(&state, &user).await?;
+    let tools = if is_super {
+        state.org_tool.list_all().await
+    } else {
+        state.org_tool.list_by_org_tenants(&allowed, 200, 0).await
+    }
+    .map_err(|e| ApiError::InternalError(e.to_string()))?;
 
     Ok((StatusCode::OK, Json(serde_json::json!({ "data": tools }))))
 }
 
 pub async fn approve_org_tool_handler(
+    user: AdminUser,
     State(state): State<ApiState>,
     Path(tool_id): Path<Uuid>,
 ) -> Result<impl IntoResponse, ApiError> {
+    let tool = state.org_tool.get_tool(tool_id)
+        .await?
+        .ok_or_else(|| ApiError::NotFound("Tool not found".to_string()))?;
+    let tenant_id = org_tenant_id(&state, tool.org_id).await?;
+    require_tenant_access(&state, &user, tenant_id).await?;
+
     state.org_tool.approve_tool(tool_id)
         .await
         .map_err(|e| ApiError::BadRequest(e.to_string()))?;
@@ -3145,9 +3170,16 @@ pub async fn remove_org_group_skill_handler(
 }
 
 pub async fn reject_org_tool_handler(
+    user: AdminUser,
     State(state): State<ApiState>,
     Path(tool_id): Path<Uuid>,
 ) -> Result<impl IntoResponse, ApiError> {
+    let tool = state.org_tool.get_tool(tool_id)
+        .await?
+        .ok_or_else(|| ApiError::NotFound("Tool not found".to_string()))?;
+    let tenant_id = org_tenant_id(&state, tool.org_id).await?;
+    require_tenant_access(&state, &user, tenant_id).await?;
+
     state.org_tool.reject_tool(tool_id)
         .await
         .map_err(|e| ApiError::BadRequest(e.to_string()))?;
@@ -3156,11 +3188,15 @@ pub async fn reject_org_tool_handler(
 }
 
 pub async fn delete_org_tool_handler(
+    user: AdminUser,
     State(state): State<ApiState>,
     Path(tool_id): Path<Uuid>,
-    agent_context: AgentContext,
 ) -> Result<impl IntoResponse, ApiError> {
-    agent_context.require_admin()?;
+    let tool = state.org_tool.get_tool(tool_id)
+        .await?
+        .ok_or_else(|| ApiError::NotFound("Tool not found".to_string()))?;
+    let tenant_id = org_tenant_id(&state, tool.org_id).await?;
+    require_tenant_access(&state, &user, tenant_id).await?;
 
     state.org_tool.delete(tool_id)
         .await
