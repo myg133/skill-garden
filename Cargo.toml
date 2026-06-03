@@ -79,3 +79,7 @@ tempfile = "3"
 [[test]]
 name = "integration"
 path = "tests/integration.rs"
+
+[[test]]
+name = "admin_isolation"
+path = "tests/admin_isolation.rs"
