@@ -9,10 +9,10 @@ use tracing::{debug, error, info};
 
 use crate::db::repositories::evaluation::{EvaluationRepository, NewEvaluation as DbNewEvaluation};
 use crate::models::error::AppError;
-use crate::models::evaluation::{Evaluation, EvaluationResult, ErrorType, EvalTag, SkillStats};
+use crate::models::evaluation::{ErrorType, EvalTag, Evaluation, EvaluationResult, SkillStats};
+use crate::schemas::validation::validate_evaluation_input;
 use crate::services::storage::StorageService;
 use crate::utils::RateLimiter;
-use crate::schemas::validation::validate_evaluation_input;
 
 /// 评价服务
 #[derive(Debug, Clone)]
@@ -59,15 +59,28 @@ impl EvaluatorService {
         }
 
         for webhook_url in &self.webhook_urls {
-            match self.http_client.post(webhook_url).json(evaluation).send().await {
+            match self
+                .http_client
+                .post(webhook_url)
+                .json(evaluation)
+                .send()
+                .await
+            {
                 Ok(resp) if resp.status().is_success() => {
                     info!("Forwarded evaluation to webhook: {}", webhook_url);
                 }
                 Ok(resp) => {
-                    error!("Webhook returned error status: {} for URL: {}", resp.status(), webhook_url);
+                    error!(
+                        "Webhook returned error status: {} for URL: {}",
+                        resp.status(),
+                        webhook_url
+                    );
                 }
                 Err(e) => {
-                    error!("Failed to forward evaluation to webhook: {} - {}", webhook_url, e);
+                    error!(
+                        "Failed to forward evaluation to webhook: {} - {}",
+                        webhook_url, e
+                    );
                 }
             }
         }
@@ -99,10 +112,21 @@ impl EvaluatorService {
             tags: tags.iter().map(|t| format!("{:?}", t)).collect(),
         };
 
-        let evaluation = self.eval_repo.create(eval_db).await.map_err(|e| AppError::from(e))?;
-        let stats = self.eval_repo.get_stats(&skill_id).await.map_err(|e| AppError::from(e))?;
+        let evaluation = self
+            .eval_repo
+            .create(eval_db)
+            .await
+            .map_err(|e| AppError::from(e))?;
+        let stats = self
+            .eval_repo
+            .get_stats(&skill_id)
+            .await
+            .map_err(|e| AppError::from(e))?;
 
-        debug!("Added evaluation for skill: {}, success: {}", skill_id, success);
+        debug!(
+            "Added evaluation for skill: {}, success: {}",
+            skill_id, success
+        );
 
         let result = EvaluationResult {
             success: true,
@@ -129,9 +153,9 @@ impl EvaluatorService {
 
     /// 获取 Skill 统计
     pub fn get_stats(&self, skill_id: &str) -> Result<SkillStats, AppError> {
-        let stats = Handle::current().block_on(async {
-            self.eval_repo.get_stats(skill_id).await
-        }).map_err(|e| AppError::from(e))?;
+        let stats = Handle::current()
+            .block_on(async { self.eval_repo.get_stats(skill_id).await })
+            .map_err(|e| AppError::from(e))?;
 
         Ok(SkillStats {
             skill_id: stats.skill_id,
@@ -149,31 +173,38 @@ impl EvaluatorService {
 
     /// 获取评价列表
     pub fn list_evaluations(&self, skill_id: &str) -> Result<Vec<Evaluation>, AppError> {
-        let evals = Handle::current().block_on(async {
-            self.eval_repo.list_by_skill(skill_id, 100).await
-        }).map_err(|e| AppError::from(e))?;
+        let evals = Handle::current()
+            .block_on(async { self.eval_repo.list_by_skill(skill_id, 100).await })
+            .map_err(|e| AppError::from(e))?;
 
-        Ok(evals.into_iter().map(|e| Evaluation {
-            id: e.id.to_string(),
-            skill_id: e.skill_id,
-            agent_id: e.agent_id,
-            success: e.success,
-            duration_ms: e.duration_ms as u64,
-            error_type: e.error_type.and_then(|s| match s.as_str() {
-                "Timeout" => Some(ErrorType::Timeout),
-                "Crash" => Some(ErrorType::Crash),
-                "LogicError" => Some(ErrorType::LogicError),
-                _ => Some(ErrorType::Other),
-            }),
-            tags: e.tags.into_iter().filter_map(|s| match s.as_str() {
-                "Reliable" => Some(EvalTag::Reliable),
-                "Fast" => Some(EvalTag::Fast),
-                "Stable" => Some(EvalTag::Stable),
-                "Experimental" => Some(EvalTag::Experimental),
-                _ => None,
-            }).collect(),
-            timestamp: e.timestamp,
-        }).collect())
+        Ok(evals
+            .into_iter()
+            .map(|e| Evaluation {
+                id: e.id.to_string(),
+                skill_id: e.skill_id,
+                agent_id: e.agent_id,
+                success: e.success,
+                duration_ms: e.duration_ms as u64,
+                error_type: e.error_type.and_then(|s| match s.as_str() {
+                    "Timeout" => Some(ErrorType::Timeout),
+                    "Crash" => Some(ErrorType::Crash),
+                    "LogicError" => Some(ErrorType::LogicError),
+                    _ => Some(ErrorType::Other),
+                }),
+                tags: e
+                    .tags
+                    .into_iter()
+                    .filter_map(|s| match s.as_str() {
+                        "Reliable" => Some(EvalTag::Reliable),
+                        "Fast" => Some(EvalTag::Fast),
+                        "Stable" => Some(EvalTag::Stable),
+                        "Experimental" => Some(EvalTag::Experimental),
+                        _ => None,
+                    })
+                    .collect(),
+                timestamp: e.timestamp,
+            })
+            .collect())
     }
 
     /// 获取评价剩余次数

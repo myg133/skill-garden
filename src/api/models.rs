@@ -1,7 +1,7 @@
 //! API Request/Response Models
 
+use crate::models::SkillStats;
 use serde::{Deserialize, Serialize};
-use crate::models::{SkillStats};
 
 #[derive(Debug, Serialize)]
 pub struct ListResponse<T> {
@@ -561,9 +561,9 @@ pub struct UpdateIdentityBody {
 
 impl From<UpdateIdentityBody> for crate::models::identity::IdentityUpdate {
     fn from(body: UpdateIdentityBody) -> Self {
-        let password_hash = body.password.map(|pwd| {
-            bcrypt::hash(&pwd, bcrypt::DEFAULT_COST).unwrap_or_default()
-        });
+        let password_hash = body
+            .password
+            .map(|pwd| bcrypt::hash(&pwd, bcrypt::DEFAULT_COST).unwrap_or_default());
 
         crate::models::identity::IdentityUpdate {
             name: body.name,
@@ -604,7 +604,10 @@ impl From<CreateGroupBody> for crate::models::group::NewGroup {
             name: body.name,
             slug: body.slug,
             description: body.description,
-            group_type: body.group_type.map(|g| g.as_str().into()).unwrap_or_default(),
+            group_type: body
+                .group_type
+                .map(|g| g.as_str().into())
+                .unwrap_or_default(),
             settings: serde_json::json!({}),
         }
     }

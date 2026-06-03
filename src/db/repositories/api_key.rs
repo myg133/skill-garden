@@ -5,7 +5,9 @@ use sqlx::PgPool;
 use uuid::Uuid;
 
 use crate::db::error::{DbError, DbResult};
-use crate::models::api_key::{ApiKey, ApiKeyStatus, AuditLog, CreateApiKeyRequest, CreateAuditLogRequest};
+use crate::models::api_key::{
+    ApiKey, ApiKeyStatus, AuditLog, CreateApiKeyRequest, CreateAuditLogRequest,
+};
 
 #[derive(Clone)]
 pub struct ApiKeyRepository {
@@ -17,7 +19,12 @@ impl ApiKeyRepository {
         Self { pool }
     }
 
-    pub async fn create(&self, request: CreateApiKeyRequest, key_hash: &str, key_prefix: &str) -> DbResult<ApiKey> {
+    pub async fn create(
+        &self,
+        request: CreateApiKeyRequest,
+        key_hash: &str,
+        key_prefix: &str,
+    ) -> DbResult<ApiKey> {
         let scopes_json = serde_json::to_value(&request.scopes).unwrap_or(serde_json::json!([]));
 
         let api_key = sqlx::query_as::<_, ApiKeyRow>(

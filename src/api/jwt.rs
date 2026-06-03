@@ -1,10 +1,6 @@
 //! JWT Authentication
 
-use axum::{
-    async_trait,
-    extract::FromRequestParts,
-    http::request::Parts,
-};
+use axum::{async_trait, extract::FromRequestParts, http::request::Parts};
 use chrono::{Duration, Utc};
 use jsonwebtoken::{decode, encode, DecodingKey, EncodingKey, Header, Validation};
 use serde::{Deserialize, Serialize};
@@ -125,7 +121,9 @@ impl<S: Send + Sync> FromRequestParts<S> for AgentContext {
             .ok_or_else(|| ApiError::Unauthorized("Missing Authorization header".to_string()))?;
 
         if !auth_header.starts_with("Bearer ") {
-            return Err(ApiError::Unauthorized("Invalid Authorization header format".to_string()));
+            return Err(ApiError::Unauthorized(
+                "Invalid Authorization header format".to_string(),
+            ));
         }
 
         let token = &auth_header[7..];
@@ -167,14 +165,12 @@ impl<S: Send + Sync> FromRequestParts<S> for AdminUser {
         let claims = verify_token(token)?;
 
         if !claims.is_admin {
-            return Err(ApiError::Unauthorized(
-                "Admin token required".to_string(),
-            ));
+            return Err(ApiError::Unauthorized("Admin token required".to_string()));
         }
 
-        let identity_id = claims.identity_id.ok_or_else(|| {
-            ApiError::Unauthorized("Identity not bound to token".to_string())
-        })?;
+        let identity_id = claims
+            .identity_id
+            .ok_or_else(|| ApiError::Unauthorized("Identity not bound to token".to_string()))?;
 
         Ok(AdminUser {
             identity_id,
@@ -216,14 +212,8 @@ mod tests {
 
     #[test]
     fn test_claims_round_trip_with_identity_id_and_is_admin() {
-        let token = generate_token_full(
-            "alice",
-            Some(Uuid::new_v4()),
-            true,
-            &["admin"],
-            &["read"],
-        )
-        .unwrap();
+        let token = generate_token_full("alice", Some(Uuid::new_v4()), true, &["admin"], &["read"])
+            .unwrap();
         let claims = verify_token(&token).unwrap();
         assert_eq!(claims.subject, "alice");
         assert!(claims.identity_id.is_some());

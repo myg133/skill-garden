@@ -1,9 +1,9 @@
 //! API Key Service
 
-use uuid::Uuid;
 use crate::db::repositories::ApiKeyRepository;
 use crate::models::api_key::{ApiKey, ApiKeyResponse, CreateApiKeyRequest};
 use crate::models::error::AppError;
+use uuid::Uuid;
 
 #[derive(Clone)]
 pub struct ApiKeyService {
@@ -24,7 +24,9 @@ impl ApiKeyService {
     pub async fn create(&self, request: CreateApiKeyRequest) -> Result<ApiKeyResponse, AppError> {
         let (key, key_hash, key_prefix) = self.generate_key();
 
-        let api_key = self.repo.create(request, &key_hash, &key_prefix)
+        let api_key = self
+            .repo
+            .create(request, &key_hash, &key_prefix)
             .await
             .map_err(|e| AppError::InternalError(e.to_string()))?;
 
@@ -32,7 +34,8 @@ impl ApiKeyService {
     }
 
     pub async fn get(&self, id: Uuid) -> Result<Option<ApiKey>, AppError> {
-        self.repo.find_by_id(id)
+        self.repo
+            .find_by_id(id)
             .await
             .map_err(|e| AppError::InternalError(e.to_string()))
     }
@@ -40,25 +43,32 @@ impl ApiKeyService {
     pub async fn validate(&self, key: &str) -> Result<Option<ApiKey>, AppError> {
         let key_hash = self.hash_key(key);
 
-        self.repo.find_by_key_hash(&key_hash)
+        self.repo
+            .find_by_key_hash(&key_hash)
             .await
             .map_err(|e| AppError::InternalError(e.to_string()))
     }
 
     pub async fn list_by_identity(&self, identity_id: Uuid) -> Result<Vec<ApiKey>, AppError> {
-        self.repo.list_by_identity(identity_id)
+        self.repo
+            .list_by_identity(identity_id)
             .await
             .map_err(|e| AppError::InternalError(e.to_string()))
     }
 
-    pub async fn list_by_organization(&self, organization_id: Uuid) -> Result<Vec<ApiKey>, AppError> {
-        self.repo.list_by_organization(organization_id)
+    pub async fn list_by_organization(
+        &self,
+        organization_id: Uuid,
+    ) -> Result<Vec<ApiKey>, AppError> {
+        self.repo
+            .list_by_organization(organization_id)
             .await
             .map_err(|e| AppError::InternalError(e.to_string()))
     }
 
     pub async fn list(&self) -> Result<Vec<ApiKey>, AppError> {
-        self.repo.list()
+        self.repo
+            .list()
             .await
             .map_err(|e| AppError::InternalError(e.to_string()))
     }
@@ -84,13 +94,15 @@ impl ApiKeyService {
     }
 
     pub async fn revoke(&self, id: Uuid) -> Result<(), AppError> {
-        self.repo.revoke(id)
+        self.repo
+            .revoke(id)
             .await
             .map_err(|e| AppError::InternalError(e.to_string()))
     }
 
     pub async fn delete(&self, id: Uuid) -> Result<(), AppError> {
-        self.repo.delete(id)
+        self.repo
+            .delete(id)
             .await
             .map_err(|e| AppError::InternalError(e.to_string()))
     }

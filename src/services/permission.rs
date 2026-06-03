@@ -109,9 +109,7 @@ impl PermissionService {
             .list_user_tenants(target_id)
             .await
             .map_err(|e| AppError::InternalError(e.to_string()))?;
-        Ok(requester_tenants
-            .iter()
-            .any(|t| target_tenants.contains(t)))
+        Ok(requester_tenants.iter().any(|t| target_tenants.contains(t)))
     }
 
     /// Returns the list of tenant_ids the identity can access.
@@ -120,10 +118,7 @@ impl PermissionService {
     /// is_super_admin_user separately to interpret empty Vec as
     /// "unrestricted access").
     /// Used by tenant_filter_for_user (Task 4) for list endpoints.
-    pub async fn list_user_tenants(
-        &self,
-        identity_id: Uuid,
-    ) -> Result<Vec<Uuid>, AppError> {
+    pub async fn list_user_tenants(&self, identity_id: Uuid) -> Result<Vec<Uuid>, AppError> {
         // Note: super_admin gets empty Vec here, NOT all tenants.
         // The caller (tenant_filter_for_user) must check
         // is_super_admin_user first to distinguish "super_admin"
@@ -138,10 +133,7 @@ impl PermissionService {
     /// named differently so call sites read clearly at the
     /// tenant_filter_for_user site (where we want to ask "is this
     /// caller a super admin?" before applying any tenant filter).
-    pub async fn is_super_admin_user(
-        &self,
-        identity_id: Uuid,
-    ) -> Result<bool, AppError> {
+    pub async fn is_super_admin_user(&self, identity_id: Uuid) -> Result<bool, AppError> {
         self.is_super_admin(identity_id).await
     }
 
@@ -220,7 +212,7 @@ impl PermissionService {
 
                 if let Some(resource) = resource {
                     match perm.scope_restriction.as_str() {
-                        "none" => {},
+                        "none" => {}
                         "own" => {
                             if let Some(author_id) = resource.author_identity_id {
                                 if author_id != ctx.identity_id {
@@ -262,7 +254,11 @@ impl PermissionService {
                     if let Some(current_group_id) = scope_id {
                         let override_result = self
                             .group_perm_override_repo
-                            .find_by_group_role_permission(*current_group_id, role_name, permission_code)
+                            .find_by_group_role_permission(
+                                *current_group_id,
+                                role_name,
+                                permission_code,
+                            )
                             .await
                             .map_err(|e| AppError::InternalError(e.to_string()))?;
 
@@ -336,7 +332,9 @@ impl PermissionService {
                     group_id: None,
                 });
 
-                return self.has_permission(ctx, "skill:create", resource.as_ref()).await;
+                return self
+                    .has_permission(ctx, "skill:create", resource.as_ref())
+                    .await;
             }
             return Ok(false);
         }

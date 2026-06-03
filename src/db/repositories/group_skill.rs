@@ -48,10 +48,7 @@ impl GroupSkillRepository {
         Ok(rows.into_iter().map(|r| r.into()).collect())
     }
 
-    pub async fn associate_skill(
-        &self,
-        new_gs: NewGroupSkill,
-    ) -> DbResult<GroupSkill> {
+    pub async fn associate_skill(&self, new_gs: NewGroupSkill) -> DbResult<GroupSkill> {
         let row = sqlx::query_as::<_, GroupSkillRow>(
             r#"
             INSERT INTO group_skills (group_id, skill_id, added_by)

@@ -44,7 +44,10 @@ async fn test_search_add_and_search() {
     search.add_skill(&skill).unwrap();
 
     let results = search.search("searching", None, 10).unwrap();
-    assert!(!results.is_empty(), "Expected results for 'searching' query");
+    assert!(
+        !results.is_empty(),
+        "Expected results for 'searching' query"
+    );
     assert_eq!(results[0].skill_id, "skill-test-v1");
 }
 
@@ -82,10 +85,14 @@ async fn test_search_with_tags() {
 
     search.add_skill(&skill).unwrap();
 
-    let results = search.search("scraper", Some(&["web".to_string()]), 10).unwrap();
+    let results = search
+        .search("scraper", Some(&["web".to_string()]), 10)
+        .unwrap();
     assert!(!results.is_empty());
 
-    let results = search.search("nonexistent", Some(&["nonexistent".to_string()]), 10).unwrap();
+    let results = search
+        .search("nonexistent", Some(&["nonexistent".to_string()]), 10)
+        .unwrap();
     assert!(results.is_empty());
 }
 
@@ -167,8 +174,8 @@ async fn test_malicious_content_detection() {
 
 #[tokio::test]
 async fn test_rate_limiter() {
-    use aion_hive::utils::RateLimiter;
     use aion_hive::utils::RateLimitConfig;
+    use aion_hive::utils::RateLimiter;
 
     let limiter = RateLimiter::new(RateLimitConfig {
         max_per_window: 3,

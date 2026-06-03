@@ -9,7 +9,10 @@ use tracing::info;
 use crate::db::repositories::skill::{NewSkill as DbNewSkill, SkillRepository};
 use crate::models::error::AppError;
 use crate::models::skill::{NewSkill, Skill, SkillMetadata, SkillUpdate};
-use crate::schemas::validation::{validate_description, validate_skill_content, validate_skill_name, validate_tags, validate_version};
+use crate::schemas::validation::{
+    validate_description, validate_skill_content, validate_skill_name, validate_tags,
+    validate_version,
+};
 use crate::services::storage::{get_skill_lock, StorageService};
 use crate::services::SearchService;
 
@@ -218,7 +221,11 @@ impl RegistryService {
     }
 
     /// 删除 Skill
-    pub async fn delete_skill(&self, skill_id: &str, search: &SearchService) -> Result<(), AppError> {
+    pub async fn delete_skill(
+        &self,
+        skill_id: &str,
+        search: &SearchService,
+    ) -> Result<(), AppError> {
         self.skill_repo.delete(skill_id).await?;
         search.delete_skill(skill_id)?;
         info!("Deleted skill: {}", skill_id);
@@ -227,7 +234,10 @@ impl RegistryService {
 
     /// 获取 Skill 详情
     pub async fn get_skill(&self, skill_id: &str) -> Result<Skill, AppError> {
-        let db_skill = self.skill_repo.find_by_id(skill_id).await?
+        let db_skill = self
+            .skill_repo
+            .find_by_id(skill_id)
+            .await?
             .ok_or_else(|| AppError::SkillNotFound(skill_id.to_string()))?;
         let skill = Skill {
             id: db_skill.id,
@@ -259,32 +269,35 @@ impl RegistryService {
     /// 列出所有 Skills
     pub async fn list_skills(&self) -> Result<Vec<SkillMetadata>, AppError> {
         let db_skills = self.skill_repo.list(1000, 0).await?;
-        Ok(db_skills.into_iter().map(|m| SkillMetadata {
-            id: m.id,
-            name: m.name,
-            description: m.description,
-            version: m.version,
-            author_agent_id: m.author_agent_id,
-            author_identity_id: m.author_identity_id,
-            owner_type: m.owner_type,
-            owner_id: m.owner_id,
-            tags: m.tags,
-            created: m.created_at,
-            updated: m.updated_at,
-            install_count: m.install_count as u32,
-            status: m.status,
-            git_url: m.git_url,
-            visibility: match m.visibility.as_str() {
-                "private" => crate::models::skill_policy::Visibility::Private,
-                "shared" => crate::models::skill_policy::Visibility::Shared,
-                "marketplace" => crate::models::skill_policy::Visibility::Marketplace,
-                _ => crate::models::skill_policy::Visibility::OrgVisible,
-            },
-            review_status: m.review_status,
-            reviewed_by: m.reviewed_by,
-            reviewed_at: m.reviewed_at,
-            review_comment: m.review_comment,
-        }).collect())
+        Ok(db_skills
+            .into_iter()
+            .map(|m| SkillMetadata {
+                id: m.id,
+                name: m.name,
+                description: m.description,
+                version: m.version,
+                author_agent_id: m.author_agent_id,
+                author_identity_id: m.author_identity_id,
+                owner_type: m.owner_type,
+                owner_id: m.owner_id,
+                tags: m.tags,
+                created: m.created_at,
+                updated: m.updated_at,
+                install_count: m.install_count as u32,
+                status: m.status,
+                git_url: m.git_url,
+                visibility: match m.visibility.as_str() {
+                    "private" => crate::models::skill_policy::Visibility::Private,
+                    "shared" => crate::models::skill_policy::Visibility::Shared,
+                    "marketplace" => crate::models::skill_policy::Visibility::Marketplace,
+                    _ => crate::models::skill_policy::Visibility::OrgVisible,
+                },
+                review_status: m.review_status,
+                reviewed_by: m.reviewed_by,
+                reviewed_at: m.reviewed_at,
+                review_comment: m.review_comment,
+            })
+            .collect())
     }
 
     /// 获取 Skills 数量
@@ -349,7 +362,12 @@ dependencies: [{}]
 
     /// 转义 YAML 字符串
     fn escape_yaml_string(s: &str) -> String {
-        if s.contains(':') || s.contains('#') || s.contains('"') || s.contains('\n') || s.contains('\r') {
+        if s.contains(':')
+            || s.contains('#')
+            || s.contains('"')
+            || s.contains('\n')
+            || s.contains('\r')
+        {
             format!("\"{}\"", s.replace('"', "\"\""))
         } else {
             s.to_string()
@@ -454,27 +472,34 @@ dependencies: [{}]
                     let skill_md_path = path.join("SKILL.md");
                     if skill_md_path.exists() {
                         if let Ok(content) = self.storage.read_file(&skill_md_path) {
-                            if let Ok(skill) = self.parse_skill_md(&content, &crate::models::skill::SkillMetadata {
-                                id: "temp".to_string(),
-                                name: path.file_name().unwrap_or_default().to_string_lossy().to_string(),
-                                description: String::new(),
-                                tags: Vec::new(),
-                                version: "1.0.0".to_string(),
-                                author_agent_id: String::new(),
-                                author_identity_id: None,
-                                owner_type: "user".to_string(),
-                                owner_id: None,
-                                created: Utc::now(),
-                                updated: Utc::now(),
-                                install_count: 0,
-                                status: "published".to_string(),
-                                git_url: None,
-                                visibility: crate::models::skill_policy::Visibility::OrgVisible,
-                                review_status: "published".to_string(),
-                                reviewed_by: None,
-                                reviewed_at: None,
-                                review_comment: None,
-                            }) {
+                            if let Ok(skill) = self.parse_skill_md(
+                                &content,
+                                &crate::models::skill::SkillMetadata {
+                                    id: "temp".to_string(),
+                                    name: path
+                                        .file_name()
+                                        .unwrap_or_default()
+                                        .to_string_lossy()
+                                        .to_string(),
+                                    description: String::new(),
+                                    tags: Vec::new(),
+                                    version: "1.0.0".to_string(),
+                                    author_agent_id: String::new(),
+                                    author_identity_id: None,
+                                    owner_type: "user".to_string(),
+                                    owner_id: None,
+                                    created: Utc::now(),
+                                    updated: Utc::now(),
+                                    install_count: 0,
+                                    status: "published".to_string(),
+                                    git_url: None,
+                                    visibility: crate::models::skill_policy::Visibility::OrgVisible,
+                                    review_status: "published".to_string(),
+                                    reviewed_by: None,
+                                    reviewed_at: None,
+                                    review_comment: None,
+                                },
+                            ) {
                                 if !existing_ids.contains(&skill.id) {
                                     index.skills.push((&skill).into());
                                     search.add_skill(&skill)?;

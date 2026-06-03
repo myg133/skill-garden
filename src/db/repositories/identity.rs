@@ -5,7 +5,9 @@ use sqlx::PgPool;
 use uuid::Uuid;
 
 use crate::db::error::{DbError, DbResult};
-use crate::models::identity::{Identity, IdentityStatus, IdentityType, NewIdentity, IdentityUpdate};
+use crate::models::identity::{
+    Identity, IdentityStatus, IdentityType, IdentityUpdate, NewIdentity,
+};
 
 #[derive(Clone)]
 pub struct IdentityRepository {
@@ -19,8 +21,14 @@ impl IdentityRepository {
 
     pub async fn create(&self, new_identity: NewIdentity) -> DbResult<Identity> {
         let metadata = new_identity.metadata.unwrap_or(serde_json::json!({}));
-        let username = new_identity.username.clone().unwrap_or_else(|| new_identity.name.clone());
-        let display_name = new_identity.display_name.clone().unwrap_or_else(|| new_identity.name.clone());
+        let username = new_identity
+            .username
+            .clone()
+            .unwrap_or_else(|| new_identity.name.clone());
+        let display_name = new_identity
+            .display_name
+            .clone()
+            .unwrap_or_else(|| new_identity.name.clone());
 
         let identity = sqlx::query_as::<_, IdentityRow>(
             r#"
@@ -106,7 +114,12 @@ impl IdentityRepository {
         Ok(identity.map(|i| i.into()))
     }
 
-    pub async fn list_all(&self, limit: i64, offset: i64, identity_type: Option<&str>) -> DbResult<Vec<Identity>> {
+    pub async fn list_all(
+        &self,
+        limit: i64,
+        offset: i64,
+        identity_type: Option<&str>,
+    ) -> DbResult<Vec<Identity>> {
         let identities = match identity_type {
             Some(t) => {
                 sqlx::query_as::<_, IdentityRow>(
@@ -177,7 +190,10 @@ impl IdentityRepository {
     }
 
     pub async fn update(&self, id: Uuid, update: IdentityUpdate) -> DbResult<Identity> {
-        let current = self.find_by_id(id).await?.ok_or_else(|| DbError::NotFound("Identity not found".to_string()))?;
+        let current = self
+            .find_by_id(id)
+            .await?
+            .ok_or_else(|| DbError::NotFound("Identity not found".to_string()))?;
 
         let name = update.name.unwrap_or(current.name.clone());
         let display_name = update.display_name.or(current.display_name);
@@ -222,11 +238,12 @@ impl IdentityRepository {
     }
 
     pub async fn exists(&self, id: Uuid) -> DbResult<bool> {
-        let result: bool = sqlx::query_scalar("SELECT EXISTS(SELECT 1 FROM identities WHERE id = $1)")
-            .bind(id)
-            .fetch_one(&self.pool)
-            .await
-            .map_err(|e| DbError::QueryError(e.to_string()))?;
+        let result: bool =
+            sqlx::query_scalar("SELECT EXISTS(SELECT 1 FROM identities WHERE id = $1)")
+                .bind(id)
+                .fetch_one(&self.pool)
+                .await
+                .map_err(|e| DbError::QueryError(e.to_string()))?;
         Ok(result)
     }
 }

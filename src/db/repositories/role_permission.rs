@@ -14,7 +14,11 @@ impl RolePermissionRepository {
         Self { pool }
     }
 
-    pub async fn list_by_role(&self, role_level: &str, role_name: &str) -> DbResult<Vec<RolePermission>> {
+    pub async fn list_by_role(
+        &self,
+        role_level: &str,
+        role_name: &str,
+    ) -> DbResult<Vec<RolePermission>> {
         let perms = sqlx::query_as::<_, RolePermissionRow>(
             r#"
             SELECT id, role_level, role_name, permission_code, scope_restriction, created_at
@@ -48,7 +52,9 @@ impl RolePermissionRepository {
     }
 
     pub async fn add_permission(&self, new_perm: NewRolePermission) -> DbResult<RolePermission> {
-        let scope = new_perm.scope_restriction.unwrap_or_else(|| "none".to_string());
+        let scope = new_perm
+            .scope_restriction
+            .unwrap_or_else(|| "none".to_string());
 
         let perm = sqlx::query_as::<_, RolePermissionRow>(
             r#"

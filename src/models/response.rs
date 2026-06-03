@@ -100,10 +100,8 @@ mod tests {
 
     #[test]
     fn test_api_response_err() {
-        let response: ApiResponse<String> = ApiResponse::err(
-            ErrorCode::InvalidSkillName,
-            "Invalid name".to_string(),
-        );
+        let response: ApiResponse<String> =
+            ApiResponse::err(ErrorCode::InvalidSkillName, "Invalid name".to_string());
         assert!(!response.success);
         assert!(response.data.is_none());
         assert!(response.error.is_some());

@@ -5,7 +5,7 @@ use sqlx::PgPool;
 use uuid::Uuid;
 
 use crate::db::error::{DbError, DbResult};
-use crate::models::group::{Group, GroupMember, GroupType, NewGroup, GroupUpdate, Membership};
+use crate::models::group::{Group, GroupMember, GroupType, GroupUpdate, Membership, NewGroup};
 
 #[derive(Clone)]
 pub struct GroupRepository {
@@ -142,7 +142,10 @@ impl GroupRepository {
     }
 
     pub async fn update(&self, id: Uuid, update: GroupUpdate) -> DbResult<Group> {
-        let current = self.find_by_id(id).await?.ok_or_else(|| DbError::NotFound("Group not found".to_string()))?;
+        let current = self
+            .find_by_id(id)
+            .await?
+            .ok_or_else(|| DbError::NotFound("Group not found".to_string()))?;
 
         let name = update.name.unwrap_or(current.name);
         let slug = update.slug.unwrap_or(current.slug);
@@ -180,7 +183,12 @@ impl GroupRepository {
         Ok(())
     }
 
-    pub async fn add_member(&self, identity_id: Uuid, group_id: Uuid, role: &str) -> DbResult<Membership> {
+    pub async fn add_member(
+        &self,
+        identity_id: Uuid,
+        group_id: Uuid,
+        role: &str,
+    ) -> DbResult<Membership> {
         let membership = sqlx::query_as::<_, MembershipRow>(
             r#"
             INSERT INTO memberships (identity_id, group_id, role)
@@ -209,7 +217,12 @@ impl GroupRepository {
         Ok(())
     }
 
-    pub async fn update_member_role(&self, identity_id: Uuid, group_id: Uuid, role: &str) -> DbResult<()> {
+    pub async fn update_member_role(
+        &self,
+        identity_id: Uuid,
+        group_id: Uuid,
+        role: &str,
+    ) -> DbResult<()> {
         let rows_affected = sqlx::query(
             "UPDATE memberships SET role = $1 WHERE identity_id = $2 AND group_id = $3",
         )
@@ -263,7 +276,10 @@ impl GroupRepository {
         Ok(groups.into_iter().map(|g| g.into()).collect())
     }
 
-    pub async fn list_user_group_memberships(&self, identity_id: Uuid) -> DbResult<Vec<(Uuid, String)>> {
+    pub async fn list_user_group_memberships(
+        &self,
+        identity_id: Uuid,
+    ) -> DbResult<Vec<(Uuid, String)>> {
         let rows: Vec<(Uuid, String)> = sqlx::query_as(
             r#"
             SELECT group_id, role

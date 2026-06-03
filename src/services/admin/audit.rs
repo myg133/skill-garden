@@ -72,7 +72,14 @@ impl AuditService {
             return Ok(Vec::new());
         }
         self.repo
-            .list_by_tenants(tenant_ids, organization_id, identity_id, action, limit, offset)
+            .list_by_tenants(
+                tenant_ids,
+                organization_id,
+                identity_id,
+                action,
+                limit,
+                offset,
+            )
             .await
             .map_err(|e| AppError::InternalError(e.to_string()))
     }

@@ -6,57 +6,64 @@
 //! - Skills 贡献与评价
 //! - 置信度权重机制
 
-use std::path::PathBuf;
-use std::sync::Arc;
 use anyhow::Result;
-use axum::{
-    routing::{get, post},
-    Router,
-    extract::{State, Path},
-    http::{StatusCode, header},
-    response::{IntoResponse, sse::{Event, Sse}},
-};
 use axum::{
     extract::Request,
     middleware::{self, Next},
     response::Response,
 };
+use axum::{
+    extract::{Path, State},
+    http::{header, StatusCode},
+    response::{
+        sse::{Event, Sse},
+        IntoResponse,
+    },
+    routing::{get, post},
+    Router,
+};
+use std::path::PathBuf;
+use std::sync::Arc;
 use std::time::Instant;
 use tokio_stream::StreamExt;
 use tracing::info;
 use tracing_subscriber::{layer::SubscriberExt, util::SubscriberInitExt};
 use uuid::Uuid;
 
-use aion_hive::{AppState, mcp::McpServer};
-use aion_hive::api::http_state::{AppRouterState, HttpState, SseState};
 use aion_hive::api::create_api_router;
-use aion_hive::db::repositories::{AgentRepository, EvaluationRepository, AuditRepository};
+use aion_hive::api::http_state::{AppRouterState, HttpState, SseState};
+use aion_hive::db::repositories::{AgentRepository, AuditRepository, EvaluationRepository};
+use aion_hive::{mcp::McpServer, AppState};
 
-async fn request_logging_middleware(
-    req: Request,
-    next: Next,
-) -> Response {
+async fn request_logging_middleware(req: Request, next: Next) -> Response {
     let start = Instant::now();
     let method = req.method().to_string();
     let uri = req.uri().to_string();
-    
+
     let response = next.run(req).await;
     let latency_ms = start.elapsed().as_millis();
     let status = response.status();
-    
+
     tracing::info!("{} {} {} {}ms", method, uri, status.as_u16(), latency_ms);
     response
 }
 
-async fn mcp_handler(
-    State(state): State<Arc<AppRouterState>>,
-    body: String,
-) -> impl IntoResponse {
+async fn mcp_handler(State(state): State<Arc<AppRouterState>>, body: String) -> impl IntoResponse {
     let server = state.http.mcp_server.read().await;
     let result = server.handle_jsonrpc(&body).await;
     match result {
-        Ok(response) => (StatusCode::OK, [(header::CONTENT_TYPE, "application/json")], response).into_response(),
-        Err(e) => (StatusCode::INTERNAL_SERVER_ERROR, [(header::CONTENT_TYPE, "application/json")], format!("{{\"error\": \"{}\"}}", e)).into_response(),
+        Ok(response) => (
+            StatusCode::OK,
+            [(header::CONTENT_TYPE, "application/json")],
+            response,
+        )
+            .into_response(),
+        Err(e) => (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            [(header::CONTENT_TYPE, "application/json")],
+            format!("{{\"error\": \"{}\"}}", e),
+        )
+            .into_response(),
     }
 }
 
@@ -67,12 +74,14 @@ async fn health_handler(State(state): State<Arc<AppRouterState>>) -> impl IntoRe
         "version": env!("CARGO_PKG_VERSION"),
         "skills_count": skills_count
     });
-    (StatusCode::OK, [(header::CONTENT_TYPE, "application/json")], response.to_string())
+    (
+        StatusCode::OK,
+        [(header::CONTENT_TYPE, "application/json")],
+        response.to_string(),
+    )
 }
 
-async fn sse_handler(
-    State(state): State<Arc<AppRouterState>>,
-) -> impl IntoResponse {
+async fn sse_handler(State(state): State<Arc<AppRouterState>>) -> impl IntoResponse {
     let session_id = Uuid::new_v4().to_string();
     let (tx, rx) = tokio::sync::broadcast::channel::<String>(100);
 
@@ -83,31 +92,22 @@ async fn sse_handler(
 
     let message_endpoint = format!("/sse/{}", session_id);
 
-    let endpoint_event = Event::default()
-        .event("endpoint")
-        .data(&message_endpoint);
+    let endpoint_event = Event::default().event("endpoint").data(&message_endpoint);
 
-    let stream = tokio_stream::wrappers::BroadcastStream::new(rx)
-        .map(move |result| {
-            match result {
-                Ok(msg) => Ok::<_, std::convert::Infallible>(Event::default()
-                    .event("message")
-                    .data(msg)),
-                Err(e) => {
-                    tracing::warn!("SSE broadcast error: {}", e);
-                    Ok(Event::default().event("error").data("broadcast error"))
-                }
-            }
-        });
+    let stream = tokio_stream::wrappers::BroadcastStream::new(rx).map(move |result| match result {
+        Ok(msg) => Ok::<_, std::convert::Infallible>(Event::default().event("message").data(msg)),
+        Err(e) => {
+            tracing::warn!("SSE broadcast error: {}", e);
+            Ok(Event::default().event("error").data("broadcast error"))
+        }
+    });
 
-    let initial_stream = tokio_stream::iter(vec![
-        Ok::<_, std::convert::Infallible>(endpoint_event),
-    ]);
+    let initial_stream =
+        tokio_stream::iter(vec![Ok::<_, std::convert::Infallible>(endpoint_event)]);
 
     let combined_stream = initial_stream.chain(stream);
 
-    Sse::new(combined_stream)
-        .keep_alive(axum::response::sse::KeepAlive::default())
+    Sse::new(combined_stream).keep_alive(axum::response::sse::KeepAlive::default())
 }
 
 async fn sse_message_handler(
@@ -135,21 +135,38 @@ async fn sse_message_handler(
                 }
             }
         }
-        (StatusCode::ACCEPTED, [(header::CONTENT_TYPE, "application/json")], r#"{"status":"accepted"}"#).into_response()
+        (
+            StatusCode::ACCEPTED,
+            [(header::CONTENT_TYPE, "application/json")],
+            r#"{"status":"accepted"}"#,
+        )
+            .into_response()
     } else {
-        (StatusCode::NOT_FOUND, [(header::CONTENT_TYPE, "application/json")], r#"{"error":"session not found"}"#).into_response()
+        (
+            StatusCode::NOT_FOUND,
+            [(header::CONTENT_TYPE, "application/json")],
+            r#"{"error":"session not found"}"#,
+        )
+            .into_response()
     }
 }
 
 async fn run_http_server(state: AppState, port: u16) -> Result<()> {
-    let pool = sqlx::PgPool::connect(&std::env::var("DATABASE_URL").unwrap_or_else(|_| "postgres://localhost:5432/aionhive".to_string())).await?;
+    let pool = sqlx::PgPool::connect(
+        &std::env::var("DATABASE_URL")
+            .unwrap_or_else(|_| "postgres://localhost:5432/aionhive".to_string()),
+    )
+    .await?;
     let eval_repo = EvaluationRepository::new(pool.clone());
     let agent_repo = AgentRepository::new(pool.clone());
     let audit_repo = AuditRepository::new(pool.clone());
     let group_perm_override_repo = aion_hive::db::repositories::group_permission_override::GroupPermissionOverrideRepository::new(pool.clone());
-    let system_role_assignment_repo = aion_hive::db::repositories::SystemRoleAssignmentRepository::new(pool.clone());
-    let org_membership_repo = aion_hive::db::repositories::OrgMembershipRepository::new(pool.clone());
-    let role_permission_repo = aion_hive::db::repositories::RolePermissionRepository::new(pool.clone());
+    let system_role_assignment_repo =
+        aion_hive::db::repositories::SystemRoleAssignmentRepository::new(pool.clone());
+    let org_membership_repo =
+        aion_hive::db::repositories::OrgMembershipRepository::new(pool.clone());
+    let role_permission_repo =
+        aion_hive::db::repositories::RolePermissionRepository::new(pool.clone());
     let group_repo_for_perm = aion_hive::db::repositories::GroupRepository::new(pool.clone());
     let permission = aion_hive::services::permission::PermissionService::new(
         system_role_assignment_repo,
@@ -158,7 +175,8 @@ async fn run_http_server(state: AppState, port: u16) -> Result<()> {
         group_perm_override_repo.clone(),
         group_repo_for_perm,
     );
-    let evaluator = aion_hive::services::EvaluatorService::new(state.data_dir.join("evaluations"), eval_repo);
+    let evaluator =
+        aion_hive::services::EvaluatorService::new(state.data_dir.join("evaluations"), eval_repo);
     let sandbox = aion_hive::services::SandboxService::new();
     let mcp_server = McpServer::new(
         state.registry.clone(),
@@ -171,7 +189,9 @@ async fn run_http_server(state: AppState, port: u16) -> Result<()> {
     );
     let mcp_server_arc = Arc::new(tokio::sync::RwLock::new(mcp_server));
 
-    let http_state = HttpState { mcp_server: mcp_server_arc };
+    let http_state = HttpState {
+        mcp_server: mcp_server_arc,
+    };
     let sse_state = SseState::new();
 
     let app_state: Arc<AppRouterState> = Arc::new(AppRouterState {
@@ -224,8 +244,7 @@ async fn main() -> Result<()> {
 
     tracing_subscriber::registry()
         .with(
-            tracing_subscriber::EnvFilter::try_from_default_env()
-                .unwrap_or_else(|_| "info".into()),
+            tracing_subscriber::EnvFilter::try_from_default_env().unwrap_or_else(|_| "info".into()),
         )
         .with(tracing_subscriber::fmt::layer())
         .init();
@@ -248,13 +267,19 @@ async fn main() -> Result<()> {
     let state = AppState::new(data_dir.clone(), skills_dir).await?;
 
     info!("AionHive initialized successfully");
-    info!("Registry: {} skills", state.registry.count().await.unwrap_or(0));
+    info!(
+        "Registry: {} skills",
+        state.registry.count().await.unwrap_or(0)
+    );
 
     let port = std::env::var("AION_HIVE_HTTP_PORT")
         .unwrap_or_else(|_| "8080".to_string())
         .parse::<u16>()?;
 
-    info!("Starting MCP server with streamable-http + SSE transport on port {}", port);
+    info!(
+        "Starting MCP server with streamable-http + SSE transport on port {}",
+        port
+    );
     run_http_server(state, port).await?;
 
     Ok(())

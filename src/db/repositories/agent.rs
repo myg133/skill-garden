@@ -1,8 +1,8 @@
 //! Agent repository
 
+use bcrypt::{hash, verify, DEFAULT_COST};
 use chrono::{DateTime, Utc};
 use sqlx::PgPool;
-use bcrypt::{hash, verify, DEFAULT_COST};
 use uuid::Uuid;
 
 use crate::db::error::{DbError, DbResult};
@@ -108,8 +108,9 @@ impl AgentRepository {
         let agent = self.find_by_id(agent_id).await?;
         match agent {
             Some(a) => {
-                let valid = verify(secret, &a.agent_secret_hash)
-                    .map_err(|e| DbError::ValidationError(format!("Failed to verify secret: {}", e)))?;
+                let valid = verify(secret, &a.agent_secret_hash).map_err(|e| {
+                    DbError::ValidationError(format!("Failed to verify secret: {}", e))
+                })?;
                 Ok(valid)
             }
             None => Ok(false),
@@ -138,7 +139,11 @@ impl AgentRepository {
         Ok(())
     }
 
-    pub async fn update_capabilities(&self, agent_id: &str, capabilities: Vec<String>) -> DbResult<()> {
+    pub async fn update_capabilities(
+        &self,
+        agent_id: &str,
+        capabilities: Vec<String>,
+    ) -> DbResult<()> {
         sqlx::query("UPDATE agents SET capabilities = $1, updated_at = NOW() WHERE agent_id = $2")
             .bind(&capabilities)
             .bind(agent_id)

@@ -1,7 +1,7 @@
 //! 错误类型定义
 
-use thiserror::Error;
 use serde::{Deserialize, Serialize};
+use thiserror::Error;
 
 /// 统一错误码
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
@@ -199,20 +199,53 @@ mod tests {
         assert_eq!(ErrorCode::Unknown.to_string(), "UNKNOWN");
         assert_eq!(ErrorCode::InternalError.to_string(), "INTERNAL_ERROR");
         assert_eq!(ErrorCode::SkillNotFound.to_string(), "SKILL_NOT_FOUND");
-        assert_eq!(ErrorCode::SkillAlreadyExists.to_string(), "SKILL_ALREADY_EXISTS");
-        assert_eq!(ErrorCode::SkillInstallFailed.to_string(), "SKILL_INSTALL_FAILED");
-        assert_eq!(ErrorCode::SkillCreateFailed.to_string(), "SKILL_CREATE_FAILED");
-        assert_eq!(ErrorCode::SkillUpdateFailed.to_string(), "SKILL_UPDATE_FAILED");
-        assert_eq!(ErrorCode::SkillInvalidFormat.to_string(), "SKILL_INVALID_FORMAT");
+        assert_eq!(
+            ErrorCode::SkillAlreadyExists.to_string(),
+            "SKILL_ALREADY_EXISTS"
+        );
+        assert_eq!(
+            ErrorCode::SkillInstallFailed.to_string(),
+            "SKILL_INSTALL_FAILED"
+        );
+        assert_eq!(
+            ErrorCode::SkillCreateFailed.to_string(),
+            "SKILL_CREATE_FAILED"
+        );
+        assert_eq!(
+            ErrorCode::SkillUpdateFailed.to_string(),
+            "SKILL_UPDATE_FAILED"
+        );
+        assert_eq!(
+            ErrorCode::SkillInvalidFormat.to_string(),
+            "SKILL_INVALID_FORMAT"
+        );
         assert_eq!(ErrorCode::SkillTooLarge.to_string(), "SKILL_TOO_LARGE");
         assert_eq!(ErrorCode::MaliciousContent.to_string(), "MALICIOUS_CONTENT");
-        assert_eq!(ErrorCode::InvalidSkillName.to_string(), "INVALID_SKILL_NAME");
+        assert_eq!(
+            ErrorCode::InvalidSkillName.to_string(),
+            "INVALID_SKILL_NAME"
+        );
         assert_eq!(ErrorCode::TooManyTags.to_string(), "TOO_MANY_TAGS");
-        assert_eq!(ErrorCode::EvaluationInvalid.to_string(), "EVALUATION_INVALID");
-        assert_eq!(ErrorCode::EvaluationRateLimited.to_string(), "EVALUATION_RATE_LIMITED");
-        assert_eq!(ErrorCode::RegistryReadFailed.to_string(), "REGISTRY_READ_FAILED");
-        assert_eq!(ErrorCode::RegistryWriteFailed.to_string(), "REGISTRY_WRITE_FAILED");
-        assert_eq!(ErrorCode::RegistryLockFailed.to_string(), "REGISTRY_LOCK_FAILED");
+        assert_eq!(
+            ErrorCode::EvaluationInvalid.to_string(),
+            "EVALUATION_INVALID"
+        );
+        assert_eq!(
+            ErrorCode::EvaluationRateLimited.to_string(),
+            "EVALUATION_RATE_LIMITED"
+        );
+        assert_eq!(
+            ErrorCode::RegistryReadFailed.to_string(),
+            "REGISTRY_READ_FAILED"
+        );
+        assert_eq!(
+            ErrorCode::RegistryWriteFailed.to_string(),
+            "REGISTRY_WRITE_FAILED"
+        );
+        assert_eq!(
+            ErrorCode::RegistryLockFailed.to_string(),
+            "REGISTRY_LOCK_FAILED"
+        );
         assert_eq!(ErrorCode::FileNotFound.to_string(), "FILE_NOT_FOUND");
         assert_eq!(ErrorCode::ValidationError.to_string(), "VALIDATION_ERROR");
         assert_eq!(ErrorCode::InvalidVersion.to_string(), "INVALID_VERSION");
@@ -244,25 +277,76 @@ mod tests {
 
     #[test]
     fn test_app_error_code() {
-        assert_eq!(AppError::SkillNotFound("x".to_string()).code(), ErrorCode::SkillNotFound);
-        assert_eq!(AppError::SkillAlreadyExists("x".to_string()).code(), ErrorCode::SkillAlreadyExists);
-        assert_eq!(AppError::SkillInstallFailed("x".to_string()).code(), ErrorCode::SkillInstallFailed);
-        assert_eq!(AppError::SkillCreateFailed("x".to_string()).code(), ErrorCode::SkillCreateFailed);
-        assert_eq!(AppError::SkillUpdateFailed("x".to_string()).code(), ErrorCode::SkillUpdateFailed);
-        assert_eq!(AppError::SkillInvalidFormat("x".to_string()).code(), ErrorCode::SkillInvalidFormat);
+        assert_eq!(
+            AppError::SkillNotFound("x".to_string()).code(),
+            ErrorCode::SkillNotFound
+        );
+        assert_eq!(
+            AppError::SkillAlreadyExists("x".to_string()).code(),
+            ErrorCode::SkillAlreadyExists
+        );
+        assert_eq!(
+            AppError::SkillInstallFailed("x".to_string()).code(),
+            ErrorCode::SkillInstallFailed
+        );
+        assert_eq!(
+            AppError::SkillCreateFailed("x".to_string()).code(),
+            ErrorCode::SkillCreateFailed
+        );
+        assert_eq!(
+            AppError::SkillUpdateFailed("x".to_string()).code(),
+            ErrorCode::SkillUpdateFailed
+        );
+        assert_eq!(
+            AppError::SkillInvalidFormat("x".to_string()).code(),
+            ErrorCode::SkillInvalidFormat
+        );
         assert_eq!(AppError::SkillTooLarge(0).code(), ErrorCode::SkillTooLarge);
-        assert_eq!(AppError::MaliciousContent.code(), ErrorCode::MaliciousContent);
-        assert_eq!(AppError::InvalidSkillName("x".to_string()).code(), ErrorCode::InvalidSkillName);
+        assert_eq!(
+            AppError::MaliciousContent.code(),
+            ErrorCode::MaliciousContent
+        );
+        assert_eq!(
+            AppError::InvalidSkillName("x".to_string()).code(),
+            ErrorCode::InvalidSkillName
+        );
         assert_eq!(AppError::TooManyTags(0).code(), ErrorCode::TooManyTags);
-        assert_eq!(AppError::EvaluationInvalid("x".to_string()).code(), ErrorCode::EvaluationInvalid);
-        assert_eq!(AppError::EvaluationRateLimited.code(), ErrorCode::EvaluationRateLimited);
-        assert_eq!(AppError::RegistryReadFailed("x".to_string()).code(), ErrorCode::RegistryReadFailed);
-        assert_eq!(AppError::RegistryWriteFailed("x".to_string()).code(), ErrorCode::RegistryWriteFailed);
-        assert_eq!(AppError::RegistryLockFailed("x".to_string()).code(), ErrorCode::RegistryLockFailed);
-        assert_eq!(AppError::FileNotFound("x".to_string()).code(), ErrorCode::FileNotFound);
-        assert_eq!(AppError::ValidationError("x".to_string()).code(), ErrorCode::ValidationError);
-        assert_eq!(AppError::InvalidVersion("x".to_string()).code(), ErrorCode::InvalidVersion);
-        assert_eq!(AppError::InternalError("x".to_string()).code(), ErrorCode::InternalError);
+        assert_eq!(
+            AppError::EvaluationInvalid("x".to_string()).code(),
+            ErrorCode::EvaluationInvalid
+        );
+        assert_eq!(
+            AppError::EvaluationRateLimited.code(),
+            ErrorCode::EvaluationRateLimited
+        );
+        assert_eq!(
+            AppError::RegistryReadFailed("x".to_string()).code(),
+            ErrorCode::RegistryReadFailed
+        );
+        assert_eq!(
+            AppError::RegistryWriteFailed("x".to_string()).code(),
+            ErrorCode::RegistryWriteFailed
+        );
+        assert_eq!(
+            AppError::RegistryLockFailed("x".to_string()).code(),
+            ErrorCode::RegistryLockFailed
+        );
+        assert_eq!(
+            AppError::FileNotFound("x".to_string()).code(),
+            ErrorCode::FileNotFound
+        );
+        assert_eq!(
+            AppError::ValidationError("x".to_string()).code(),
+            ErrorCode::ValidationError
+        );
+        assert_eq!(
+            AppError::InvalidVersion("x".to_string()).code(),
+            ErrorCode::InvalidVersion
+        );
+        assert_eq!(
+            AppError::InternalError("x".to_string()).code(),
+            ErrorCode::InternalError
+        );
     }
 
     #[test]

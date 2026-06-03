@@ -2,9 +2,9 @@
 
 use crate::db::error::DbResult;
 use crate::db::repositories::agent::{Agent, NewAgent};
-use crate::db::repositories::skill::{Skill, SkillMetadata, NewSkill};
-use crate::db::repositories::evaluation::{Evaluation, NewEvaluation, SkillStats};
 use crate::db::repositories::audit::{AuditLog, NewAuditLog};
+use crate::db::repositories::evaluation::{Evaluation, NewEvaluation, SkillStats};
+use crate::db::repositories::skill::{NewSkill, Skill, SkillMetadata};
 
 #[allow(async_fn_in_trait)]
 pub trait AgentRepositoryTrait: Send + Sync {
@@ -20,7 +20,13 @@ pub trait SkillRepositoryTrait: Send + Sync {
     async fn find_by_id(&self, skill_id: &str) -> DbResult<Option<Skill>>;
     async fn list(&self, limit: i64, offset: i64) -> DbResult<Vec<SkillMetadata>>;
     async fn count(&self) -> DbResult<i64>;
-    async fn update(&self, skill_id: &str, description: Option<&str>, content: Option<&str>, tags: Option<Vec<String>>) -> DbResult<()>;
+    async fn update(
+        &self,
+        skill_id: &str,
+        description: Option<&str>,
+        content: Option<&str>,
+        tags: Option<Vec<String>>,
+    ) -> DbResult<()>;
     async fn delete(&self, skill_id: &str) -> DbResult<()>;
     async fn increment_install_count(&self, skill_id: &str) -> DbResult<()>;
 }
@@ -67,7 +73,13 @@ impl<T: SkillRepositoryTrait + ?Sized> SkillRepositoryTrait for Box<T> {
     async fn count(&self) -> DbResult<i64> {
         (**self).count().await
     }
-    async fn update(&self, skill_id: &str, description: Option<&str>, content: Option<&str>, tags: Option<Vec<String>>) -> DbResult<()> {
+    async fn update(
+        &self,
+        skill_id: &str,
+        description: Option<&str>,
+        content: Option<&str>,
+        tags: Option<Vec<String>>,
+    ) -> DbResult<()> {
         (**self).update(skill_id, description, content, tags).await
     }
     async fn delete(&self, skill_id: &str) -> DbResult<()> {

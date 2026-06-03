@@ -319,7 +319,9 @@ mod tests {
 
     #[test]
     fn test_new_skill_serde() {
-        let json = r#"{"name":"browse","description":"test","tags":["web"],"content":"skill content"}"#.to_string();
+        let json =
+            r#"{"name":"browse","description":"test","tags":["web"],"content":"skill content"}"#
+                .to_string();
         let new_skill: NewSkill = serde_json::from_str(&json).unwrap();
         assert_eq!(new_skill.name, "browse");
         assert_eq!(new_skill.version, "1.0.0");

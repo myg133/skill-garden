@@ -9,7 +9,10 @@ use std::collections::HashMap;
 use std::sync::Arc;
 use std::time::Instant;
 
-use bollard::container::{Config, CreateContainerOptions, ListContainersOptions, RemoveContainerOptions, StartContainerOptions};
+use bollard::container::{
+    Config, CreateContainerOptions, ListContainersOptions, RemoveContainerOptions,
+    StartContainerOptions,
+};
 use bollard::exec::{CreateExecOptions, StartExecResults};
 use bollard::image::ListImagesOptions;
 use bollard::Docker;
@@ -149,8 +152,7 @@ impl SandboxService {
             PlatformTool::new("aion-hive/tool-storage:latest", vec!["storage"], 30),
         );
 
-        let docker = Docker::connect_with_http_defaults()
-            .expect("Failed to connect to Docker");
+        let docker = Docker::connect_with_http_defaults().expect("Failed to connect to Docker");
 
         Self {
             docker,
@@ -173,9 +175,13 @@ impl SandboxService {
             self.default_timeout
         };
 
-        let sandbox = self.get_or_create_sandbox(&request.org_id, &request.tool_id).await?;
+        let sandbox = self
+            .get_or_create_sandbox(&request.org_id, &request.tool_id)
+            .await?;
 
-        let result = self.execute_in_container(&sandbox, &request.parameters, timeout).await;
+        let result = self
+            .execute_in_container(&sandbox, &request.parameters, timeout)
+            .await;
 
         let execution_time_ms = start.elapsed().as_millis() as u64;
 
@@ -202,15 +208,20 @@ impl SandboxService {
         parameters: HashMap<String, serde_json::Value>,
         timeout_seconds: Option<u64>,
     ) -> Result<ToolExecutionResult, AppError> {
-        let tool = self.platform_tools.get(tool_id)
-            .ok_or_else(|| AppError::ValidationError(format!("Unknown platform tool: {}", tool_id)))?;
+        let tool = self.platform_tools.get(tool_id).ok_or_else(|| {
+            AppError::ValidationError(format!("Unknown platform tool: {}", tool_id))
+        })?;
 
         let timeout = timeout_seconds.unwrap_or(tool.timeout_seconds);
         let start = Instant::now();
 
-        let sandbox = self.get_or_create_platform_sandbox(tool_id, &tool.image).await?;
+        let sandbox = self
+            .get_or_create_platform_sandbox(tool_id, &tool.image)
+            .await?;
 
-        let result = self.execute_in_container(&sandbox, &parameters, timeout).await;
+        let result = self
+            .execute_in_container(&sandbox, &parameters, timeout)
+            .await;
 
         let execution_time_ms = start.elapsed().as_millis() as u64;
 
@@ -231,11 +242,7 @@ impl SandboxService {
     }
 
     /// Get or create a sandbox for an org tool
-    async fn get_or_create_sandbox(
-        &self,
-        org_id: &str,
-        tool_id: &str,
-    ) -> Result<String, AppError> {
+    async fn get_or_create_sandbox(&self, org_id: &str, tool_id: &str) -> Result<String, AppError> {
         let key = format!("org:{}/tool:{}", org_id, tool_id);
 
         if let Some(instance) = self.containers.get(&key) {
@@ -272,7 +279,8 @@ impl SandboxService {
     ) -> Result<String, AppError> {
         let image = format!("ghcr.io/{}/{}:latest", org_id, tool_id);
         let key = format!("org:{}/tool:{}", org_id, tool_id);
-        self.create_sandbox(&key, &image, Some(org_id.to_string())).await
+        self.create_sandbox(&key, &image, Some(org_id.to_string()))
+            .await
     }
 
     /// Create a new sandbox for a platform tool
@@ -321,12 +329,17 @@ impl SandboxService {
             platform: None,
         };
 
-        let response = self.docker.create_container(Some(options), config).await
+        let response = self
+            .docker
+            .create_container(Some(options), config)
+            .await
             .map_err(|e| AppError::InternalError(format!("Failed to create container: {}", e)))?;
 
         let container_id = response.id;
 
-        self.docker.start_container(&container_id, None::<StartContainerOptions<String>>).await
+        self.docker
+            .start_container(&container_id, None::<StartContainerOptions<String>>)
+            .await
             .map_err(|e| AppError::InternalError(format!("Failed to start container: {}", e)))?;
 
         let info = SandboxInfo {
@@ -339,9 +352,8 @@ impl SandboxService {
             last_used: chrono::Utc::now(),
         };
 
-        self.containers.insert(key.to_string(), SandboxInstance {
-            info,
-        });
+        self.containers
+            .insert(key.to_string(), SandboxInstance { info });
 
         tracing::info!("Sandbox created: container_id={}", container_id);
 
@@ -358,7 +370,10 @@ impl SandboxService {
             ..Default::default()
         };
 
-        let images = self.docker.list_images(Some(options)).await
+        let images = self
+            .docker
+            .list_images(Some(options))
+            .await
             .map_err(|e| AppError::InternalError(format!("Failed to list images: {}", e)))?;
 
         if images.is_empty() {
@@ -400,7 +415,10 @@ impl SandboxService {
             ..Default::default()
         };
 
-        let exec = self.docker.create_exec(container_id, exec_config).await
+        let exec = self
+            .docker
+            .create_exec(container_id, exec_config)
+            .await
             .map_err(|e| AppError::InternalError(format!("Failed to create exec: {}", e)))?;
 
         let output = match self.docker.start_exec(&exec.id, None).await {
@@ -429,10 +447,15 @@ impl SandboxService {
                 (stdout, stderr)
             }
             Ok(StartExecResults::Detached) => {
-                return Err(AppError::InternalError("Exec detached unexpectedly".to_string()));
+                return Err(AppError::InternalError(
+                    "Exec detached unexpectedly".to_string(),
+                ));
             }
             Err(e) => {
-                return Err(AppError::InternalError(format!("Failed to start exec: {}", e)));
+                return Err(AppError::InternalError(format!(
+                    "Failed to start exec: {}",
+                    e
+                )));
             }
         };
 
@@ -440,8 +463,12 @@ impl SandboxService {
             tracing::warn!("stderr from container: {}", output.1);
         }
 
-        let result: serde_json::Value = serde_json::from_str(&output.0.trim())
-            .map_err(|e| AppError::ValidationError(format!("Failed to parse output: {} (output: {})", e, output.0)))?;
+        let result: serde_json::Value = serde_json::from_str(&output.0.trim()).map_err(|e| {
+            AppError::ValidationError(format!(
+                "Failed to parse output: {} (output: {})",
+                e, output.0
+            ))
+        })?;
 
         Ok(result)
     }
@@ -469,12 +496,21 @@ impl SandboxService {
             ..Default::default()
         };
 
-        let images = self.docker.list_images(Some(options)).await
+        let images = self
+            .docker
+            .list_images(Some(options))
+            .await
             .map_err(|e| AppError::InternalError(format!("Failed to list images: {}", e)))?;
 
-        Ok(images.iter().map(|img| {
-            img.repo_tags.first().cloned().unwrap_or_else(|| img.id.clone())
-        }).collect())
+        Ok(images
+            .iter()
+            .map(|img| {
+                img.repo_tags
+                    .first()
+                    .cloned()
+                    .unwrap_or_else(|| img.id.clone())
+            })
+            .collect())
     }
 
     /// List active containers
@@ -488,22 +524,32 @@ impl SandboxService {
             ..Default::default()
         };
 
-        let containers = self.docker.list_containers(Some(options)).await
+        let containers = self
+            .docker
+            .list_containers(Some(options))
+            .await
             .map_err(|e| AppError::InternalError(format!("Failed to list containers: {}", e)))?;
 
-        Ok(containers.into_iter().map(|c| SandboxInfo {
-            id: c.names.and_then(|n| n.first().cloned()).unwrap_or_default(),
-            session_id: c.labels.and_then(|l| l.get("session_id").cloned()).unwrap_or_default(),
-            container_id: c.id.unwrap_or_default(),
-            image: c.image.unwrap_or_default(),
-            status: match c.state.as_deref() {
-                Some("running") => SandboxStatus::Ready,
-                Some("exited") => SandboxStatus::Stopped,
-                _ => SandboxStatus::Stopped,
-            },
-            created_at: chrono::DateTime::from_timestamp(c.created.unwrap_or(0), 0).unwrap_or_else(|| chrono::Utc::now()),
-            last_used: chrono::Utc::now(),
-        }).collect())
+        Ok(containers
+            .into_iter()
+            .map(|c| SandboxInfo {
+                id: c.names.and_then(|n| n.first().cloned()).unwrap_or_default(),
+                session_id: c
+                    .labels
+                    .and_then(|l| l.get("session_id").cloned())
+                    .unwrap_or_default(),
+                container_id: c.id.unwrap_or_default(),
+                image: c.image.unwrap_or_default(),
+                status: match c.state.as_deref() {
+                    Some("running") => SandboxStatus::Ready,
+                    Some("exited") => SandboxStatus::Stopped,
+                    _ => SandboxStatus::Stopped,
+                },
+                created_at: chrono::DateTime::from_timestamp(c.created.unwrap_or(0), 0)
+                    .unwrap_or_else(|| chrono::Utc::now()),
+                last_used: chrono::Utc::now(),
+            })
+            .collect())
     }
 
     /// Stop and remove a sandbox
@@ -516,8 +562,12 @@ impl SandboxService {
                 force: true,
                 ..Default::default()
             };
-            self.docker.remove_container(container_id, Some(options)).await
-                .map_err(|e| AppError::InternalError(format!("Failed to remove container: {}", e)))?;
+            self.docker
+                .remove_container(container_id, Some(options))
+                .await
+                .map_err(|e| {
+                    AppError::InternalError(format!("Failed to remove container: {}", e))
+                })?;
 
             tracing::info!("Sandbox {} removed", key);
         }
@@ -545,7 +595,9 @@ impl SandboxService {
 
     /// Health check - verify Docker daemon is accessible
     pub async fn health_check(&self) -> Result<bool, AppError> {
-        self.docker.ping().await
+        self.docker
+            .ping()
+            .await
             .map_err(|e| AppError::InternalError(format!("Docker health check failed: {}", e)))?;
         Ok(true)
     }
@@ -554,10 +606,15 @@ impl SandboxService {
     pub async fn ensure_isolation_network(&self) -> Result<(), AppError> {
         use bollard::network::CreateNetworkOptions;
 
-        let networks = self.docker.list_networks::<String>(None).await
+        let networks = self
+            .docker
+            .list_networks::<String>(None)
+            .await
             .map_err(|e| AppError::InternalError(format!("Failed to list networks: {}", e)))?;
 
-        let network_exists = networks.iter().any(|n| n.name.as_deref() == Some("aion-hive-isolation"));
+        let network_exists = networks
+            .iter()
+            .any(|n| n.name.as_deref() == Some("aion-hive-isolation"));
 
         if !network_exists {
             let config = CreateNetworkOptions {
@@ -567,8 +624,9 @@ impl SandboxService {
                 ..Default::default()
             };
 
-            self.docker.create_network(config).await
-                .map_err(|e| AppError::InternalError(format!("Failed to create isolation network: {}", e)))?;
+            self.docker.create_network(config).await.map_err(|e| {
+                AppError::InternalError(format!("Failed to create isolation network: {}", e))
+            })?;
 
             tracing::info!("Created isolation network: aion-hive-isolation");
         }

@@ -102,7 +102,9 @@ impl GitProxyService {
     pub async fn list_branches(&self, repo_id: &str) -> Result<Vec<String>, AppError> {
         let url = self.api_url(&format!("/repos/{}/branches", repo_id));
 
-        let response = self.client.get(&url)
+        let response = self
+            .client
+            .get(&url)
             .send()
             .await
             .map_err(|e| AppError::InternalError(format!("Failed to list branches: {}", e)))?;
@@ -119,7 +121,9 @@ impl GitProxyService {
             name: String,
         }
 
-        let branches: Vec<BranchResponse> = response.json().await
+        let branches: Vec<BranchResponse> = response
+            .json()
+            .await
             .map_err(|e| AppError::InternalError(format!("Failed to parse branches: {}", e)))?;
 
         Ok(branches.into_iter().map(|b| b.name).collect())
@@ -128,7 +132,9 @@ impl GitProxyService {
     pub async fn get_branches_with_refs(&self, repo_id: &str) -> Result<Vec<GitRef>, AppError> {
         let url = self.api_url(&format!("/repos/{}/branches", repo_id));
 
-        let response = self.client.get(&url)
+        let response = self
+            .client
+            .get(&url)
             .send()
             .await
             .map_err(|e| AppError::InternalError(format!("Failed to get branches: {}", e)))?;
@@ -151,28 +157,27 @@ impl GitProxyService {
             sha: String,
         }
 
-        let branches: Vec<BranchResponse> = response.json().await
+        let branches: Vec<BranchResponse> = response
+            .json()
+            .await
             .map_err(|e| AppError::InternalError(format!("Failed to parse branches: {}", e)))?;
 
-        Ok(branches.into_iter().map(|b| GitRef {
-            name: b.name,
-            commit: b.commit.sha,
-            committed_at: 0,
-        }).collect())
+        Ok(branches
+            .into_iter()
+            .map(|b| GitRef {
+                name: b.name,
+                commit: b.commit.sha,
+                committed_at: 0,
+            })
+            .collect())
     }
 
-    pub async fn get_commits(
-        &self,
-        repo_id: &str,
-        limit: u32,
-    ) -> Result<Vec<GitRef>, AppError> {
-        let url = self.api_url(&format!(
-            "/repos/{}/commits?limit={}",
-            repo_id,
-            limit
-        ));
+    pub async fn get_commits(&self, repo_id: &str, limit: u32) -> Result<Vec<GitRef>, AppError> {
+        let url = self.api_url(&format!("/repos/{}/commits?limit={}", repo_id, limit));
 
-        let response = self.client.get(&url)
+        let response = self
+            .client
+            .get(&url)
             .send()
             .await
             .map_err(|e| AppError::InternalError(format!("Failed to get commits: {}", e)))?;
@@ -202,20 +207,25 @@ impl GitProxyService {
             timestamp: String,
         }
 
-        let commits: Vec<CommitResponse> = response.json().await
+        let commits: Vec<CommitResponse> = response
+            .json()
+            .await
             .map_err(|e| AppError::InternalError(format!("Failed to parse commits: {}", e)))?;
 
-        Ok(commits.into_iter().map(|c| {
-            let timestamp = chrono::DateTime::parse_from_rfc3339(&c.commit.author.timestamp)
-                .map(|dt| dt.timestamp())
-                .unwrap_or(0);
+        Ok(commits
+            .into_iter()
+            .map(|c| {
+                let timestamp = chrono::DateTime::parse_from_rfc3339(&c.commit.author.timestamp)
+                    .map(|dt| dt.timestamp())
+                    .unwrap_or(0);
 
-            GitRef {
-                name: c.sha[..7].to_string(),
-                commit: c.sha,
-                committed_at: timestamp,
-            }
-        }).collect())
+                GitRef {
+                    name: c.sha[..7].to_string(),
+                    commit: c.sha,
+                    committed_at: timestamp,
+                }
+            })
+            .collect())
     }
 
     pub async fn get_file_at_commit(
@@ -226,12 +236,12 @@ impl GitProxyService {
     ) -> Result<GitFile, AppError> {
         let url = self.api_url(&format!(
             "/repos/{}/contents/{}?ref={}",
-            repo_id,
-            path,
-            commit
+            repo_id, path, commit
         ));
 
-        let response = self.client.get(&url)
+        let response = self
+            .client
+            .get(&url)
             .send()
             .await
             .map_err(|e| AppError::InternalError(format!("Failed to get file: {}", e)))?;
@@ -250,7 +260,9 @@ impl GitProxyService {
             size: u64,
         }
 
-        let file: FileResponse = response.json().await
+        let file: FileResponse = response
+            .json()
+            .await
             .map_err(|e| AppError::InternalError(format!("Failed to parse file: {}", e)))?;
 
         Ok(GitFile {
@@ -268,12 +280,12 @@ impl GitProxyService {
     ) -> Result<GitDiff, AppError> {
         let url = self.api_url(&format!(
             "/repos/{}/compare/{}...{}",
-            repo_id,
-            from_commit,
-            to_commit
+            repo_id, from_commit, to_commit
         ));
 
-        let response = self.client.get(&url)
+        let response = self
+            .client
+            .get(&url)
             .send()
             .await
             .map_err(|e| AppError::InternalError(format!("Failed to get diff: {}", e)))?;
@@ -292,7 +304,9 @@ impl GitProxyService {
             deletions: u64,
         }
 
-        let diff: DiffResponse = response.json().await
+        let diff: DiffResponse = response
+            .json()
+            .await
             .map_err(|e| AppError::InternalError(format!("Failed to parse diff: {}", e)))?;
 
         Ok(GitDiff {
@@ -311,7 +325,9 @@ impl GitProxyService {
 
         let url = self.api_url(&format!("/repos/validate?url={}", git_url));
 
-        let response = self.client.get(&url)
+        let response = self
+            .client
+            .get(&url)
             .send()
             .await
             .map_err(|e| AppError::InternalError(format!("Failed to validate URL: {}", e)))?;
@@ -333,7 +349,9 @@ impl GitProxyService {
             events: Vec<String>,
         }
 
-        let response = self.client.post(&url)
+        let response = self
+            .client
+            .post(&url)
             .json(&CreateWebhookRequest {
                 url: callback_url.to_string(),
                 events,
@@ -357,7 +375,9 @@ impl GitProxyService {
             active: bool,
         }
 
-        let webhook: WebhookResponse = response.json().await
+        let webhook: WebhookResponse = response
+            .json()
+            .await
             .map_err(|e| AppError::InternalError(format!("Failed to parse webhook: {}", e)))?;
 
         Ok(Webhook {
@@ -368,18 +388,12 @@ impl GitProxyService {
         })
     }
 
-    pub async fn delete_webhook(
-        &self,
-        repo_id: &str,
-        webhook_id: &str,
-    ) -> Result<(), AppError> {
-        let url = self.api_url(&format!(
-            "/repos/{}/hooks/{}",
-            repo_id,
-            webhook_id
-        ));
+    pub async fn delete_webhook(&self, repo_id: &str, webhook_id: &str) -> Result<(), AppError> {
+        let url = self.api_url(&format!("/repos/{}/hooks/{}", repo_id, webhook_id));
 
-        let response = self.client.delete(&url)
+        let response = self
+            .client
+            .delete(&url)
             .send()
             .await
             .map_err(|e| AppError::InternalError(format!("Failed to delete webhook: {}", e)))?;
@@ -395,17 +409,22 @@ impl GitProxyService {
     }
 
     pub async fn read_file(&self, repo_id: &str, path: &str) -> Result<GitFile, AppError> {
-        self.get_file_at_commit(repo_id, path, &self.config.default_branch).await
+        self.get_file_at_commit(repo_id, path, &self.config.default_branch)
+            .await
     }
 
     pub async fn health_check(&self) -> Result<bool, AppError> {
         let url = self.api_url("/health");
 
-        let response = self.client.get(&url)
+        let response = self
+            .client
+            .get(&url)
             .timeout(Duration::from_secs(5))
             .send()
             .await
-            .map_err(|e| AppError::InternalError(format!("Git Proxy health check failed: {}", e)))?;
+            .map_err(|e| {
+                AppError::InternalError(format!("Git Proxy health check failed: {}", e))
+            })?;
 
         Ok(response.status().is_success())
     }

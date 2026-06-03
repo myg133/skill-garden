@@ -58,11 +58,10 @@ impl SystemRoleAssignmentRepository {
 
         match row {
             Some(r) => Ok(r.into()),
-            None => {
-                self.find_by_identity_and_role(identity_id, role_name)
-                    .await?
-                    .ok_or_else(|| DbError::NotFound("system role assignment".to_string()))
-            }
+            None => self
+                .find_by_identity_and_role(identity_id, role_name)
+                .await?
+                .ok_or_else(|| DbError::NotFound("system role assignment".to_string())),
         }
     }
 
@@ -130,7 +129,10 @@ impl SystemRoleAssignmentRepository {
         Ok(row > 0)
     }
 
-    pub async fn list_by_role(&self, role_name: &str) -> DbResult<Vec<crate::models::SystemRoleAssignment>> {
+    pub async fn list_by_role(
+        &self,
+        role_name: &str,
+    ) -> DbResult<Vec<crate::models::SystemRoleAssignment>> {
         let rows = sqlx::query_as::<_, SystemRoleAssignmentRow>(
             "SELECT id, identity_id, role_name, assigned_by, assigned_at FROM system_role_assignments WHERE role_name = $1",
         )

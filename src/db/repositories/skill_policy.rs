@@ -60,7 +60,11 @@ impl SkillPolicyRepository {
         Ok(policy.into())
     }
 
-    pub async fn find_by_org_and_skill(&self, org_id: Uuid, skill_id: Uuid) -> DbResult<Option<SkillPolicy>> {
+    pub async fn find_by_org_and_skill(
+        &self,
+        org_id: Uuid,
+        skill_id: Uuid,
+    ) -> DbResult<Option<SkillPolicy>> {
         let policy = sqlx::query_as::<_, SkillPolicyRow>(
             r#"
             SELECT id, org_id, skill_id, visibility, allowed_agents, created_at
@@ -104,7 +108,11 @@ impl SkillPolicyRepository {
         Ok(())
     }
 
-    pub async fn update_allowed_agents(&self, id: Uuid, allowed_agents: Vec<String>) -> DbResult<()> {
+    pub async fn update_allowed_agents(
+        &self,
+        id: Uuid,
+        allowed_agents: Vec<String>,
+    ) -> DbResult<()> {
         sqlx::query("UPDATE skill_policies SET allowed_agents = $1 WHERE id = $2")
             .bind(&allowed_agents)
             .bind(id)

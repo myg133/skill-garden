@@ -11,14 +11,17 @@ use rmcp::{
     transport::stdio,
     ServerHandler,
 };
+use serde_json::Value;
 use std::sync::Arc;
 use tokio::sync::broadcast;
-use serde_json::Value;
 
 use crate::api::jwt::{verify_token, AgentContext};
 use crate::models::evaluation::{ErrorType, EvalTag};
 use crate::models::skill::NewSkill;
-use crate::services::{EvaluatorService, OrgToolService, RegistryService, SandboxService, SearchService, SessionService, ToolRouterService};
+use crate::services::{
+    EvaluatorService, OrgToolService, RegistryService, SandboxService, SearchService,
+    SessionService, ToolRouterService,
+};
 
 #[allow(dead_code)]
 pub struct McpServer {
@@ -83,17 +86,21 @@ impl McpServer {
         Ok(())
     }
 
-    pub async fn run_sse(self, _tx: broadcast::Sender<String>) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+    pub async fn run_sse(
+        self,
+        _tx: broadcast::Sender<String>,
+    ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
         let (stdin, stdout) = stdio();
         serve_server(self, (stdin, stdout)).await?;
         Ok(())
     }
 
     pub async fn handle_jsonrpc(&self, body: &str) -> Result<String, String> {
-        let request: Value = serde_json::from_str(body)
-            .map_err(|e| format!("Invalid JSON: {}", e))?;
+        let request: Value =
+            serde_json::from_str(body).map_err(|e| format!("Invalid JSON: {}", e))?;
 
-        let method = request.get("method")
+        let method = request
+            .get("method")
             .and_then(|v| v.as_str())
             .ok_or("Missing method")?;
 
@@ -144,7 +151,8 @@ impl McpServer {
             }
             "tools/call" => {
                 let params = request.get("params");
-                let tool_name = params.and_then(|p| p.get("name"))
+                let tool_name = params
+                    .and_then(|p| p.get("name"))
                     .and_then(|n| n.as_str())
                     .unwrap_or("");
                 let args: std::collections::HashMap<String, Value> = params
@@ -155,8 +163,13 @@ impl McpServer {
 
                 let call_result = self.call_tool_internal(tool_name, args).await;
 
-                if call_result.get("isError").and_then(|v| v.as_bool()).unwrap_or(false) {
-                    let error_msg = call_result.get("content")
+                if call_result
+                    .get("isError")
+                    .and_then(|v| v.as_bool())
+                    .unwrap_or(false)
+                {
+                    let error_msg = call_result
+                        .get("content")
                         .and_then(|v| v.as_array())
                         .and_then(|arr| arr.first())
                         .and_then(|v| v.get("text"))
@@ -169,7 +182,8 @@ impl McpServer {
                             "code": -32603,
                             "message": error_msg
                         }
-                    }).to_string());
+                    })
+                    .to_string());
                 }
 
                 serde_json::json!({
@@ -186,13 +200,20 @@ impl McpServer {
         Ok(serde_json::to_string(&result).unwrap_or_default())
     }
 
-    async fn call_tool_internal(&self, name: &str, args: std::collections::HashMap<String, Value>) -> Value {
-        let args = args.into_iter().collect::<std::collections::HashMap<_, _>>();
+    async fn call_tool_internal(
+        &self,
+        name: &str,
+        args: std::collections::HashMap<String, Value>,
+    ) -> Value {
+        let args = args
+            .into_iter()
+            .collect::<std::collections::HashMap<_, _>>();
         let result = match name {
             "health_check" => Self::json_success(serde_json::json!({"status": "OK"})),
 
             "skills.search" => {
-                let query = args.get("query")
+                let query = args
+                    .get("query")
                     .and_then(|v| v.as_str())
                     .unwrap_or("")
                     .to_string();
@@ -201,22 +222,18 @@ impl McpServer {
                         .filter_map(|v| v.as_str().map(String::from))
                         .collect::<Vec<_>>()
                 });
-                let limit = args
-                    .get("limit")
-                    .and_then(|v| v.as_u64())
-                    .unwrap_or(10) as usize;
+                let limit = args.get("limit").and_then(|v| v.as_u64()).unwrap_or(10) as usize;
 
                 match self.search.search(&query, tags.as_deref(), limit) {
-                    Ok(results) => Self::json_success(serde_json::to_value(results).unwrap_or_default()),
+                    Ok(results) => {
+                        Self::json_success(serde_json::to_value(results).unwrap_or_default())
+                    }
                     Err(e) => Self::json_error(format!("Search failed: {}", e)),
                 }
             }
 
             "skills.list" => {
-                let limit = args
-                    .get("limit")
-                    .and_then(|v| v.as_u64())
-                    .unwrap_or(100) as usize;
+                let limit = args.get("limit").and_then(|v| v.as_u64()).unwrap_or(100) as usize;
 
                 match self.registry.list_skills().await {
                     Ok(skills) => {
@@ -232,7 +249,9 @@ impl McpServer {
 
                 match skill_id {
                     Some(id) => match self.registry.get_skill(id).await {
-                        Ok(skill) => Self::json_success(serde_json::to_value(skill).unwrap_or_default()),
+                        Ok(skill) => {
+                            Self::json_success(serde_json::to_value(skill).unwrap_or_default())
+                        }
                         Err(e) => Self::json_error(format!("Get skill failed: {}", e)),
                     },
                     None => Self::json_error("skill_id is required".to_string()),
@@ -242,13 +261,20 @@ impl McpServer {
             "skills.create" => {
                 let name = args.get("name").and_then(|v| v.as_str());
                 let description = args.get("description").and_then(|v| v.as_str());
-                let tags = args.get("tags").and_then(|v| v.as_array()).map(|arr| {
-                    arr.iter()
-                        .filter_map(|v| v.as_str().map(String::from))
-                        .collect::<Vec<_>>()
-                }).unwrap_or_default();
+                let tags = args
+                    .get("tags")
+                    .and_then(|v| v.as_array())
+                    .map(|arr| {
+                        arr.iter()
+                            .filter_map(|v| v.as_str().map(String::from))
+                            .collect::<Vec<_>>()
+                    })
+                    .unwrap_or_default();
                 let content = args.get("content").and_then(|v| v.as_str());
-                let version = args.get("version").and_then(|v| v.as_str()).unwrap_or("1.0.0");
+                let version = args
+                    .get("version")
+                    .and_then(|v| v.as_str())
+                    .unwrap_or("1.0.0");
 
                 match (name, description, content) {
                     (Some(name), Some(description), Some(content)) => {
@@ -265,12 +291,20 @@ impl McpServer {
                             owner_id: None,
                         };
                         let agent_id = "http-client";
-                        match self.registry.create_skill(new_skill, agent_id, &self.search).await {
-                            Ok(skill) => Self::json_success(serde_json::to_value(skill).unwrap_or_default()),
+                        match self
+                            .registry
+                            .create_skill(new_skill, agent_id, &self.search)
+                            .await
+                        {
+                            Ok(skill) => {
+                                Self::json_success(serde_json::to_value(skill).unwrap_or_default())
+                            }
                             Err(e) => Self::json_error(format!("Create skill failed: {}", e)),
                         }
                     }
-                    _ => Self::json_error("name, description, and content are required".to_string()),
+                    _ => {
+                        Self::json_error("name, description, and content are required".to_string())
+                    }
                 }
             }
 
@@ -278,13 +312,19 @@ impl McpServer {
                 let skill_id = args.get("skill_id").and_then(|v| v.as_str());
 
                 let update = crate::models::skill::SkillUpdate {
-                    description: args.get("description").and_then(|v| v.as_str()).map(String::from),
+                    description: args
+                        .get("description")
+                        .and_then(|v| v.as_str())
+                        .map(String::from),
                     tags: args.get("tags").and_then(|v| v.as_array()).map(|arr| {
                         arr.iter()
                             .filter_map(|v| v.as_str().map(String::from))
                             .collect()
                     }),
-                    content: args.get("content").and_then(|v| v.as_str()).map(String::from),
+                    content: args
+                        .get("content")
+                        .and_then(|v| v.as_str())
+                        .map(String::from),
                     git_url: None,
                     visibility: None,
                     tools: None,
@@ -293,8 +333,14 @@ impl McpServer {
                 match skill_id {
                     Some(id) => {
                         let agent_id = "http-client";
-                        match self.registry.update_skill(id, update, agent_id, &self.search).await {
-                            Ok(skill) => Self::json_success(serde_json::to_value(skill).unwrap_or_default()),
+                        match self
+                            .registry
+                            .update_skill(id, update, agent_id, &self.search)
+                            .await
+                        {
+                            Ok(skill) => {
+                                Self::json_success(serde_json::to_value(skill).unwrap_or_default())
+                            }
                             Err(e) => Self::json_error(format!("Update skill failed: {}", e)),
                         }
                     }
@@ -303,7 +349,6 @@ impl McpServer {
             }
 
             // Note: skills_delete is Admin-only via REST API, not MCP
-
             "skills.install" => {
                 let skill_id = args.get("skill_id").and_then(|v| v.as_str());
 
@@ -319,42 +364,57 @@ impl McpServer {
                 let success = args.get("success").and_then(|v| v.as_bool());
                 let duration_ms = args.get("duration_ms").and_then(|v| v.as_u64());
 
-                let error_type = args.get("error_type").and_then(|v| v.as_str()).map(|s| match s {
-                    "timeout" => ErrorType::Timeout,
-                    "crash" => ErrorType::Crash,
-                    "logic_error" => ErrorType::LogicError,
-                    _ => ErrorType::Other,
-                });
+                let error_type = args
+                    .get("error_type")
+                    .and_then(|v| v.as_str())
+                    .map(|s| match s {
+                        "timeout" => ErrorType::Timeout,
+                        "crash" => ErrorType::Crash,
+                        "logic_error" => ErrorType::LogicError,
+                        _ => ErrorType::Other,
+                    });
 
-                let tags = args.get("tags").and_then(|v| v.as_array()).map(|arr| {
-                    arr.iter()
-                        .filter_map(|v| {
-                            v.as_str().and_then(|s| match s {
-                                "reliable" => Some(EvalTag::Reliable),
-                                "fast" => Some(EvalTag::Fast),
-                                "stable" => Some(EvalTag::Stable),
-                                "experimental" => Some(EvalTag::Experimental),
-                                _ => None,
+                let tags = args
+                    .get("tags")
+                    .and_then(|v| v.as_array())
+                    .map(|arr| {
+                        arr.iter()
+                            .filter_map(|v| {
+                                v.as_str().and_then(|s| match s {
+                                    "reliable" => Some(EvalTag::Reliable),
+                                    "fast" => Some(EvalTag::Fast),
+                                    "stable" => Some(EvalTag::Stable),
+                                    "experimental" => Some(EvalTag::Experimental),
+                                    _ => None,
+                                })
                             })
-                        })
-                        .collect()
-                }).unwrap_or_default();
+                            .collect()
+                    })
+                    .unwrap_or_default();
 
                 match (skill_id, agent_id, success, duration_ms) {
                     (Some(skill_id), Some(agent_id), Some(success), Some(duration_ms)) => {
-                        match self.evaluator.add_evaluation(
-                            skill_id.to_string(),
-                            agent_id.to_string(),
-                            success,
-                            duration_ms,
-                            error_type,
-                            tags,
-                        ).await {
-                            Ok(result) => Self::json_success(serde_json::to_value(result).unwrap_or_default()),
+                        match self
+                            .evaluator
+                            .add_evaluation(
+                                skill_id.to_string(),
+                                agent_id.to_string(),
+                                success,
+                                duration_ms,
+                                error_type,
+                                tags,
+                            )
+                            .await
+                        {
+                            Ok(result) => {
+                                Self::json_success(serde_json::to_value(result).unwrap_or_default())
+                            }
                             Err(e) => Self::json_error(format!("Evaluate skill failed: {}", e)),
                         }
                     }
-                    _ => Self::json_error("skill_id, agent_id, success, and duration_ms are required".to_string()),
+                    _ => Self::json_error(
+                        "skill_id, agent_id, success, and duration_ms are required".to_string(),
+                    ),
                 }
             }
 
@@ -363,7 +423,9 @@ impl McpServer {
 
                 match skill_id {
                     Some(id) => match self.evaluator.get_stats(id) {
-                        Ok(stats) => Self::json_success(serde_json::to_value(stats).unwrap_or_default()),
+                        Ok(stats) => {
+                            Self::json_success(serde_json::to_value(stats).unwrap_or_default())
+                        }
                         Err(e) => Self::json_error(format!("Get stats failed: {}", e)),
                     },
                     None => Self::json_error("skill_id is required".to_string()),
@@ -377,21 +439,17 @@ impl McpServer {
                     Some(id) => {
                         let session_uuid = uuid::Uuid::parse_str(id);
                         match session_uuid {
-                            Ok(uuid) => {
-                                match self.session.get_session(uuid).await {
-                                    Ok(Some(session)) => {
-                                        Self::json_success(serde_json::json!({
-                                            "session_id": session.id.to_string(),
-                                            "org_id": session.org_id.to_string(),
-                                            "agent_id": session.agent_id,
-                                            "status": session.status,
-                                            "created_at": session.created_at.to_rfc3339()
-                                        }))
-                                    }
-                                    Ok(None) => Self::json_error(format!("Session {} not found", id)),
-                                    Err(e) => Self::json_error(format!("Get session failed: {}", e)),
-                                }
-                            }
+                            Ok(uuid) => match self.session.get_session(uuid).await {
+                                Ok(Some(session)) => Self::json_success(serde_json::json!({
+                                    "session_id": session.id.to_string(),
+                                    "org_id": session.org_id.to_string(),
+                                    "agent_id": session.agent_id,
+                                    "status": session.status,
+                                    "created_at": session.created_at.to_rfc3339()
+                                })),
+                                Ok(None) => Self::json_error(format!("Session {} not found", id)),
+                                Err(e) => Self::json_error(format!("Get session failed: {}", e)),
+                            },
                             Err(_) => Self::json_error("Invalid session ID format".to_string()),
                         }
                     }
@@ -401,11 +459,15 @@ impl McpServer {
 
             "session.declare" => {
                 let session_id = args.get("session_id").and_then(|v| v.as_str());
-                let capabilities = args.get("capabilities").and_then(|v| v.as_array()).map(|arr| {
-                    arr.iter()
-                        .filter_map(|v| v.as_str().map(String::from))
-                        .collect::<Vec<_>>()
-                }).unwrap_or_default();
+                let capabilities = args
+                    .get("capabilities")
+                    .and_then(|v| v.as_array())
+                    .map(|arr| {
+                        arr.iter()
+                            .filter_map(|v| v.as_str().map(String::from))
+                            .collect::<Vec<_>>()
+                    })
+                    .unwrap_or_default();
 
                 match session_id {
                     Some(id) => {
@@ -414,40 +476,65 @@ impl McpServer {
                             Ok(uuid) => {
                                 match self.session.declare_capabilities(uuid, capabilities).await {
                                     Ok(router) => {
-                                        let browse = router.routes.get("browse").map(|t| match t {
-                                            crate::models::session::RouteTarget::Local => "local",
-                                            crate::models::session::RouteTarget::Platform => "platform",
-                                            crate::models::session::RouteTarget::OrgTool(s) => s.as_str(),
-                                        }).unwrap_or("platform");
-                                        let qa = router.routes.get("qa").map(|t| match t {
-                                            crate::models::session::RouteTarget::Local => "local",
-                                            crate::models::session::RouteTarget::Platform => "platform",
-                                            crate::models::session::RouteTarget::OrgTool(o) => o.as_str(),
-                                        }).unwrap_or("platform");
+                                        let browse = router
+                                            .routes
+                                            .get("browse")
+                                            .map(|t| match t {
+                                                crate::models::session::RouteTarget::Local => {
+                                                    "local"
+                                                }
+                                                crate::models::session::RouteTarget::Platform => {
+                                                    "platform"
+                                                }
+                                                crate::models::session::RouteTarget::OrgTool(s) => {
+                                                    s.as_str()
+                                                }
+                                            })
+                                            .unwrap_or("platform");
+                                        let qa = router
+                                            .routes
+                                            .get("qa")
+                                            .map(|t| match t {
+                                                crate::models::session::RouteTarget::Local => {
+                                                    "local"
+                                                }
+                                                crate::models::session::RouteTarget::Platform => {
+                                                    "platform"
+                                                }
+                                                crate::models::session::RouteTarget::OrgTool(o) => {
+                                                    o.as_str()
+                                                }
+                                            })
+                                            .unwrap_or("platform");
                                         let tool_router_json = serde_json::json!({
                                             "browse": browse,
                                             "qa": qa
                                         });
                                         Self::json_success(tool_router_json)
                                     }
-                                    Err(e) => Self::json_error(format!("Declare capabilities failed: {}", e)),
+                                    Err(e) => Self::json_error(format!(
+                                        "Declare capabilities failed: {}",
+                                        e
+                                    )),
                                 }
                             }
                             Err(_) => Self::json_error("Invalid session ID format".to_string()),
                         }
                     }
-                    None => Self::json_error("session_id and capabilities are required".to_string()),
+                    None => {
+                        Self::json_error("session_id and capabilities are required".to_string())
+                    }
                 }
             }
 
             "tools.execute" => {
                 let tool_id = args.get("tool_id").and_then(|v| v.as_str());
                 let org_id = args.get("org_id").and_then(|v| v.as_str());
-                let parameters = args.get("parameters").and_then(|v| v.as_object()).map(|obj| {
-                    obj.iter()
-                        .map(|(k, v)| (k.clone(), v.clone()))
-                        .collect()
-                }).unwrap_or_default();
+                let parameters = args
+                    .get("parameters")
+                    .and_then(|v| v.as_object())
+                    .map(|obj| obj.iter().map(|(k, v)| (k.clone(), v.clone())).collect())
+                    .unwrap_or_default();
 
                 match (tool_id, org_id) {
                     (Some(tid), Some(oid)) => {
@@ -478,7 +565,8 @@ impl McpServer {
         };
 
         let call_result = result;
-        serde_json::to_value(&call_result).unwrap_or(serde_json::json!({"error": "serialization failed"}))
+        serde_json::to_value(&call_result)
+            .unwrap_or(serde_json::json!({"error": "serialization failed"}))
     }
 
     fn tools() -> Vec<Tool> {
@@ -677,22 +765,18 @@ impl ServerHandler for McpServer {
                         .filter_map(|v| v.as_str().map(String::from))
                         .collect::<Vec<_>>()
                 });
-                let limit = args
-                    .get("limit")
-                    .and_then(|v| v.as_u64())
-                    .unwrap_or(10) as usize;
+                let limit = args.get("limit").and_then(|v| v.as_u64()).unwrap_or(10) as usize;
 
                 match self.search.search(&query, tags.as_deref(), limit) {
-                    Ok(results) => Self::json_success(serde_json::to_value(results).unwrap_or_default()),
+                    Ok(results) => {
+                        Self::json_success(serde_json::to_value(results).unwrap_or_default())
+                    }
                     Err(e) => Self::json_error(format!("Search failed: {}", e)),
                 }
             }
 
             "skills.list" => {
-                let limit = args
-                    .get("limit")
-                    .and_then(|v| v.as_u64())
-                    .unwrap_or(100) as usize;
+                let limit = args.get("limit").and_then(|v| v.as_u64()).unwrap_or(100) as usize;
 
                 match self.registry.list_skills().await {
                     Ok(skills) => {
@@ -708,7 +792,9 @@ impl ServerHandler for McpServer {
 
                 match skill_id {
                     Some(id) => match self.registry.get_skill(id).await {
-                        Ok(skill) => Self::json_success(serde_json::to_value(skill).unwrap_or_default()),
+                        Ok(skill) => {
+                            Self::json_success(serde_json::to_value(skill).unwrap_or_default())
+                        }
                         Err(e) => Self::json_error(format!("Get skill failed: {}", e)),
                     },
                     None => Self::json_error("skill_id is required".to_string()),
@@ -718,13 +804,20 @@ impl ServerHandler for McpServer {
             "skills.create" => {
                 let name = args.get("name").and_then(|v| v.as_str());
                 let description = args.get("description").and_then(|v| v.as_str());
-                let tags = args.get("tags").and_then(|v| v.as_array()).map(|arr| {
-                    arr.iter()
-                        .filter_map(|v| v.as_str().map(String::from))
-                        .collect::<Vec<_>>()
-                }).unwrap_or_default();
+                let tags = args
+                    .get("tags")
+                    .and_then(|v| v.as_array())
+                    .map(|arr| {
+                        arr.iter()
+                            .filter_map(|v| v.as_str().map(String::from))
+                            .collect::<Vec<_>>()
+                    })
+                    .unwrap_or_default();
                 let content = args.get("content").and_then(|v| v.as_str());
-                let version = args.get("version").and_then(|v| v.as_str()).unwrap_or("1.0.0");
+                let version = args
+                    .get("version")
+                    .and_then(|v| v.as_str())
+                    .unwrap_or("1.0.0");
 
                 match (name, description, content) {
                     (Some(name), Some(description), Some(content)) => {
@@ -741,12 +834,20 @@ impl ServerHandler for McpServer {
                             owner_id: None,
                         };
                         let agent_id = "mcp-client";
-                        match self.registry.create_skill(new_skill, agent_id, &self.search).await {
-                            Ok(skill) => Self::json_success(serde_json::to_value(skill).unwrap_or_default()),
+                        match self
+                            .registry
+                            .create_skill(new_skill, agent_id, &self.search)
+                            .await
+                        {
+                            Ok(skill) => {
+                                Self::json_success(serde_json::to_value(skill).unwrap_or_default())
+                            }
                             Err(e) => Self::json_error(format!("Create skill failed: {}", e)),
                         }
                     }
-                    _ => Self::json_error("name, description, and content are required".to_string()),
+                    _ => {
+                        Self::json_error("name, description, and content are required".to_string())
+                    }
                 }
             }
 
@@ -754,13 +855,19 @@ impl ServerHandler for McpServer {
                 let skill_id = args.get("skill_id").and_then(|v| v.as_str());
 
                 let update = crate::models::skill::SkillUpdate {
-                    description: args.get("description").and_then(|v| v.as_str()).map(String::from),
+                    description: args
+                        .get("description")
+                        .and_then(|v| v.as_str())
+                        .map(String::from),
                     tags: args.get("tags").and_then(|v| v.as_array()).map(|arr| {
                         arr.iter()
                             .filter_map(|v| v.as_str().map(String::from))
                             .collect()
                     }),
-                    content: args.get("content").and_then(|v| v.as_str()).map(String::from),
+                    content: args
+                        .get("content")
+                        .and_then(|v| v.as_str())
+                        .map(String::from),
                     git_url: None,
                     visibility: None,
                     tools: None,
@@ -769,8 +876,14 @@ impl ServerHandler for McpServer {
                 match skill_id {
                     Some(id) => {
                         let agent_id = "mcp-client";
-                        match self.registry.update_skill(id, update, agent_id, &self.search).await {
-                            Ok(skill) => Self::json_success(serde_json::to_value(skill).unwrap_or_default()),
+                        match self
+                            .registry
+                            .update_skill(id, update, agent_id, &self.search)
+                            .await
+                        {
+                            Ok(skill) => {
+                                Self::json_success(serde_json::to_value(skill).unwrap_or_default())
+                            }
                             Err(e) => Self::json_error(format!("Update skill failed: {}", e)),
                         }
                     }
@@ -779,49 +892,63 @@ impl ServerHandler for McpServer {
             }
 
             // Note: skills_delete is Admin-only via REST API, not MCP
-
             "skills.install" => {
                 let skill_id = args.get("skill_id").and_then(|v| v.as_str());
                 let agent_id = args.get("agent_id").and_then(|v| v.as_str());
                 let success = args.get("success").and_then(|v| v.as_bool());
                 let duration_ms = args.get("duration_ms").and_then(|v| v.as_u64());
 
-                let error_type = args.get("error_type").and_then(|v| v.as_str()).map(|s| match s {
-                    "timeout" => ErrorType::Timeout,
-                    "crash" => ErrorType::Crash,
-                    "logic_error" => ErrorType::LogicError,
-                    _ => ErrorType::Other,
-                });
+                let error_type = args
+                    .get("error_type")
+                    .and_then(|v| v.as_str())
+                    .map(|s| match s {
+                        "timeout" => ErrorType::Timeout,
+                        "crash" => ErrorType::Crash,
+                        "logic_error" => ErrorType::LogicError,
+                        _ => ErrorType::Other,
+                    });
 
-                let tags = args.get("tags").and_then(|v| v.as_array()).map(|arr| {
-                    arr.iter()
-                        .filter_map(|v| {
-                            v.as_str().and_then(|s| match s {
-                                "reliable" => Some(EvalTag::Reliable),
-                                "fast" => Some(EvalTag::Fast),
-                                "stable" => Some(EvalTag::Stable),
-                                "experimental" => Some(EvalTag::Experimental),
-                                _ => None,
+                let tags = args
+                    .get("tags")
+                    .and_then(|v| v.as_array())
+                    .map(|arr| {
+                        arr.iter()
+                            .filter_map(|v| {
+                                v.as_str().and_then(|s| match s {
+                                    "reliable" => Some(EvalTag::Reliable),
+                                    "fast" => Some(EvalTag::Fast),
+                                    "stable" => Some(EvalTag::Stable),
+                                    "experimental" => Some(EvalTag::Experimental),
+                                    _ => None,
+                                })
                             })
-                        })
-                        .collect()
-                }).unwrap_or_default();
+                            .collect()
+                    })
+                    .unwrap_or_default();
 
                 match (skill_id, agent_id, success, duration_ms) {
                     (Some(skill_id), Some(agent_id), Some(success), Some(duration_ms)) => {
-                        match self.evaluator.add_evaluation(
-                            skill_id.to_string(),
-                            agent_id.to_string(),
-                            success,
-                            duration_ms,
-                            error_type,
-                            tags,
-                        ).await {
-                            Ok(result) => Self::json_success(serde_json::to_value(result).unwrap_or_default()),
+                        match self
+                            .evaluator
+                            .add_evaluation(
+                                skill_id.to_string(),
+                                agent_id.to_string(),
+                                success,
+                                duration_ms,
+                                error_type,
+                                tags,
+                            )
+                            .await
+                        {
+                            Ok(result) => {
+                                Self::json_success(serde_json::to_value(result).unwrap_or_default())
+                            }
                             Err(e) => Self::json_error(format!("Evaluate skill failed: {}", e)),
                         }
                     }
-                    _ => Self::json_error("skill_id, agent_id, success, and duration_ms are required".to_string()),
+                    _ => Self::json_error(
+                        "skill_id, agent_id, success, and duration_ms are required".to_string(),
+                    ),
                 }
             }
 
@@ -830,7 +957,9 @@ impl ServerHandler for McpServer {
 
                 match skill_id {
                     Some(id) => match self.evaluator.get_stats(id) {
-                        Ok(stats) => Self::json_success(serde_json::to_value(stats).unwrap_or_default()),
+                        Ok(stats) => {
+                            Self::json_success(serde_json::to_value(stats).unwrap_or_default())
+                        }
                         Err(e) => Self::json_error(format!("Get stats failed: {}", e)),
                     },
                     None => Self::json_error("skill_id is required".to_string()),
