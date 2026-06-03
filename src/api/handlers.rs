@@ -816,8 +816,14 @@ pub async fn admin_login_handler(
         return Err(ApiError::Unauthorized("Not a system administrator".to_string()));
     }
 
-    let token = crate::api::generate_token(&user.id.to_string(), &["admin"], &[])
-        .map_err(|e| ApiError::Unauthorized(format!("{:?}", e)))?;
+    let token = crate::api::generate_token_full(
+        &user.id.to_string(),
+        Some(user.id),
+        true,
+        &["admin"],
+        &[],
+    )
+    .map_err(|e| ApiError::Unauthorized(format!("{:?}", e)))?;
 
     tracing::info!("Admin login success for username: {}", body.username);
 
