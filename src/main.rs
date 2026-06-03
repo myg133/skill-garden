@@ -147,6 +147,17 @@ async fn run_http_server(state: AppState, port: u16) -> Result<()> {
     let agent_repo = AgentRepository::new(pool.clone());
     let audit_repo = AuditRepository::new(pool.clone());
     let group_perm_override_repo = aion_hive::db::repositories::group_permission_override::GroupPermissionOverrideRepository::new(pool.clone());
+    let system_role_assignment_repo = aion_hive::db::repositories::SystemRoleAssignmentRepository::new(pool.clone());
+    let org_membership_repo = aion_hive::db::repositories::OrgMembershipRepository::new(pool.clone());
+    let role_permission_repo = aion_hive::db::repositories::RolePermissionRepository::new(pool.clone());
+    let group_repo_for_perm = aion_hive::db::repositories::GroupRepository::new(pool.clone());
+    let permission = aion_hive::services::permission::PermissionService::new(
+        system_role_assignment_repo,
+        org_membership_repo,
+        role_permission_repo,
+        group_perm_override_repo.clone(),
+        group_repo_for_perm,
+    );
     let evaluator = aion_hive::services::EvaluatorService::new(state.data_dir.join("evaluations"), eval_repo);
     let sandbox = aion_hive::services::SandboxService::new();
     let mcp_server = McpServer::new(
@@ -183,6 +194,7 @@ async fn run_http_server(state: AppState, port: u16) -> Result<()> {
         api_key: state.api_key.clone(),
         audit: state.audit.clone(),
         group_perm_override_repo: group_perm_override_repo.clone(),
+        permission,
     });
 
     let api_router = create_api_router(app_state.clone());

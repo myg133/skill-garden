@@ -7,6 +7,7 @@ use crate::db::repositories::{AgentRepository, AuditRepository, group_permission
 use crate::mcp::McpServer;
 use crate::services::{EvaluatorService, RegistryService, SearchService, OrganizationService, SessionService, OrgToolService, SandboxService, GitProxyService};
 use crate::services::admin::{TenantService, IdentityService, RoleService, GroupService, ApiKeyService, AuditService};
+use crate::services::permission::PermissionService;
 
 #[derive(Clone)]
 pub struct HttpState {
@@ -49,4 +50,5 @@ pub struct AppRouterState {
     pub api_key: ApiKeyService,
     pub audit: AuditService,
     pub group_perm_override_repo: GroupPermissionOverrideRepository,
+    pub permission: PermissionService,
 }

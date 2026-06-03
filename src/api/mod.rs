@@ -6,6 +6,7 @@ pub mod error;
 pub mod handlers;
 pub mod http_state;
 pub mod jwt;
+pub mod auth;
 pub mod models;
 pub mod routes;
 
