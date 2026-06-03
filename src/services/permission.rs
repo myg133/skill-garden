@@ -58,6 +58,56 @@ impl PermissionService {
             .map_err(|e| AppError::InternalError(e.to_string()))
     }
 
+    /// Returns true if the identity is a super_admin, OR has at least
+    /// one org membership in any organization whose tenant_id matches.
+    /// Used by require_tenant_access (Task 4) for single-tenant endpoints.
+    pub async fn user_belongs_to_tenant(
+        &self,
+        identity_id: Uuid,
+        tenant_id: Uuid,
+    ) -> Result<bool, AppError> {
+        if self.is_super_admin(identity_id).await? {
+            return Ok(true);
+        }
+        let tenants = self
+            .org_membership_repo
+            .list_user_tenants(identity_id)
+            .await
+            .map_err(|e| AppError::InternalError(e.to_string()))?;
+        Ok(tenants.contains(&tenant_id))
+    }
+
+    /// Returns the list of tenant_ids the identity can access.
+    /// For non-super-admin users: their org-membership tenant_ids.
+    /// For super_admin: returns an empty Vec (callers must check
+    /// is_super_admin_user separately to interpret empty Vec as
+    /// "unrestricted access").
+    /// Used by tenant_filter_for_user (Task 4) for list endpoints.
+    pub async fn list_user_tenants(
+        &self,
+        identity_id: Uuid,
+    ) -> Result<Vec<Uuid>, AppError> {
+        // Note: super_admin gets empty Vec here, NOT all tenants.
+        // The caller (tenant_filter_for_user) must check
+        // is_super_admin_user first to distinguish "super_admin"
+        // from "regular user with zero memberships".
+        self.org_membership_repo
+            .list_user_tenants(identity_id)
+            .await
+            .map_err(|e| AppError::InternalError(e.to_string()))
+    }
+
+    /// Convenience wrapper around is_super_admin. Same behavior, but
+    /// named differently so call sites read clearly at the
+    /// tenant_filter_for_user site (where we want to ask "is this
+    /// caller a super admin?" before applying any tenant filter).
+    pub async fn is_super_admin_user(
+        &self,
+        identity_id: Uuid,
+    ) -> Result<bool, AppError> {
+        self.is_super_admin(identity_id).await
+    }
+
     pub async fn build_context(&self, identity_id: Uuid) -> Result<PermissionContext, AppError> {
         let system_assignments = self
             .system_role_repo
