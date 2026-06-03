@@ -8,6 +8,7 @@ use axum::{
 use chrono::{Duration, Utc};
 use jsonwebtoken::{decode, encode, DecodingKey, EncodingKey, Header, Validation};
 use serde::{Deserialize, Serialize};
+use uuid::Uuid;
 
 use super::error::ApiError;
 
@@ -26,6 +27,8 @@ fn get_jwt_expiry_hours() -> i64 {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Claims {
     pub subject: String,
+    pub identity_id: Option<Uuid>,
+    pub is_admin: bool,
     pub roles: Vec<String>,
     pub scope: Vec<String>,
     pub exp: i64,
@@ -69,11 +72,23 @@ impl AgentContext {
 }
 
 pub fn generate_token(subject: &str, roles: &[&str], scope: &[&str]) -> Result<String, ApiError> {
+    generate_token_full(subject, None, false, roles, scope)
+}
+
+pub fn generate_token_full(
+    subject: &str,
+    identity_id: Option<Uuid>,
+    is_admin: bool,
+    roles: &[&str],
+    scope: &[&str],
+) -> Result<String, ApiError> {
     let now = Utc::now();
     let exp = now + Duration::hours(get_jwt_expiry_hours());
 
     let claims = Claims {
         subject: subject.to_string(),
+        identity_id,
+        is_admin,
         roles: roles.iter().map(|s| s.to_string()).collect(),
         scope: scope.iter().map(|s| s.to_string()).collect(),
         exp: exp.timestamp(),
@@ -124,9 +139,55 @@ impl<S: Send + Sync> FromRequestParts<S> for AgentContext {
     }
 }
 
+#[derive(Debug, Clone)]
+pub struct AdminUser {
+    pub identity_id: Uuid,
+    pub subject: String,
+    pub roles: Vec<String>,
+}
+
+#[async_trait]
+impl<S: Send + Sync> FromRequestParts<S> for AdminUser {
+    type Rejection = ApiError;
+
+    async fn from_request_parts(parts: &mut Parts, _state: &S) -> Result<Self, Self::Rejection> {
+        let auth_header = parts
+            .headers
+            .get("Authorization")
+            .and_then(|v| v.to_str().ok())
+            .ok_or_else(|| ApiError::Unauthorized("Missing Authorization header".to_string()))?;
+
+        if !auth_header.starts_with("Bearer ") {
+            return Err(ApiError::Unauthorized(
+                "Invalid Authorization header format".to_string(),
+            ));
+        }
+
+        let token = &auth_header[7..];
+        let claims = verify_token(token)?;
+
+        if !claims.is_admin {
+            return Err(ApiError::Unauthorized(
+                "Admin token required".to_string(),
+            ));
+        }
+
+        let identity_id = claims.identity_id.ok_or_else(|| {
+            ApiError::Unauthorized("Identity not bound to token".to_string())
+        })?;
+
+        Ok(AdminUser {
+            identity_id,
+            subject: claims.subject,
+            roles: claims.roles,
+        })
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+    use uuid::Uuid;
 
     #[test]
     fn test_generate_and_verify_token() {
@@ -151,5 +212,30 @@ mod tests {
         assert_eq!(ctx.subject, "user-1");
         assert_eq!(ctx.roles, vec!["admin"]);
         assert_eq!(ctx.scope, vec!["write"]);
+    }
+
+    #[test]
+    fn test_claims_round_trip_with_identity_id_and_is_admin() {
+        let token = generate_token_full(
+            "alice",
+            Some(Uuid::new_v4()),
+            true,
+            &["admin"],
+            &["read"],
+        )
+        .unwrap();
+        let claims = verify_token(&token).unwrap();
+        assert_eq!(claims.subject, "alice");
+        assert!(claims.identity_id.is_some());
+        assert!(claims.is_admin);
+        assert_eq!(claims.roles, vec!["admin"]);
+    }
+
+    #[test]
+    fn test_claims_agent_token_has_no_identity_id() {
+        let token = generate_token_full("agent-1", None, false, &[], &[]).unwrap();
+        let claims = verify_token(&token).unwrap();
+        assert!(claims.identity_id.is_none());
+        assert!(!claims.is_admin);
     }
 }
