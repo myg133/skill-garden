@@ -134,7 +134,11 @@ impl OrgMembershipRepository {
     /// Return all distinct tenant_ids that the given identity is a member of,
     /// via any of their organization memberships. Used by the tenant-scope
     /// guard (Task 3) to verify single-tenant access and filter list
-    /// endpoints (Task 6+).
+    /// endpoints (Task 6+). Also used by the identity tenant-scope check
+    /// (Task 7) to compare the requester's tenant set against the target
+    /// identity's tenant set: an identity is considered "in" a tenant iff
+    /// they have at least one org membership in an organization whose
+    /// tenant_id matches.
     pub async fn list_user_tenants(&self, identity_id: Uuid) -> DbResult<Vec<Uuid>> {
         let rows: Vec<(Uuid,)> = sqlx::query_as(
             r#"

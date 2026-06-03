@@ -144,6 +144,38 @@ impl IdentityRepository {
         Ok(identities.into_iter().map(|i| i.into()).collect())
     }
 
+    /// Return all identities that have at least one org membership in an
+    /// organization whose tenant_id is in `tenant_ids`. Used by the
+    /// tenant-scope guard (Task 7) to filter the identities list endpoint
+    /// to the caller's accessible tenants. DISTINCT guards against the same
+    /// identity matching multiple orgs in the same tenant.
+    pub async fn list_by_tenants(
+        &self,
+        tenant_ids: &[Uuid],
+        limit: i64,
+        offset: i64,
+    ) -> DbResult<Vec<Identity>> {
+        let identities = sqlx::query_as::<_, IdentityRow>(
+            r#"
+            SELECT DISTINCT i.id, i.identity_type, i.username, i.display_name, i.external_id, i.name, i.email, i.avatar_url, i.password_hash, i.is_system_admin, i.status, i.metadata, i.created_at, i.updated_at
+            FROM identities i
+            JOIN org_memberships om ON om.identity_id = i.id
+            JOIN organizations o ON o.id = om.organization_id
+            WHERE o.tenant_id = ANY($1)
+            ORDER BY i.created_at DESC
+            LIMIT $2 OFFSET $3
+            "#,
+        )
+        .bind(tenant_ids)
+        .bind(limit)
+        .bind(offset)
+        .fetch_all(&self.pool)
+        .await
+        .map_err(|e| DbError::QueryError(e.to_string()))?;
+
+        Ok(identities.into_iter().map(|i| i.into()).collect())
+    }
+
     pub async fn update(&self, id: Uuid, update: IdentityUpdate) -> DbResult<Identity> {
         let current = self.find_by_id(id).await?.ok_or_else(|| DbError::NotFound("Identity not found".to_string()))?;
 

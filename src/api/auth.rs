@@ -34,6 +34,33 @@ pub async fn require_tenant_access(
     }
 }
 
+/// Verify that the requesting user is allowed to read/mutate the target
+/// identity. Used by the identity admin handlers (Task 7). Identity is
+/// not directly tenant-scoped — the link is via org_memberships, so a
+/// given identity may belong to multiple tenants. Access rule:
+/// - super_admin: always allowed
+/// - otherwise: requester and target share at least one tenant
+///   (resolved through `PermissionService::user_can_access_identity`)
+/// - otherwise: Forbidden
+pub async fn require_identity_access(
+    state: &AppRouterState,
+    user: &AdminUser,
+    target_identity_id: Uuid,
+) -> Result<(), ApiError> {
+    let can_access = state
+        .permission
+        .user_can_access_identity(user.identity_id, target_identity_id)
+        .await
+        .map_err(|e| ApiError::InternalError(e.to_string()))?;
+    if can_access {
+        Ok(())
+    } else {
+        Err(ApiError::Forbidden(
+            "Not authorized to access this identity".to_string(),
+        ))
+    }
+}
+
 /// Build a tenant-id filter for list endpoints. Returns
 /// `(is_unrestricted, allowed_tenant_ids)`. If `is_unrestricted` is
 /// true (super_admin), the caller should not apply any tenant

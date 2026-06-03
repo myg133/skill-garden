@@ -8,7 +8,7 @@ use axum::{
 };
 use std::sync::Arc;
 
-use crate::api::auth::require_tenant_access;
+use crate::api::auth::{require_identity_access, require_tenant_access, tenant_filter_for_user};
 use crate::api::error::ApiError;
 use crate::api::http_state::AppRouterState;
 use crate::api::jwt::{AdminUser, AgentContext};
@@ -111,18 +111,24 @@ pub async fn delete_tenant_handler(
 // Identity handlers
 
 pub async fn list_identities_handler(
+    user: AdminUser,
     State(state): State<ApiState>,
     Query(query): Query<crate::api::models::PaginationQuery>,
 ) -> Result<impl IntoResponse, ApiError> {
     let limit = query.limit.unwrap_or(20).min(100);
     let offset = query.offset.unwrap_or(0);
-    let identities = state.identity.list(limit, offset, None)
-        .await
-        .map_err(|e| ApiError::InternalError(e.to_string()))?;
+    let (is_super, allowed) = tenant_filter_for_user(&state, &user).await?;
+    let identities = if is_super {
+        state.identity.list(limit, offset, None).await
+    } else {
+        state.identity.list_by_tenants(&allowed, limit, offset).await
+    }
+    .map_err(|e| ApiError::InternalError(e.to_string()))?;
     Ok((StatusCode::OK, Json(serde_json::json!({ "data": identities }))))
 }
 
 pub async fn create_identity_handler(
+    _user: AdminUser,
     State(state): State<ApiState>,
     Json(body): Json<crate::api::models::CreateIdentityBody>,
 ) -> Result<impl IntoResponse, ApiError> {
@@ -133,6 +139,7 @@ pub async fn create_identity_handler(
 }
 
 pub async fn get_identity_handler(
+    user: AdminUser,
     State(state): State<ApiState>,
     Path(id): Path<Uuid>,
 ) -> Result<impl IntoResponse, ApiError> {
@@ -140,24 +147,37 @@ pub async fn get_identity_handler(
         .await
         .map_err(|e| ApiError::NotFound(e.to_string()))?
         .ok_or_else(|| ApiError::NotFound("Identity not found".to_string()))?;
+    require_identity_access(&state, &user, identity.id).await?;
     Ok((StatusCode::OK, Json(serde_json::to_value(identity).unwrap())))
 }
 
 pub async fn update_identity_handler(
+    user: AdminUser,
     State(state): State<ApiState>,
     Path(id): Path<Uuid>,
     Json(body): Json<crate::api::models::UpdateIdentityBody>,
 ) -> Result<impl IntoResponse, ApiError> {
-    let identity = state.identity.update(id, body.into())
+    let identity = state.identity.get(id)
+        .await
+        .map_err(|e| ApiError::NotFound(e.to_string()))?
+        .ok_or_else(|| ApiError::NotFound("Identity not found".to_string()))?;
+    require_identity_access(&state, &user, identity.id).await?;
+    let updated = state.identity.update(id, body.into())
         .await
         .map_err(|e| ApiError::BadRequest(e.to_string()))?;
-    Ok((StatusCode::OK, Json(serde_json::to_value(identity).unwrap())))
+    Ok((StatusCode::OK, Json(serde_json::to_value(updated).unwrap())))
 }
 
 pub async fn delete_identity_handler(
+    user: AdminUser,
     State(state): State<ApiState>,
     Path(id): Path<Uuid>,
 ) -> Result<impl IntoResponse, ApiError> {
+    let identity = state.identity.get(id)
+        .await
+        .map_err(|e| ApiError::NotFound(e.to_string()))?
+        .ok_or_else(|| ApiError::NotFound("Identity not found".to_string()))?;
+    require_identity_access(&state, &user, identity.id).await?;
     state.identity.delete(id)
         .await
         .map_err(|e| ApiError::BadRequest(e.to_string()))?;

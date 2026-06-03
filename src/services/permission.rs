@@ -77,6 +77,43 @@ impl PermissionService {
         Ok(tenants.contains(&tenant_id))
     }
 
+    /// Returns true if the requester is allowed to read/mutate the target
+    /// identity. Used by single-identity admin handlers (get/update/delete
+    /// in Task 7). Rules:
+    /// - super_admin: always allowed.
+    /// - Otherwise: the requester and the target share at least one tenant
+    ///   (computed via their org_memberships). Identities with no org
+    ///   memberships (system identities, freshly created ones) are
+    ///   accessible only to super_admin — by definition they have no
+    ///   tenant, so a non-super-admin requester cannot intersect with them.
+    /// Identity is not directly tenant-scoped (the `Identity` model has no
+    /// `tenant_id` field), so we resolve the link through org_memberships.
+    pub async fn user_can_access_identity(
+        &self,
+        requester_id: Uuid,
+        target_id: Uuid,
+    ) -> Result<bool, AppError> {
+        if self.is_super_admin(requester_id).await? {
+            return Ok(true);
+        }
+        let requester_tenants = self
+            .org_membership_repo
+            .list_user_tenants(requester_id)
+            .await
+            .map_err(|e| AppError::InternalError(e.to_string()))?;
+        if requester_tenants.is_empty() {
+            return Ok(false);
+        }
+        let target_tenants = self
+            .org_membership_repo
+            .list_user_tenants(target_id)
+            .await
+            .map_err(|e| AppError::InternalError(e.to_string()))?;
+        Ok(requester_tenants
+            .iter()
+            .any(|t| target_tenants.contains(t)))
+    }
+
     /// Returns the list of tenant_ids the identity can access.
     /// For non-super-admin users: their org-membership tenant_ids.
     /// For super_admin: returns an empty Vec (callers must check
