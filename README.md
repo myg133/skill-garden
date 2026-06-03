@@ -2,7 +2,7 @@
 
 > 企业级 AI Skills 共享平台
 
-[![Version](https://img.shields.io/badge/version-0.2.0-blue.svg)](VERSION)
+[![Version](https://img.shields.io/badge/version-0.3.0-blue.svg)](VERSION)
 [![License](https://img.shields.io/badge/license-MIT-green.svg)](LICENSE)
 
 ---
@@ -205,6 +205,6 @@ aion-hive/
 
 ## 版本
 
-当前版本：0.2.0
+当前版本：0.3.0
 
 详见 [CHANGELOG.md](CHANGELOG.md)
