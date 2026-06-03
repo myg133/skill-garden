@@ -492,24 +492,54 @@ pub async fn revoke_my_api_key_handler(
 
 // Audit entries handler
 
+/// List audit log entries from the `audit_log_entries` (a.k.a.
+/// `audit_logs` per the SQL in `db/repositories/api_key.rs`) table.
+///
+/// The table has a direct `tenant_id` column, so the tenant-scope
+/// guard (Task 10) filters results to the caller's accessible
+/// tenants. super_admin gets all tenants; everyone else gets
+/// `tenant_id = ANY(allowed)`. The optional `organization_id` /
+/// `identity_id` / `action` filters are honored (they narrow further
+/// within the caller's tenants). The `tenant_id` query parameter is
+/// intentionally dropped for non-super callers — the caller's
+/// accessible tenants are the truth.
 pub async fn list_audit_entries_handler(
+    user: AdminUser,
     State(state): State<ApiState>,
     Query(query): Query<crate::api::models::ListAuditEntriesQuery>,
 ) -> Result<impl IntoResponse, ApiError> {
+    let (is_super, allowed) = tenant_filter_for_user(&state, &user).await?;
     let limit = query.limit.unwrap_or(50).min(200);
     let offset = query.offset.unwrap_or(0);
-    let audit_query = crate::models::api_key::AuditLogQuery {
-        tenant_id: query.tenant_id,
-        organization_id: query.organization_id,
-        identity_id: query.identity_id,
-        action: query.action,
-        resource_type: None,
-        limit: Some(limit),
-        offset: Some(offset),
-    };
-    let entries = state.audit.query(audit_query)
+    let entries = if is_super {
+        let audit_query = crate::models::api_key::AuditLogQuery {
+            tenant_id: query.tenant_id,
+            organization_id: query.organization_id,
+            identity_id: query.identity_id,
+            action: query.action,
+            resource_type: None,
+            limit: Some(limit),
+            offset: Some(offset),
+        };
+        state.audit.query(audit_query).await
+    } else {
+        // Non-super: tenant filter is the strongest restriction. The
+        // optional organization_id / identity_id / action filters
+        // narrow further within the caller's tenants and are passed
+        // through. The tenant_id query parameter is dropped — the
+        // caller's accessible tenants are the truth.
+        let _ = query.tenant_id;
+        state.audit.list_by_tenants(
+            &allowed,
+            query.organization_id,
+            query.identity_id,
+            query.action.as_deref(),
+            limit,
+            offset,
+        )
         .await
-        .map_err(|e| ApiError::InternalError(e.to_string()))?;
+    }
+    .map_err(|e| ApiError::InternalError(e.to_string()))?;
     Ok((StatusCode::OK, Json(serde_json::json!({ "data": entries }))))
 }
 
@@ -1176,35 +1206,79 @@ pub async fn get_user_by_username_handler(
     })))
 }
 
+/// List audit logs from the legacy `audit_logs` table (migration 001).
+///
+/// **Limitation**: this table has no `tenant_id` column — only
+/// `agent_id`, a free-form `VARCHAR(255)` that does not join to
+/// identities or tenants. The response is therefore global. The
+/// handler still requires an `AdminUser` token (any caller authorized
+/// to mint admin tokens can read it), but cannot filter rows by
+/// tenant at the SQL level. A future migration that adds a
+/// `tenant_id` column should tighten `AuditRepository::list_by_tenants`
+/// to `WHERE agent_id = ANY($1)` (after backfilling).
+///
+/// The handler follows the standard tenant-scope guard pattern
+/// (Task 10) for symmetry: super_admin and non-super both end up at
+/// the same query because the table can't be filtered, but the
+/// AdminUser auth check still holds — non-admin callers cannot reach
+/// this branch.
 pub async fn list_audit_logs_handler(
+    user: AdminUser,
     State(state): State<ApiState>,
-    agent_context: AgentContext,
     Query(query): Query<crate::api::models::AuditLogQuery>,
 ) -> Result<impl IntoResponse, ApiError> {
-    agent_context.require_admin()?;
-
+    let (is_super, allowed) = tenant_filter_for_user(&state, &user).await?;
     let limit = query.limit.unwrap_or(50).min(100);
     let offset = query.offset.unwrap_or(0);
 
-    let logs = state.audit_repo
-        .list_with_filters(
-            query.agent_id.as_deref(),
-            query.action.as_deref(),
-            query.resource_type.as_deref(),
-            limit,
-            offset,
-        )
-        .await
-        .map_err(|e| ApiError::InternalError(e.to_string()))?;
-
-    let total = state.audit_repo
-        .count_with_filters(
-            query.agent_id.as_deref(),
-            query.action.as_deref(),
-            query.resource_type.as_deref(),
-        )
-        .await
-        .map_err(|e| ApiError::InternalError(e.to_string()))?;
+    let (logs, total) = if is_super {
+        let logs = state.audit_repo
+            .list_with_filters(
+                query.agent_id.as_deref(),
+                query.action.as_deref(),
+                query.resource_type.as_deref(),
+                limit,
+                offset,
+            )
+            .await
+            .map_err(|e| ApiError::InternalError(e.to_string()))?;
+        let total = state.audit_repo
+            .count_with_filters(
+                query.agent_id.as_deref(),
+                query.action.as_deref(),
+                query.resource_type.as_deref(),
+            )
+            .await
+            .map_err(|e| ApiError::InternalError(e.to_string()))?;
+        (logs, total)
+    } else {
+        // Legacy `audit_logs` table has no `tenant_id`, so
+        // list_by_tenants / count_by_tenants fall back to the
+        // unfiltered list. The AdminUser auth check still holds —
+        // non-admin callers cannot reach this branch. See the
+        // handler doc comment for the full limitation note.
+        let logs = state.audit_repo
+            .list_by_tenants(
+                &allowed,
+                query.agent_id.as_deref(),
+                query.action.as_deref(),
+                query.resource_type.as_deref(),
+                limit,
+                offset,
+            )
+            .await
+            .map_err(|e| ApiError::InternalError(e.to_string()))?;
+        let total = state.audit_repo
+            .count_by_tenants(
+                &allowed,
+                query.agent_id.as_deref(),
+                query.action.as_deref(),
+                query.resource_type.as_deref(),
+            )
+            .await
+            .map_err(|e| ApiError::InternalError(e.to_string()))?;
+        (logs, total)
+    };
 
     let data: Vec<_> = logs.into_iter().map(|log| {
         crate::api::models::AuditLogResponse {

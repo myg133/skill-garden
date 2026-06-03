@@ -266,6 +266,51 @@ impl AuditLogRepository {
 
         Ok(logs.into_iter().map(|l| l.into()).collect())
     }
+
+    /// Return all audit log entries whose `tenant_id` is in `tenant_ids`.
+    /// Used by the tenant-scope guard (Task 10) to filter the
+    /// /api/v1/admin/audit-entries endpoint to the caller's accessible
+    /// tenants. The `audit_logs` table has a direct `tenant_id` column,
+    /// so the WHERE clause is a simple `tenant_id = ANY($1)`.
+    ///
+    /// The optional `organization_id`, `identity_id`, and `action`
+    /// filters are honored — they narrow further within the caller's
+    /// tenant set. The caller must NOT pass a `tenant_id` filter from
+    /// the query string, because the caller's accessible tenants are
+    /// the truth.
+    pub async fn list_by_tenants(
+        &self,
+        tenant_ids: &[Uuid],
+        organization_id: Option<Uuid>,
+        identity_id: Option<Uuid>,
+        action: Option<&str>,
+        limit: i64,
+        offset: i64,
+    ) -> DbResult<Vec<AuditLog>> {
+        let logs = sqlx::query_as::<_, AuditLogRow>(
+            r#"
+            SELECT id, tenant_id, organization_id, identity_id, action, resource_type, resource_id, details, ip_address, user_agent, created_at
+            FROM audit_logs
+            WHERE tenant_id = ANY($1)
+              AND ($2::uuid IS NULL OR organization_id = $2)
+              AND ($3::uuid IS NULL OR identity_id = $3)
+              AND ($4::text IS NULL OR action = $4)
+            ORDER BY created_at DESC
+            LIMIT $5 OFFSET $6
+            "#,
+        )
+        .bind(tenant_ids)
+        .bind(&organization_id)
+        .bind(&identity_id)
+        .bind(action)
+        .bind(limit)
+        .bind(offset)
+        .fetch_all(&self.pool)
+        .await
+        .map_err(|e| DbError::QueryError(e.to_string()))?;
+
+        Ok(logs.into_iter().map(|l| l.into()).collect())
+    }
 }
 
 #[derive(sqlx::FromRow)]

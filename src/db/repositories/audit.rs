@@ -78,7 +78,12 @@ impl AuditRepository {
         Ok(rows.into_iter().map(|r| r.into()).collect())
     }
 
-    pub async fn list_by_resource(&self, resource_type: &str, resource_id: &str, limit: i64) -> DbResult<Vec<AuditLog>> {
+    pub async fn list_by_resource(
+        &self,
+        resource_type: &str,
+        resource_id: &str,
+        limit: i64,
+    ) -> DbResult<Vec<AuditLog>> {
         let rows = sqlx::query_as::<_, AuditLogRow>(
             r#"
             SELECT id, agent_id, action, resource_type, resource_id, details, timestamp
@@ -140,7 +145,8 @@ impl AuditRepository {
         }
         q = q.bind(limit).bind(offset);
 
-        let rows = q.fetch_all(&self.pool)
+        let rows = q
+            .fetch_all(&self.pool)
             .await
             .map_err(|e| DbError::QueryError(e.to_string()))?;
 
@@ -181,11 +187,51 @@ impl AuditRepository {
             q = q.bind(rt);
         }
 
-        let row = q.fetch_one(&self.pool)
+        let row = q
+            .fetch_one(&self.pool)
             .await
             .map_err(|e| DbError::QueryError(e.to_string()))?;
 
         Ok(row.0)
+    }
+
+    /// Tenant-scoped variant of `list_with_filters`.
+    ///
+    /// **Limitation**: the legacy `audit_logs` table (created in
+    /// migration 001) has no `tenant_id` column — only `agent_id`, a
+    /// free-form `VARCHAR(255)` that does not join to identities or
+    /// tenants. The data is therefore not tenant-scoped at the SQL
+    /// level. We accept the `tenant_ids` parameter for symmetry with
+    /// other `list_by_tenants` methods, but ignore it: the caller
+    /// still requires an `AdminUser` token and is expected to be a
+    /// super admin who needs global visibility into legacy audit
+    /// events. A future migration that adds a `tenant_id` column
+    /// should tighten the WHERE clause here.
+    pub async fn list_by_tenants(
+        &self,
+        _tenant_ids: &[Uuid],
+        agent_id: Option<&str>,
+        action: Option<&str>,
+        resource_type: Option<&str>,
+        limit: i64,
+        offset: i64,
+    ) -> DbResult<Vec<AuditLog>> {
+        self.list_with_filters(agent_id, action, resource_type, limit, offset)
+            .await
+    }
+
+    /// Tenant-scoped variant of `count_with_filters`. See
+    /// `list_by_tenants` for the no-tenant_id limitation of the
+    /// legacy `audit_logs` table.
+    pub async fn count_by_tenants(
+        &self,
+        _tenant_ids: &[Uuid],
+        agent_id: Option<&str>,
+        action: Option<&str>,
+        resource_type: Option<&str>,
+    ) -> DbResult<i64> {
+        self.count_with_filters(agent_id, action, resource_type)
+            .await
     }
 }
 
