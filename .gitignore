@@ -10,6 +10,8 @@ target/
 .env
 .env.local
 .env.*.local
+args
+env
 
 # IDE
 .idea/
