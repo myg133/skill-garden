@@ -1,8 +1,8 @@
 //! Skill repository
 
 use chrono::{DateTime, Utc};
-use sqlx::PgPool;
 use serde_json;
+use sqlx::PgPool;
 use uuid::Uuid;
 
 use crate::db::error::{DbError, DbResult};
@@ -98,7 +98,10 @@ impl SkillRepository {
         };
 
         let git_url = new_skill.git_url.clone();
-        let visibility = new_skill.visibility.clone().unwrap_or_else(|| "org_visible".to_string());
+        let visibility = new_skill
+            .visibility
+            .clone()
+            .unwrap_or_else(|| "org_visible".to_string());
         let tools = new_skill.tools.clone().unwrap_or_default();
         let tools_json = serde_json::to_value(&tools).unwrap_or(serde_json::Value::Array(vec![]));
 
@@ -277,7 +280,12 @@ impl SkillRepository {
         Ok(row.0)
     }
 
-    pub async fn list_by_visibility(&self, visibility: &str, limit: i64, offset: i64) -> DbResult<Vec<SkillMetadata>> {
+    pub async fn list_by_visibility(
+        &self,
+        visibility: &str,
+        limit: i64,
+        offset: i64,
+    ) -> DbResult<Vec<SkillMetadata>> {
         let rows = sqlx::query_as::<_, SkillMetadataRow>(
             r#"
             SELECT id, name, description, version, author_agent_id,
@@ -372,7 +380,13 @@ impl SkillRepository {
         Ok(results)
     }
 
-    pub async fn update(&self, skill_id: &str, description: Option<&str>, content: Option<&str>, tags: Option<Vec<String>>) -> DbResult<()> {
+    pub async fn update(
+        &self,
+        skill_id: &str,
+        description: Option<&str>,
+        content: Option<&str>,
+        tags: Option<Vec<String>>,
+    ) -> DbResult<()> {
         if let Some(desc) = description {
             sqlx::query("UPDATE skills SET description = $1, updated_at = NOW() WHERE id = $2")
                 .bind(desc)
@@ -437,7 +451,10 @@ impl SkillRepository {
 
     pub async fn update_status(&self, skill_id: &str, status: &str) -> DbResult<()> {
         if !VALID_STATUSES.contains(&status) {
-            return Err(DbError::ValidationError(format!("Invalid status: {}", status)));
+            return Err(DbError::ValidationError(format!(
+                "Invalid status: {}",
+                status
+            )));
         }
 
         let result = sqlx::query("UPDATE skills SET status = $1, updated_at = NOW() WHERE id = $2")
@@ -487,11 +504,12 @@ impl SkillRepository {
     }
 
     async fn get_dependencies(&self, skill_id: &str) -> DbResult<Vec<String>> {
-        let deps: Vec<(String,)> = sqlx::query_as("SELECT dependency_id FROM skill_dependencies WHERE skill_id = $1")
-            .bind(skill_id)
-            .fetch_all(&self.pool)
-            .await
-            .map_err(|e| DbError::QueryError(e.to_string()))?;
+        let deps: Vec<(String,)> =
+            sqlx::query_as("SELECT dependency_id FROM skill_dependencies WHERE skill_id = $1")
+                .bind(skill_id)
+                .fetch_all(&self.pool)
+                .await
+                .map_err(|e| DbError::QueryError(e.to_string()))?;
         Ok(deps.into_iter().map(|(d,)| d).collect())
     }
 }

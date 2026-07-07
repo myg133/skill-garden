@@ -1,12 +1,12 @@
 //! Organization repository
 
 use chrono::{DateTime, Utc};
+use serde_json::Value as JsonValue;
 use sqlx::PgPool;
 use uuid::Uuid;
-use serde_json::Value as JsonValue;
 
 use crate::db::error::{DbError, DbResult};
-use crate::models::organization::{Organization, NewOrganization};
+use crate::models::organization::{NewOrganization, Organization};
 
 #[derive(Clone)]
 pub struct OrganizationRepository {
@@ -105,7 +105,12 @@ impl OrganizationRepository {
         Ok(orgs.into_iter().map(|o| o.into()).collect())
     }
 
-    pub async fn list_by_tenant(&self, tenant_id: Uuid, limit: i64, offset: i64) -> DbResult<Vec<Organization>> {
+    pub async fn list_by_tenant(
+        &self,
+        tenant_id: Uuid,
+        limit: i64,
+        offset: i64,
+    ) -> DbResult<Vec<Organization>> {
         let orgs = sqlx::query_as::<_, OrganizationRow>(
             r#"
             SELECT o.id, o.name, o.slug, o.display_name, o.description, o.tenant_id,
@@ -128,7 +133,13 @@ impl OrganizationRepository {
         Ok(orgs.into_iter().map(|o| o.into()).collect())
     }
 
-    pub async fn update(&self, id: Uuid, name: String, display_name: Option<String>, description: Option<String>) -> DbResult<Organization> {
+    pub async fn update(
+        &self,
+        id: Uuid,
+        name: String,
+        display_name: Option<String>,
+        description: Option<String>,
+    ) -> DbResult<Organization> {
         sqlx::query(
             "UPDATE organizations SET name = $1, display_name = $2, description = $3, updated_at = NOW() WHERE id = $4",
         )

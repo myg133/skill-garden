@@ -34,6 +34,25 @@ async function requestNoAuth(path, options = {}) {
   return res.json();
 }
 
+async function requestUpload(path, formData) {
+  const token = localStorage.getItem('admin_token');
+  const headers = {};
+  if (token) headers.Authorization = `Bearer ${token}`;
+
+  const res = await fetch(`${API_BASE}${path}`, {
+    method: 'POST',
+    headers,
+    body: formData,
+  });
+
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({ message: 'Upload failed' }));
+    throw new Error(err.message || `HTTP ${res.status}`);
+  }
+
+  return res.json();
+}
+
 export const api = {
   // Admin Auth
   adminLogin(username, password) {
@@ -237,11 +256,8 @@ export const api = {
     return request(`/skills/${id}/stats`);
   },
 
-  createSkill(body) {
-    return request('/skills', {
-      method: 'POST',
-      body: JSON.stringify(body)
-    });
+  uploadSkill(formData) {
+    return requestUpload('/skills/upload', formData);
   },
 
   listAuditLogs(params = {}) {
@@ -463,5 +479,18 @@ export const api = {
       method: 'DELETE',
       body: JSON.stringify(data),
     });
+  },
+
+  // Sandbox
+  listSandboxes() {
+    return request('/admin/sandboxes');
+  },
+
+  getSandboxHealth() {
+    return request('/admin/sandboxes/health');
+  },
+
+  removeSandbox(key) {
+    return request(`/admin/sandboxes/${encodeURIComponent(key)}`, { method: 'DELETE' });
   },
 };

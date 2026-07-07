@@ -1,10 +1,10 @@
 //! Session repository
 
 use chrono::{DateTime, Utc};
-use sqlx::PgPool;
-use uuid::Uuid;
 use serde::{Deserialize, Serialize};
 use serde_json::Value as JsonValue;
+use sqlx::PgPool;
+use uuid::Uuid;
 
 use crate::db::error::{DbError, DbResult};
 
@@ -86,7 +86,12 @@ impl SessionRepository {
         Ok(sessions.into_iter().map(|s| s.into()).collect())
     }
 
-    pub async fn list_all(&self, limit: i64, offset: i64, status: Option<&str>) -> DbResult<Vec<Session>> {
+    pub async fn list_all(
+        &self,
+        limit: i64,
+        offset: i64,
+        status: Option<&str>,
+    ) -> DbResult<Vec<Session>> {
         let sessions = match status {
             Some("active") => {
                 sqlx::query_as::<_, SessionRow>(

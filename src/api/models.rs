@@ -1,7 +1,7 @@
 //! API Request/Response Models
 
+use crate::models::SkillStats;
 use serde::{Deserialize, Serialize};
-use crate::models::{SkillStats};
 
 #[derive(Debug, Serialize)]
 pub struct ListResponse<T> {
@@ -189,6 +189,30 @@ pub struct UserRegisterBody {
     pub display_name: Option<String>,
     pub email: Option<String>,
     pub password: String,
+}
+
+// Password reset models
+
+#[derive(Debug, Deserialize)]
+pub struct ForgotPasswordBody {
+    pub email: String,
+}
+
+#[derive(Debug, Serialize)]
+pub struct ForgotPasswordResponse {
+    pub message: String,
+    pub reset_token: String, // In production, this would be sent via email
+}
+
+#[derive(Debug, Deserialize)]
+pub struct ResetPasswordBody {
+    pub token: String,
+    pub new_password: String,
+}
+
+#[derive(Debug, Serialize)]
+pub struct ResetPasswordResponse {
+    pub message: String,
 }
 
 #[derive(Debug, Serialize)]
@@ -561,9 +585,9 @@ pub struct UpdateIdentityBody {
 
 impl From<UpdateIdentityBody> for crate::models::identity::IdentityUpdate {
     fn from(body: UpdateIdentityBody) -> Self {
-        let password_hash = body.password.map(|pwd| {
-            bcrypt::hash(&pwd, bcrypt::DEFAULT_COST).unwrap_or_default()
-        });
+        let password_hash = body
+            .password
+            .map(|pwd| bcrypt::hash(&pwd, bcrypt::DEFAULT_COST).unwrap_or_default());
 
         crate::models::identity::IdentityUpdate {
             name: body.name,
@@ -604,7 +628,10 @@ impl From<CreateGroupBody> for crate::models::group::NewGroup {
             name: body.name,
             slug: body.slug,
             description: body.description,
-            group_type: body.group_type.map(|g| g.as_str().into()).unwrap_or_default(),
+            group_type: body
+                .group_type
+                .map(|g| g.as_str().into())
+                .unwrap_or_default(),
             settings: serde_json::json!({}),
         }
     }
@@ -700,6 +727,93 @@ pub struct PaginationQuery {
 
 // Marketplace query models
 
+// Role management request bodies
+
+#[derive(Debug, Deserialize)]
+pub struct CreateRoleBody {
+    pub name: String,
+    pub role_type: String,
+    pub scope_level: String,
+    pub parent_role_id: Option<Uuid>,
+    pub permissions: Vec<String>,
+    pub description: Option<String>,
+}
+
+#[derive(Debug, Deserialize)]
+pub struct UpdateRoleBody {
+    pub name: Option<String>,
+    pub permissions: Option<Vec<String>>,
+    pub description: Option<String>,
+}
+
+// Identity role management
+
+#[derive(Debug, Deserialize)]
+pub struct GrantRoleBody {
+    pub role_id: Uuid,
+    pub scope_id: Option<Uuid>,
+    pub expires_at: Option<chrono::DateTime<chrono::Utc>>,
+}
+
+#[derive(Debug, Deserialize)]
+pub struct RevokeRoleQuery {
+    pub scope_id: Option<Uuid>,
+}
+
+// System role assignment
+
+#[derive(Debug, Deserialize)]
+pub struct AssignSystemRoleBody {
+    pub identity_id: Uuid,
+    pub role_name: String,
+}
+
+#[derive(Debug, Deserialize)]
+pub struct RevokeSystemRoleBody {
+    pub identity_id: Uuid,
+    pub role_name: String,
+}
+
+#[derive(Debug, Deserialize)]
+pub struct ListSystemRoleAssignmentsQuery {
+    pub role_name: Option<String>,
+    pub identity_id: Option<Uuid>,
+}
+
+// Role permission management
+
+#[derive(Debug, Deserialize)]
+pub struct CreateRolePermissionBody {
+    pub role_level: String,
+    pub role_name: String,
+    pub permission_code: String,
+    pub scope_restriction: Option<String>,
+}
+
+#[derive(Debug, Deserialize)]
+pub struct DeleteRolePermissionQuery {
+    pub role_level: String,
+    pub role_name: String,
+    pub permission_code: String,
+}
+
+// Permission check
+
+#[derive(Debug, Deserialize)]
+pub struct PermissionCheckBody {
+    pub permission_code: String,
+    pub owner_type: Option<String>,
+    pub owner_id: Option<Uuid>,
+    pub author_identity_id: Option<Uuid>,
+    pub organization_id: Option<Uuid>,
+    pub group_id: Option<Uuid>,
+}
+
+#[derive(Debug, Serialize)]
+pub struct PermissionCheckResponse {
+    pub has_permission: bool,
+}
+
 #[derive(Debug, Deserialize)]
 pub struct MarketplaceQuery {
     pub keyword: Option<String>,
@@ -732,4 +846,146 @@ pub struct CreateOrgSkillBody {
     pub tools: Option<Vec<String>>,
     #[serde(default)]
     pub owner_type: Option<String>,
+}
+
+// --- Admin User Management Models ---
+
+#[derive(Debug, Deserialize)]
+pub struct ListUsersQuery {
+    pub limit: Option<i64>,
+    pub offset: Option<i64>,
+    #[serde(default)]
+    pub identity_type: Option<String>,
+}
+
+#[derive(Debug, Serialize)]
+pub struct UserAdminResponse {
+    pub id: uuid::Uuid,
+    pub identity_type: String,
+    pub username: Option<String>,
+    pub display_name: Option<String>,
+    pub email: Option<String>,
+    pub avatar_url: Option<String>,
+    pub is_system_admin: bool,
+    pub status: String,
+    pub created_at: chrono::DateTime<chrono::Utc>,
+    pub updated_at: chrono::DateTime<chrono::Utc>,
+}
+
+#[derive(Debug, Deserialize)]
+pub struct DisableUserBody {
+    pub disabled: bool,
+}
+
+// --- Evaluation Query Models ---
+
+#[derive(Debug, Deserialize)]
+pub struct ListEvaluationsQuery {
+    pub skill_id: Option<String>,
+    pub agent_id: Option<String>,
+    pub limit: Option<i64>,
+}
+
+#[derive(Debug, Serialize)]
+pub struct EvaluationItemResponse {
+    pub id: String,
+    pub skill_id: String,
+    pub agent_id: String,
+    pub success: bool,
+    pub duration_ms: u64,
+    pub error_type: Option<String>,
+    pub tags: Vec<String>,
+    pub timestamp: String,
+}
+
+// --- Webhook Management Models ---
+
+#[derive(Debug, Deserialize)]
+pub struct AddWebhookBody {
+    pub url: String,
+}
+
+#[derive(Debug, Serialize)]
+pub struct WebhookItemResponse {
+    pub index: usize,
+    pub url: String,
+}
+
+// --- Skill Upload & Version Management Models ---
+
+/// ZIP 上传的响应
+#[derive(Debug, Serialize)]
+pub struct SkillUploadResponse {
+    pub skill_id: String,
+    pub skill_name: String,
+    pub version: String,
+    pub git_commit: String,
+    pub git_tag: String,
+    pub git_repo_name: String,
+    pub is_new_skill: bool,
+    pub files: Vec<String>,
+    pub message: String,
+}
+
+/// 版本列表项
+#[derive(Debug, Serialize)]
+pub struct SkillVersionResponse {
+    pub id: String,
+    pub skill_name: String,
+    pub version: String,
+    pub git_commit_hash: Option<String>,
+    pub git_tag: Option<String>,
+    pub changelog: Option<String>,
+    pub file_count: i32,
+    pub total_size_bytes: i64,
+    pub uploaded_by: Option<uuid::Uuid>,
+    pub git_remote_url: Option<String>,
+    pub created_at: String,
+}
+
+/// 版本列表查询
+#[derive(Debug, Deserialize)]
+pub struct ListVersionsQuery {
+    pub limit: Option<i64>,
+    pub offset: Option<i64>,
+}
+
+/// 版本 diff 查询
+#[derive(Debug, Deserialize)]
+pub struct VersionDiffQuery {
+    pub from: String,
+    pub to: String,
+}
+
+// --- GitLab Remote Sync Models ---
+
+/// Skill 远程 GitLab 信息响应
+#[derive(Debug, Serialize)]
+pub struct SkillRemoteInfoResponse {
+    pub skill_name: String,
+    pub git_remote_url: Option<String>,
+    pub gitlab_group: String,
+    pub gitlab_url: String,
+    pub push_enabled: bool,
+    pub local_repo_exists: bool,
+}
+
+/// GitLab 同步/克隆请求
+#[derive(Debug, Deserialize)]
+pub struct SkillSyncBody {
+    /// 可选的 skill name 列表，不传则同步全部
+    pub skill_names: Option<Vec<String>>,
+}
+
+/// GitLab Webhook push event 载荷
+#[derive(Debug, Deserialize)]
+pub struct GitlabWebhookBody {
+    pub object_kind: Option<String>,
+    pub project: Option<GitlabWebhookProject>,
+}
+
+#[derive(Debug, Deserialize)]
+pub struct GitlabWebhookProject {
+    pub name: Option<String>,
+    pub path_with_namespace: Option<String>,
 }

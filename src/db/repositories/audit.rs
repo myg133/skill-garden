@@ -78,7 +78,12 @@ impl AuditRepository {
         Ok(rows.into_iter().map(|r| r.into()).collect())
     }
 
-    pub async fn list_by_resource(&self, resource_type: &str, resource_id: &str, limit: i64) -> DbResult<Vec<AuditLog>> {
+    pub async fn list_by_resource(
+        &self,
+        resource_type: &str,
+        resource_id: &str,
+        limit: i64,
+    ) -> DbResult<Vec<AuditLog>> {
         let rows = sqlx::query_as::<_, AuditLogRow>(
             r#"
             SELECT id, agent_id, action, resource_type, resource_id, details, timestamp
@@ -140,7 +145,8 @@ impl AuditRepository {
         }
         q = q.bind(limit).bind(offset);
 
-        let rows = q.fetch_all(&self.pool)
+        let rows = q
+            .fetch_all(&self.pool)
             .await
             .map_err(|e| DbError::QueryError(e.to_string()))?;
 
@@ -181,7 +187,8 @@ impl AuditRepository {
             q = q.bind(rt);
         }
 
-        let row = q.fetch_one(&self.pool)
+        let row = q
+            .fetch_one(&self.pool)
             .await
             .map_err(|e| DbError::QueryError(e.to_string()))?;
 

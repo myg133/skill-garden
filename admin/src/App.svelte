@@ -23,6 +23,7 @@
   import Skills from './routes/Skills.svelte';
   import Profile from './routes/Profile.svelte';
   import MyApiKeys from './routes/MyApiKeys.svelte';
+  import Sandbox from './routes/Sandbox.svelte';
 
   export let url = '';
 
@@ -60,6 +61,7 @@
           <Route path="/api-keys" component={ApiKeys} />
           <Route path="/profile" component={Profile} />
           <Route path="/my-api-keys" component={MyApiKeys} />
+          <Route path="/sandboxes" component={Sandbox} />
         </main>
       </div>
       <Toast />

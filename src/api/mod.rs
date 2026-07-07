@@ -12,5 +12,5 @@ pub mod routes;
 pub use error::{ApiError, ApiResult};
 pub use handlers::*;
 pub use http_state::{AppRouterState, HttpState, SseState};
-pub use jwt::{AgentContext, JwtAuth, generate_token};
+pub use jwt::{generate_token, AgentContext, JwtAuth};
 pub use routes::create_api_router;

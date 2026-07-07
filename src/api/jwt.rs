@@ -1,10 +1,6 @@
 //! JWT Authentication
 
-use axum::{
-    async_trait,
-    extract::FromRequestParts,
-    http::request::Parts,
-};
+use axum::{async_trait, extract::FromRequestParts, http::request::Parts};
 use chrono::{Duration, Utc};
 use jsonwebtoken::{decode, encode, DecodingKey, EncodingKey, Header, Validation};
 use serde::{Deserialize, Serialize};
@@ -98,6 +94,40 @@ pub fn verify_token(token: &str) -> Result<Claims, ApiError> {
     .map_err(|e| ApiError::Unauthorized(format!("Invalid token: {}", e)))
 }
 
+/// Generate a short-lived token for password reset / email verification
+pub fn generate_short_lived_token(
+    subject: &str,
+    purpose: &str,
+    minutes: i64,
+) -> Result<String, ApiError> {
+    let now = Utc::now();
+    let exp = now + Duration::minutes(minutes);
+
+    let claims = Claims {
+        subject: subject.to_string(),
+        roles: vec![purpose.to_string()],
+        scope: vec![],
+        exp: exp.timestamp(),
+        iat: now.timestamp(),
+    };
+
+    encode(
+        &Header::default(),
+        &claims,
+        &EncodingKey::from_secret(get_jwt_secret().as_bytes()),
+    )
+    .map_err(|e| ApiError::InternalError(format!("Failed to generate token: {}", e)))
+}
+
+/// Verify a short-lived token and check the purpose role
+pub fn verify_purpose_token(token: &str, purpose: &str) -> Result<String, ApiError> {
+    let claims = verify_token(token)?;
+    if !claims.roles.iter().any(|r| r == purpose) {
+        return Err(ApiError::Unauthorized(format!("Invalid token purpose")));
+    }
+    Ok(claims.subject)
+}
+
 #[async_trait]
 impl<S: Send + Sync> FromRequestParts<S> for AgentContext {
     type Rejection = ApiError;
@@ -110,7 +140,9 @@ impl<S: Send + Sync> FromRequestParts<S> for AgentContext {
             .ok_or_else(|| ApiError::Unauthorized("Missing Authorization header".to_string()))?;
 
         if !auth_header.starts_with("Bearer ") {
-            return Err(ApiError::Unauthorized("Invalid Authorization header format".to_string()));
+            return Err(ApiError::Unauthorized(
+                "Invalid Authorization header format".to_string(),
+            ));
         }
 
         let token = &auth_header[7..];

@@ -31,7 +31,9 @@ const MALICIOUS_PATTERNS: &[&str] = &[
 pub fn validate_skill_name(name: &str) -> Result<(), AppError> {
     // 检查长度
     if name.is_empty() {
-        return Err(AppError::InvalidSkillName("Name cannot be empty".to_string()));
+        return Err(AppError::InvalidSkillName(
+            "Name cannot be empty".to_string(),
+        ));
     }
     if name.len() > MAX_NAME_LENGTH {
         return Err(AppError::InvalidSkillName(format!(
@@ -122,7 +124,9 @@ pub fn validate_skill_content(content: &str, _name: &str) -> Result<(), AppError
 /// 验证版本号 (semver)
 pub fn validate_version(version: &str) -> Result<(), AppError> {
     if version.is_empty() {
-        return Err(AppError::InvalidVersion("Version cannot be empty".to_string()));
+        return Err(AppError::InvalidVersion(
+            "Version cannot be empty".to_string(),
+        ));
     }
 
     // 简单的 semver 验证
@@ -160,12 +164,11 @@ pub fn validate_description(desc: &str) -> Result<(), AppError> {
 }
 
 /// 验证评价输入
-pub fn validate_evaluation_input(
-    skill_id: &str,
-    duration_ms: u64,
-) -> Result<(), AppError> {
+pub fn validate_evaluation_input(skill_id: &str, duration_ms: u64) -> Result<(), AppError> {
     if skill_id.is_empty() {
-        return Err(AppError::EvaluationInvalid("skill_id cannot be empty".to_string()));
+        return Err(AppError::EvaluationInvalid(
+            "skill_id cannot be empty".to_string(),
+        ));
     }
 
     // 执行时间不能为0（除非是立即失败）
@@ -201,7 +204,9 @@ mod tests {
     #[test]
     fn test_validate_tags() {
         assert!(validate_tags(&["web".to_string()]).is_ok());
-        assert!(validate_tags(&["web".to_string(), "scraper".to_string(), "api".to_string()]).is_ok());
+        assert!(
+            validate_tags(&["web".to_string(), "scraper".to_string(), "api".to_string()]).is_ok()
+        );
         assert!(validate_tags(&[]).is_ok());
         assert!(validate_tags(&["a".repeat(51)]).is_err());
     }
@@ -264,7 +269,10 @@ mod tests {
         let long_content = "x".repeat(500_001);
         let result = validate_skill_content(&long_content, "test");
         assert!(result.is_err());
-        assert!(matches!(result.unwrap_err(), AppError::SkillInvalidFormat(_)));
+        assert!(matches!(
+            result.unwrap_err(),
+            AppError::SkillInvalidFormat(_)
+        ));
     }
 
     #[test]
@@ -290,7 +298,10 @@ This is fine because it's in a code block.
     #[test]
     fn test_validate_version_empty() {
         assert!(validate_version("").is_err());
-        assert!(matches!(validate_version("").unwrap_err(), AppError::InvalidVersion(_)));
+        assert!(matches!(
+            validate_version("").unwrap_err(),
+            AppError::InvalidVersion(_)
+        ));
     }
 
     #[test]
@@ -316,7 +327,10 @@ This is fine because it's in a code block.
     fn test_validate_evaluation_input_empty_skill_id() {
         let result = validate_evaluation_input("", 1000);
         assert!(result.is_err());
-        assert!(matches!(result.unwrap_err(), AppError::EvaluationInvalid(_)));
+        assert!(matches!(
+            result.unwrap_err(),
+            AppError::EvaluationInvalid(_)
+        ));
     }
 
     #[test]
@@ -328,7 +342,10 @@ This is fine because it's in a code block.
     fn test_validate_evaluation_input_duration_too_long() {
         let result = validate_evaluation_input("skill-1", 3_600_001);
         assert!(result.is_err());
-        assert!(matches!(result.unwrap_err(), AppError::EvaluationInvalid(_)));
+        assert!(matches!(
+            result.unwrap_err(),
+            AppError::EvaluationInvalid(_)
+        ));
     }
 
     #[test]

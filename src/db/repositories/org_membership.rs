@@ -52,7 +52,11 @@ impl OrgMembershipRepository {
         Ok(())
     }
 
-    pub async fn get_member(&self, identity_id: Uuid, organization_id: Uuid) -> DbResult<Option<OrgMembership>> {
+    pub async fn get_member(
+        &self,
+        identity_id: Uuid,
+        organization_id: Uuid,
+    ) -> DbResult<Option<OrgMembership>> {
         let membership = sqlx::query_as::<_, OrgMembershipRow>(
             r#"
             SELECT id, identity_id, organization_id, role, joined_at, invited_by
@@ -69,7 +73,12 @@ impl OrgMembershipRepository {
         Ok(membership.map(|m| m.into()))
     }
 
-    pub async fn update_role(&self, identity_id: Uuid, organization_id: Uuid, role: OrgRole) -> DbResult<OrgMembership> {
+    pub async fn update_role(
+        &self,
+        identity_id: Uuid,
+        organization_id: Uuid,
+        role: OrgRole,
+    ) -> DbResult<OrgMembership> {
         let membership = sqlx::query_as::<_, OrgMembershipRow>(
             r#"
             UPDATE org_memberships SET role = $1
@@ -113,7 +122,10 @@ impl OrgMembershipRepository {
         Ok(members.into_iter().map(|m| m.into()).collect())
     }
 
-    pub async fn list_user_organizations(&self, identity_id: Uuid) -> DbResult<Vec<(Uuid, String)>> {
+    pub async fn list_user_organizations(
+        &self,
+        identity_id: Uuid,
+    ) -> DbResult<Vec<(Uuid, String)>> {
         let orgs = sqlx::query_as::<_, OrgSummary>(
             r#"
             SELECT o.id, o.name, om.role

@@ -80,7 +80,8 @@ impl RoleRepository {
     }
 
     pub async fn create(&self, new_role: NewRole) -> DbResult<Role> {
-        let permissions_json = serde_json::to_value(&new_role.permissions).unwrap_or(serde_json::json!([]));
+        let permissions_json =
+            serde_json::to_value(&new_role.permissions).unwrap_or(serde_json::json!([]));
 
         let role = sqlx::query_as::<_, RoleRow>(
             r#"
@@ -103,7 +104,10 @@ impl RoleRepository {
     }
 
     pub async fn update(&self, id: Uuid, update: RoleUpdate) -> DbResult<Role> {
-        let current = self.find_by_id(id).await?.ok_or_else(|| DbError::NotFound("Role not found".to_string()))?;
+        let current = self
+            .find_by_id(id)
+            .await?
+            .ok_or_else(|| DbError::NotFound("Role not found".to_string()))?;
 
         let name = update.name.unwrap_or(current.name.clone());
         let permissions = update.permissions.unwrap_or(current.permissions);
@@ -139,7 +143,11 @@ impl RoleRepository {
         Ok(())
     }
 
-    pub async fn grant_role(&self, request: GrantRoleRequest, granted_by: Uuid) -> DbResult<IdentityRole> {
+    pub async fn grant_role(
+        &self,
+        request: GrantRoleRequest,
+        granted_by: Uuid,
+    ) -> DbResult<IdentityRole> {
         let role = sqlx::query_as::<_, IdentityRoleRow>(
             r#"
             INSERT INTO identity_roles (identity_id, role_id, scope_id, granted_by, expires_at)
@@ -160,7 +168,12 @@ impl RoleRepository {
         Ok(role.into())
     }
 
-    pub async fn revoke_role(&self, identity_id: Uuid, role_id: Uuid, scope_id: Option<Uuid>) -> DbResult<()> {
+    pub async fn revoke_role(
+        &self,
+        identity_id: Uuid,
+        role_id: Uuid,
+        scope_id: Option<Uuid>,
+    ) -> DbResult<()> {
         sqlx::query(
             r#"DELETE FROM identity_roles WHERE identity_id = $1 AND role_id = $2 AND scope_id IS NOT DISTINCT FROM $3"#,
         )
@@ -209,7 +222,9 @@ impl RoleRepository {
 
     pub async fn has_permission(&self, identity_id: Uuid, permission: &str) -> DbResult<bool> {
         let perms = self.get_identity_permissions(identity_id).await?;
-        Ok(perms.iter().any(|p| p == "*" || p == permission || permission.starts_with(&p[..p.len().saturating_sub(1)])))
+        Ok(perms.iter().any(|p| {
+            p == "*" || p == permission || permission.starts_with(&p[..p.len().saturating_sub(1)])
+        }))
     }
 }
 

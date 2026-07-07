@@ -6,6 +6,7 @@
   import Badge from '../components/Badge.svelte';
   import EmptyState from '../components/EmptyState.svelte';
   import LoadingSpinner from '../components/LoadingSpinner.svelte';
+  import JSZip from 'jszip';
 
   let skills = [];
   let loading = true;
@@ -159,6 +160,29 @@
     createForm.content = '';
   }
 
+  function buildSkillMd() {
+    const name = createForm.name.trim();
+    const description = createForm.description.trim();
+    const version = createForm.version.trim() || '1.0.0';
+    const visibility = createForm.visibility;
+    const tags = createForm.tags.split(',').map(t => t.trim()).filter(Boolean);
+    const content = createForm.content.trim();
+
+    // 构建 YAML frontmatter
+    let fm = '---\n';
+    fm += `name: "${name}"\n`;
+    if (description) fm += `description: "${description}"\n`;
+    fm += `version: "${version}"\n`;
+    fm += `visibility: "${visibility}"\n`;
+    fm += 'tags:\n';
+    for (const tag of tags) {
+      fm += `  - ${tag}\n`;
+    }
+    fm += '---\n\n';
+    fm += content;
+    return fm;
+  }
+
   async function handleCreate() {
     if (!createForm.name.trim()) {
       addToast('Name is required', 'error');
@@ -171,16 +195,20 @@
 
     creating = true;
     try {
-      const body = {
-        name: createForm.name.trim(),
-        description: createForm.description.trim(),
-        tags: createForm.tags.split(',').map(t => t.trim()).filter(Boolean),
-        content: createForm.content.trim(),
-        version: createForm.version.trim() || '1.0.0',
-        visibility: createForm.visibility
-      };
-      const res = await api.createSkill(body);
-      addToast(res.message || 'Skill created successfully', 'success');
+      // 构建 SKILL.md
+      const skillMd = buildSkillMd();
+
+      // 构建 ZIP
+      const zip = new JSZip();
+      zip.file('SKILL.md', skillMd);
+      const zipBlob = await zip.generateAsync({ type: 'blob' });
+
+      // multipart 上传
+      const formData = new FormData();
+      formData.append('file', zipBlob, `${createForm.name.trim()}.zip`);
+
+      const res = await api.uploadSkill(formData);
+      addToast(res.message || 'Skill uploaded successfully', 'success');
       closeCreateModal();
       await loadSkills();
     } catch (e) {

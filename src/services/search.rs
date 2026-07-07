@@ -6,7 +6,7 @@ use anyhow::Result;
 use tantivy::{
     collector::TopDocs,
     query::QueryParser,
-    schema::{Schema, STORED, STRING, TEXT, Value},
+    schema::{Schema, Value, STORED, STRING, TEXT},
     Index, IndexReader, IndexWriter, ReloadPolicy, TantivyDocument,
 };
 use tracing::{debug, info};
@@ -23,8 +23,7 @@ pub struct SearchService {
 
 impl std::fmt::Debug for SearchService {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        f.debug_struct("SearchService")
-            .finish()
+        f.debug_struct("SearchService").finish()
     }
 }
 
@@ -358,7 +357,12 @@ mod tests {
         let temp_dir = TempDir::new().unwrap();
         let search = SearchService::new(temp_dir.path()).unwrap();
 
-        let skill = create_test_skill("skill-install-test-1.0.0", "install-test", "Testing install count", vec!["test"]);
+        let skill = create_test_skill(
+            "skill-install-test-1.0.0",
+            "install-test",
+            "Testing install count",
+            vec!["test"],
+        );
         search.add_skill(&skill).unwrap();
 
         let results = search.search("install", None, 10).unwrap();
@@ -371,9 +375,12 @@ mod tests {
         let temp_dir = TempDir::new().unwrap();
         let search = SearchService::new(temp_dir.path()).unwrap();
 
-        let new_skills = vec![
-            create_test_skill("skill-rebuild-new-1-1.0.0", "rebuild-new-1", "New skill after rebuild", vec!["new"]),
-        ];
+        let new_skills = vec![create_test_skill(
+            "skill-rebuild-new-1-1.0.0",
+            "rebuild-new-1",
+            "New skill after rebuild",
+            vec!["new"],
+        )];
         search.rebuild_index(new_skills).unwrap();
 
         let results_new = search.search("rebuild", None, 10).unwrap();
@@ -403,7 +410,12 @@ mod tests {
         let temp_dir = TempDir::new().unwrap();
         let search = SearchService::new(temp_dir.path()).unwrap();
 
-        let skill = create_test_skill("skill-update-1.0.0", "update-test", "Original description", vec!["test"]);
+        let skill = create_test_skill(
+            "skill-update-1.0.0",
+            "update-test",
+            "Original description",
+            vec!["test"],
+        );
         search.add_skill(&skill).unwrap();
 
         let mut updated_skill = skill.clone();

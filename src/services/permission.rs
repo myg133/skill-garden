@@ -34,6 +34,12 @@ pub struct PermissionService {
     group_repo: GroupRepository,
 }
 
+impl std::fmt::Debug for PermissionService {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("PermissionService").finish()
+    }
+}
+
 impl PermissionService {
     pub fn new(
         system_role_repo: SystemRoleAssignmentRepository,
@@ -133,7 +139,7 @@ impl PermissionService {
 
                 if let Some(resource) = resource {
                     match perm.scope_restriction.as_str() {
-                        "none" => {},
+                        "none" => {}
                         "own" => {
                             if let Some(author_id) = resource.author_identity_id {
                                 if author_id != ctx.identity_id {
@@ -175,7 +181,11 @@ impl PermissionService {
                     if let Some(current_group_id) = scope_id {
                         let override_result = self
                             .group_perm_override_repo
-                            .find_by_group_role_permission(*current_group_id, role_name, permission_code)
+                            .find_by_group_role_permission(
+                                *current_group_id,
+                                role_name,
+                                permission_code,
+                            )
                             .await
                             .map_err(|e| AppError::InternalError(e.to_string()))?;
 
@@ -249,7 +259,9 @@ impl PermissionService {
                     group_id: None,
                 });
 
-                return self.has_permission(ctx, "skill:create", resource.as_ref()).await;
+                return self
+                    .has_permission(ctx, "skill:create", resource.as_ref())
+                    .await;
             }
             return Ok(false);
         }

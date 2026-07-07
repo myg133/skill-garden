@@ -18,7 +18,9 @@ impl TenantRepository {
     }
 
     pub async fn create(&self, new_tenant: NewTenant) -> DbResult<Tenant> {
-        let billing_plan = new_tenant.billing_plan.unwrap_or_else(|| "free".to_string());
+        let billing_plan = new_tenant
+            .billing_plan
+            .unwrap_or_else(|| "free".to_string());
 
         let tenant = sqlx::query_as::<_, TenantRow>(
             r#"
@@ -88,7 +90,10 @@ impl TenantRepository {
     }
 
     pub async fn update(&self, id: Uuid, update: TenantUpdate) -> DbResult<Tenant> {
-        let current = self.find_by_id(id).await?.ok_or_else(|| DbError::NotFound("Tenant not found".to_string()))?;
+        let current = self
+            .find_by_id(id)
+            .await?
+            .ok_or_else(|| DbError::NotFound("Tenant not found".to_string()))?;
 
         let name = update.name.unwrap_or(current.name);
         let slug = update.slug.unwrap_or(current.slug);

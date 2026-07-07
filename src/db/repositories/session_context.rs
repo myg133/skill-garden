@@ -123,7 +123,11 @@ impl SessionContextRepository {
         Ok(row.into())
     }
 
-    pub async fn get_context(&self, session_id: Uuid, context_key: &str) -> DbResult<Option<SessionContext>> {
+    pub async fn get_context(
+        &self,
+        session_id: Uuid,
+        context_key: &str,
+    ) -> DbResult<Option<SessionContext>> {
         let row = sqlx::query_as::<_, SessionContextRow>(
             r#"
             SELECT id, session_id, context_key, context_value, created_at, updated_at
@@ -194,7 +198,11 @@ impl SessionContextRepository {
         Ok(row.into())
     }
 
-    pub async fn get_session_skill(&self, session_id: Uuid, skill_id: &str) -> DbResult<Option<SessionSkillState>> {
+    pub async fn get_session_skill(
+        &self,
+        session_id: Uuid,
+        skill_id: &str,
+    ) -> DbResult<Option<SessionSkillState>> {
         let row = sqlx::query_as::<_, SessionSkillStateRow>(
             r#"
             SELECT id, session_id, skill_id, skill_state, status, loaded_at, last_used_at
@@ -228,7 +236,12 @@ impl SessionContextRepository {
         Ok(rows.into_iter().map(|r| r.into()).collect())
     }
 
-    pub async fn update_skill_state(&self, session_id: Uuid, skill_id: &str, skill_state: JsonValue) -> DbResult<()> {
+    pub async fn update_skill_state(
+        &self,
+        session_id: Uuid,
+        skill_id: &str,
+        skill_state: JsonValue,
+    ) -> DbResult<()> {
         sqlx::query(
             r#"
             UPDATE session_skills
@@ -259,7 +272,10 @@ impl SessionContextRepository {
         Ok(())
     }
 
-    pub async fn record_tool_execution(&self, execution: NewToolExecution) -> DbResult<SessionToolExecution> {
+    pub async fn record_tool_execution(
+        &self,
+        execution: NewToolExecution,
+    ) -> DbResult<SessionToolExecution> {
         let row = sqlx::query_as::<_, SessionToolExecutionRow>(
             r#"
             INSERT INTO session_tool_executions (session_id, tool_id, tool_type, parameters, result, success, execution_time_ms, error_message)
@@ -282,7 +298,11 @@ impl SessionContextRepository {
         Ok(row.into())
     }
 
-    pub async fn get_tool_execution_history(&self, session_id: Uuid, limit: i64) -> DbResult<Vec<SessionToolExecution>> {
+    pub async fn get_tool_execution_history(
+        &self,
+        session_id: Uuid,
+        limit: i64,
+    ) -> DbResult<Vec<SessionToolExecution>> {
         let rows = sqlx::query_as::<_, SessionToolExecutionRow>(
             r#"
             SELECT id, session_id, tool_id, tool_type, parameters, result, success, execution_time_ms, error_message, executed_at
@@ -349,7 +369,9 @@ impl SessionContextRepository {
             let deps = self.get_skill_dependencies(&current).await?;
 
             for dep in deps {
-                if !resolved.contains(&dep.dependency_skill_id) && !to_resolve.contains(&dep.dependency_skill_id) {
+                if !resolved.contains(&dep.dependency_skill_id)
+                    && !to_resolve.contains(&dep.dependency_skill_id)
+                {
                     to_resolve.push(dep.dependency_skill_id.clone());
                 }
             }

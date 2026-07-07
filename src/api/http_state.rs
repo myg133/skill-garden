@@ -3,10 +3,21 @@
 use std::sync::Arc;
 use tokio::sync::RwLock;
 
-use crate::db::repositories::{AgentRepository, AuditRepository, group_permission_override::GroupPermissionOverrideRepository};
+use crate::db::repositories::{
+    group_permission_override::GroupPermissionOverrideRepository, AgentRepository, AuditRepository,
+    SkillRepository, VersionRepository,
+};
 use crate::mcp::McpServer;
-use crate::services::{EvaluatorService, RegistryService, SearchService, OrganizationService, SessionService, OrgToolService, SandboxService, GitProxyService};
-use crate::services::admin::{TenantService, IdentityService, RoleService, GroupService, ApiKeyService, AuditService};
+use crate::services::admin::{
+    ApiKeyService, AuditService, GroupService, IdentityService, RolePermissionService, RoleService,
+    SystemRoleAssignmentService, TenantService,
+};
+use crate::services::PermissionService;
+use crate::services::{
+    EvaluatorService, GitProxyService, OrgToolService, OrganizationService, RegistryService,
+    SandboxService, SearchService, SessionService, SkillGitService,
+};
+use crate::utils::RateLimiter;
 
 #[derive(Clone)]
 pub struct HttpState {
@@ -15,7 +26,8 @@ pub struct HttpState {
 
 #[derive(Clone)]
 pub struct SseState {
-    pub sessions: Arc<RwLock<std::collections::HashMap<String, tokio::sync::broadcast::Sender<String>>>>,
+    pub sessions:
+        Arc<RwLock<std::collections::HashMap<String, tokio::sync::broadcast::Sender<String>>>>,
 }
 
 impl SseState {
@@ -41,6 +53,10 @@ pub struct AppRouterState {
     pub org_tool: OrgToolService,
     pub sandbox: SandboxService,
     pub git_proxy: GitProxyService,
+    // Skill version management
+    pub skill_git: SkillGitService,
+    pub version_repo: VersionRepository,
+    pub skill_repo: SkillRepository,
     // Admin services
     pub tenant: TenantService,
     pub identity: IdentityService,
@@ -48,5 +64,9 @@ pub struct AppRouterState {
     pub group: GroupService,
     pub api_key: ApiKeyService,
     pub audit: AuditService,
+    pub system_role_assignment: SystemRoleAssignmentService,
+    pub role_permission: RolePermissionService,
+    pub permission: PermissionService,
+    pub login_rate_limiter: RateLimiter,
     pub group_perm_override_repo: GroupPermissionOverrideRepository,
 }
