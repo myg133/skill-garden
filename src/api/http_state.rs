@@ -1,6 +1,7 @@
 //! HTTP Server State
 
 use std::sync::Arc;
+use std::time::{Duration, Instant};
 use tokio::sync::RwLock;
 
 use crate::db::repositories::{
@@ -24,10 +25,20 @@ pub struct HttpState {
     pub mcp_server: Arc<RwLock<McpServer>>,
 }
 
+/// SSE session with idle tracking
+#[derive(Clone)]
+pub struct SseSession {
+    pub tx: tokio::sync::broadcast::Sender<String>,
+    /// Last time a POST /sse/:id message was received
+    pub last_activity: Instant,
+}
+
+/// Default idle timeout: sessions with no POST messages for this duration will be cleaned up
+pub const SSE_IDLE_TIMEOUT_SECS: u64 = 300; // 5 minutes
+
 #[derive(Clone)]
 pub struct SseState {
-    pub sessions:
-        Arc<RwLock<std::collections::HashMap<String, tokio::sync::broadcast::Sender<String>>>>,
+    pub sessions: Arc<RwLock<std::collections::HashMap<String, SseSession>>>,
 }
 
 impl SseState {
@@ -35,6 +46,24 @@ impl SseState {
         Self {
             sessions: Arc::new(RwLock::new(std::collections::HashMap::new())),
         }
+    }
+
+    /// Remove sessions that have been idle for longer than `timeout`.
+    /// Returns how many sessions were removed.
+    pub async fn cleanup_idle(&self, timeout: Duration) -> usize {
+        let mut sessions = self.sessions.write().await;
+        let now = Instant::now();
+        let before = sessions.len();
+        sessions.retain(|_sid, s| now.duration_since(s.last_activity) < timeout);
+        let removed = before - sessions.len();
+        if removed > 0 {
+            tracing::info!(
+                "SSE cleanup: removed {} idle sessions, {} remaining",
+                removed,
+                sessions.len()
+            );
+        }
+        removed
     }
 }
 

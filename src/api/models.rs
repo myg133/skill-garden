@@ -118,6 +118,18 @@ pub struct TokenResponse {
     pub expires_in: u64,
 }
 
+/// Agent 列表响应项
+#[derive(Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct AgentListItem {
+    pub agent_id: String,
+    pub agent_name: Option<String>,
+    pub agent_description: Option<String>,
+    pub status: String,
+    pub created_at: Option<String>,
+    pub last_used_at: Option<String>,
+}
+
 #[derive(Debug, Deserialize)]
 pub struct AuditLogQuery {
     pub agent_id: Option<String>,
@@ -131,10 +143,14 @@ pub struct AuditLogQuery {
 pub struct AuditLogResponse {
     pub id: String,
     pub agent_id: Option<String>,
+    pub identity_name: Option<String>,
+    pub identity_type: Option<String>,
     pub action: String,
     pub resource_type: String,
     pub resource_id: Option<String>,
     pub details: serde_json::Value,
+    pub ip_address: Option<String>,
+    pub user_agent: Option<String>,
     pub timestamp: String,
 }
 
@@ -279,13 +295,7 @@ pub struct ListOrgsQuery {
     pub tenant_id: Option<Uuid>,
 }
 
-/// Session models
-
-#[derive(Debug, Deserialize)]
-pub struct CreateSessionBody {
-    pub agent_id: String,
-    pub org_id: Uuid,
-}
+/// Session models (sessions auto-created by MCP, admin-only read/end)
 
 #[derive(Debug, Deserialize)]
 pub struct ListSessionsQuery {
@@ -449,6 +459,40 @@ pub struct ExecuteToolBody {
     pub org_id: String,
     pub parameters: HashMap<String, serde_json::Value>,
     pub timeout_seconds: Option<u64>,
+    #[serde(default)]
+    pub docker_image: Option<String>,
+}
+
+#[derive(Debug, Deserialize)]
+pub struct ExecutePlatformToolBody {
+    pub tool_name: String,
+    pub parameters: HashMap<String, serde_json::Value>,
+    pub timeout_seconds: Option<u64>,
+}
+
+/// Sandbox management models
+
+#[derive(Debug, Deserialize)]
+pub struct ReleaseSandboxBody {
+    pub org_id: String,
+    pub tool_id: String,
+}
+
+#[derive(Debug, Serialize)]
+pub struct SandboxStatusResponse {
+    pub total: usize,
+    pub max: usize,
+    pub containers: Vec<SandboxInfoItem>,
+}
+
+#[derive(Debug, Serialize)]
+pub struct SandboxInfoItem {
+    pub key: String,
+    pub container_id: String,
+    pub image: String,
+    pub status: String,
+    pub idle_seconds: i64,
+    pub created_at: String,
 }
 
 // Git Proxy API models
@@ -925,6 +969,55 @@ pub struct SkillUploadResponse {
     pub is_new_skill: bool,
     pub files: Vec<String>,
     pub message: String,
+}
+
+// --- Skill Upload Preview & Confirm Models ---
+
+/// 预览阶段单文件信息
+#[derive(Debug, Serialize)]
+pub struct PreviewFileResponse {
+    pub path: String,
+    pub size: u64,
+}
+
+/// 预览元数据
+#[derive(Debug, Serialize)]
+pub struct PreviewMetadataResponse {
+    pub name: String,
+    pub description: String,
+    pub version: String,
+    pub tags: Vec<String>,
+    pub dependencies: Vec<String>,
+    pub compatibility: String,
+}
+
+/// 上传预览响应
+#[derive(Debug, Serialize)]
+pub struct SkillUploadPreviewResponse {
+    pub preview_id: String,
+    pub metadata: PreviewMetadataResponse,
+    pub files: Vec<PreviewFileResponse>,
+    pub total_files: usize,
+    pub total_size: u64,
+}
+
+/// 文件内容响应
+#[derive(Debug, Serialize)]
+pub struct PreviewFileContentResponse {
+    pub path: String,
+    pub content: String,
+    pub size: u64,
+    pub is_binary: bool,
+    pub content_type: String,
+}
+
+/// 确认上传请求
+#[derive(Debug, Deserialize)]
+pub struct ConfirmUploadBody {
+    #[serde(default)]
+    pub owner_type: Option<String>,
+    pub owner_id: Option<uuid::Uuid>,
+    pub author_identity_id: Option<uuid::Uuid>,
 }
 
 /// 版本列表项

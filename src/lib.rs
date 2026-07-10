@@ -102,13 +102,11 @@ impl AppState {
 
         // Create repositories
         let skill_repo = db::repositories::skill::SkillRepository::new(pool.clone());
-        let agent_repo = db::repositories::agent::AgentRepository::new(pool.clone());
         let org_repo = db::repositories::organization::OrganizationRepository::new(pool.clone());
         let session_repo = db::repositories::session::SessionRepository::new(pool.clone());
         let org_tool_repo = db::repositories::org_tool::OrgToolRepository::new(pool.clone());
         let _skill_policy_repo =
             db::repositories::skill_policy::SkillPolicyRepository::new(pool.clone());
-        let _audit_repo = db::repositories::audit::AuditRepository::new(pool.clone());
         let eval_repo = db::repositories::evaluation::EvaluationRepository::new(pool.clone());
         let session_context_repo = db::repositories::SessionContextRepository::new(pool.clone());
 
@@ -123,8 +121,7 @@ impl AppState {
 
         // v0.4 multi-tenant services
         let organization = services::OrganizationService::new(org_repo);
-        let session =
-            services::SessionService::new(session_repo, agent_repo, session_context_repo.clone());
+        let session = services::SessionService::new(session_repo, session_context_repo.clone());
         let org_tool = services::OrgToolService::new(org_tool_repo);
         let tool_router = services::ToolRouterService::new();
         let sandbox = services::SandboxService::new();

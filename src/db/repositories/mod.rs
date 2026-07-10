@@ -3,6 +3,8 @@
 pub mod agent;
 pub mod api_key;
 pub mod audit;
+pub mod audit_compat;
+pub mod audit_log;
 pub mod evaluation;
 pub mod group;
 pub mod group_permission_override;
@@ -23,8 +25,9 @@ pub mod tenant;
 pub mod version;
 
 pub use agent::AgentRepository;
-pub use api_key::{ApiKeyRepository, AuditLogRepository};
+pub use api_key::ApiKeyRepository;
 pub use audit::AuditRepository;
+pub use audit_log::AuditLogRepository;
 pub use evaluation::EvaluationRepository;
 pub use group::GroupRepository;
 pub use group_permission_override::GroupPermissionOverrideRepository;

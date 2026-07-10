@@ -197,12 +197,44 @@ impl From<Skill> for SkillDetail {
     }
 }
 
-/// 安装结果
+/// 安装结果 — 包含 Skill 元数据 + 全部磁盘文件（供客户端完整重建）
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct InstallResult {
     pub success: bool,
     pub skill_id: String,
-    pub local_path: String,
+    pub name: String,
+    pub version: String,
+    pub description: String,
+    pub author_agent_id: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub author_identity_id: Option<Uuid>,
+    pub owner_type: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub owner_id: Option<Uuid>,
+    pub created: DateTime<Utc>,
+    pub updated: DateTime<Utc>,
+    pub install_count: u32,
+    #[serde(default)]
+    pub tags: Vec<String>,
+    #[serde(default)]
+    pub git_url: Option<String>,
+    /// 依赖的其他 Skills
+    #[serde(default)]
+    pub dependencies: Vec<String>,
+    /// 引用的工具
+    #[serde(default)]
+    pub tools: Vec<String>,
+    /// Skill 全部文件（相对路径 + 内容），包括 SKILL.md、src/、tests/、assets/ 等
+    /// 所有内容均从磁盘实际文件读取，非数据库
+    #[serde(default)]
+    pub files: Vec<SkillFile>,
+}
+
+/// 附加文件条目
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct SkillFile {
+    pub path: String,
+    pub content: String,
 }
 
 /// Skill 更新参数
@@ -339,12 +371,32 @@ mod tests {
         let result = InstallResult {
             success: true,
             skill_id: "skill-browse-1.0.0".to_string(),
-            local_path: "/skills/browse".to_string(),
+            name: "browse".to_string(),
+            version: "1.0.0".to_string(),
+            description: "Browse skill".to_string(),
+            author_agent_id: "agent-1".to_string(),
+            author_identity_id: None,
+            owner_type: "user".to_string(),
+            owner_id: None,
+            created: chrono::Utc::now(),
+            updated: chrono::Utc::now(),
+            install_count: 0,
+            tags: vec![],
+            git_url: None,
+            dependencies: vec![],
+            tools: vec![],
+            files: vec![
+                SkillFile { path: "SKILL.md".to_string(), content: "# Skill\n...".to_string() },
+                SkillFile { path: "src/main.py".to_string(), content: "print('hello')".to_string() },
+            ],
         };
         let json = serde_json::to_string(&result).unwrap();
         let parsed: InstallResult = serde_json::from_str(&json).unwrap();
         assert!(parsed.success);
         assert_eq!(parsed.skill_id, "skill-browse-1.0.0");
+        assert_eq!(parsed.files.len(), 2);
+        assert_eq!(parsed.files[0].path, "SKILL.md");
+        assert_eq!(parsed.files[1].path, "src/main.py");
     }
 }
 

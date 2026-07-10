@@ -98,6 +98,14 @@ const MIGRATIONS: &[(&str, &str)] = &[
         "023_add_git_remote_url",
         include_str!("migrations/023_add_git_remote_url.sql"),
     ),
+    (
+        "024_enhance_agents",
+        include_str!("migrations/024_enhance_agents.sql"),
+    ),
+    (
+        "025_fix_sessions_identity",
+        include_str!("migrations/025_fix_sessions_identity.sql"),
+    ),
 ];
 
 fn split_sql_statements(sql: &str) -> Vec<&str> {

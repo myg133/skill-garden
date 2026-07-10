@@ -107,6 +107,8 @@ pub struct AuditLog {
     pub ip_address: Option<String>,
     pub user_agent: Option<String>,
     pub created_at: DateTime<Utc>,
+    pub identity_name: Option<String>,
+    pub identity_type: Option<String>,
 }
 
 #[derive(Debug, Clone, Deserialize)]

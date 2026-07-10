@@ -1,4 +1,4 @@
-<script>
+﻿<script>
   import { onMount } from 'svelte';
   import { Link } from 'svelte-routing';
   import { api } from '../lib/api.js';
@@ -146,7 +146,7 @@
       case 'team': return 'bg-blue-100 text-blue-700';
       case 'project': return 'bg-purple-100 text-purple-700';
       case 'department': return 'bg-emerald-100 text-emerald-700';
-      default: return 'bg-surface-100 text-surface-700';
+      default: return 'bg-gray-100 text-gray-700';
     }
   }
 
@@ -160,8 +160,8 @@
   <div class="page-header">
     <div class="flex items-center justify-between">
       <div>
-        <h1 class="text-[28px] font-extrabold text-surface-800 tracking-tight">Groups</h1>
-        <p class="text-surface-500 text-sm mt-1.5 font-medium">Manage teams, projects and departments within organizations</p>
+        <h1 class="text-[28px] font-extrabold text-gray-800 tracking-tight">Groups</h1>
+        <p class="text-gray-500 text-sm mt-1.5 font-medium">Manage teams, projects and departments within organizations</p>
       </div>
       <button
         on:click={openCreateModal}
@@ -176,13 +176,13 @@
   {#if loading}
     <LoadingSpinner />
   {:else if error}
-    <div class="bg-rose-50 border border-rose-100 text-rose-600 px-5 py-4 rounded-2xl text-sm font-medium">{error}</div>
+    <div class="bg-red-50 border border-red-100 text-red-600 px-5 py-4 rounded-xl text-sm font-medium">{error}</div>
   {:else if groups.length === 0}
-    <div class="bg-sky-50 backdrop-blur-sm rounded-2xl border border-indigo-200/60 shadow-card">
+    <div class="bg-white rounded-xl border border-gray-200 shadow-card">
       <EmptyState message="No groups yet">
         <button
           on:click={openCreateModal}
-          class="mt-4 btn-primary px-5 py-2.5 rounded-xl font-semibold text-sm"
+          class="mt-4 btn-primary px-5 py-2.5 rounded-lg font-semibold text-sm"
         >
           Create your first group
         </button>
@@ -194,30 +194,30 @@
         <div class="relative">
           <Link
             to="/groups/{group.id}"
-            class="block bg-sky-50 backdrop-blur-sm rounded-2xl border border-indigo-200/60 p-6 card card-interactive"
+            class="block bg-white rounded-xl border border-gray-200 p-5 card card-interactive"
           >
             <div class="flex items-start gap-4">
-              <div class="w-11 h-11 rounded-xl bg-gradient-to-br from-orange-500 to-red-600 flex items-center justify-center font-bold text-lg shadow-glow flex-shrink-0">
+              <div class="w-10 h-10 rounded-lg bg-blue-600 flex items-center justify-center font-bold text-white text-sm flex-shrink-0">
                 {group.name[0]?.toUpperCase() || '?'}
               </div>
               <div class="flex-1 min-w-0">
-                <h3 class="text-surface-800 font-semibold text-[15px] truncate mb-0.5">{group.name}</h3>
-                <p class="text-surface-400 text-xs font-mono truncate">{group.slug}</p>
+                <h3 class="text-gray-900 font-semibold text-[15px] truncate mb-0.5">{group.name}</h3>
+                <p class="text-gray-400 text-xs font-mono truncate">{group.slug}</p>
               </div>
-              <span class="px-2 py-1 rounded-full text-xs font-medium {getTypeColor(group.group_type)}">
+              <span class="px-2 py-1 rounded text-xs font-medium {getTypeColor(group.group_type)}">
                 {group.group_type}
               </span>
             </div>
-            <div class="mt-4 pt-4 border-t border-surface-100">
-              <p class="text-surface-500 text-xs mb-2">Organization: {getOrgName(group.organization_id)}</p>
+            <div class="mt-4 pt-4 border-t border-gray-100">
+              <p class="text-gray-400 text-xs mb-2">Organization: {getOrgName(group.organization_id)}</p>
               {#if group.description}
-                <p class="text-surface-600 text-sm">{group.description}</p>
+                <p class="text-gray-600 text-sm">{group.description}</p>
               {/if}
             </div>
           </Link>
           <button
             on:click={() => handleDelete(group.id)}
-            class="absolute top-3 right-3 p-2 rounded-lg text-surface-400 hover:text-red-500 hover:bg-red-50 transition-all z-10"
+            class="absolute top-3 right-3 p-2 rounded-lg text-gray-400 hover:text-red-500 hover:bg-red-50 transition-all z-10"
             title="Delete"
           >
             <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16"/></svg>
@@ -229,16 +229,16 @@
 </div>
 
 {#if showCreateModal}
-<div class="fixed inset-0 bg-surface-900/50 backdrop-blur-sm flex items-center justify-center z-50 modal-overlay">
-  <div class="bg-sky-50 rounded-2xl p-6 w-full max-w-lg shadow-elevated-lg border border-indigo-200 modal-content max-h-[90vh] overflow-y-auto">
-    <h2 class="text-lg font-bold text-surface-800 mb-5">Create Group</h2>
+<div class="fixed inset-0 bg-black/40 flex items-center justify-center z-50 modal-overlay">
+  <div class="bg-white rounded-xl p-6 w-full max-w-lg shadow-elevated-lg border border-gray-200 modal-content max-h-[90vh] overflow-y-auto">
+    <h2 class="text-lg font-bold text-gray-800 mb-5">Create Group</h2>
     <div class="space-y-4">
       <div>
-        <label for="group-org" class="block text-xs font-semibold text-surface-500 uppercase tracking-wider mb-2">Organization</label>
+        <label for="group-org" class="block text-xs font-semibold text-gray-500 uppercase tracking-wider mb-2">Organization</label>
         <select
           id="group-org"
           bind:value={newGroup.organization_id}
-          class="w-full px-4 py-3 border border-surface-200 rounded-xl text-sm input-focus outline-none font-medium bg-white"
+          class="w-full px-4 py-3 border border-gray-200 rounded-xl text-sm input-focus outline-none font-medium bg-white"
         >
           <option value="" disabled selected hidden>Select organization</option>
           {#each organizations as org}
@@ -247,31 +247,31 @@
         </select>
       </div>
       <div>
-        <label for="group-name" class="block text-xs font-semibold text-surface-500 uppercase tracking-wider mb-2">Name</label>
+        <label for="group-name" class="block text-xs font-semibold text-gray-500 uppercase tracking-wider mb-2">Name</label>
         <input
           id="group-name"
           type="text"
           bind:value={newGroup.name}
           placeholder="Group name"
-          class="w-full px-4 py-3 border border-surface-200 rounded-xl text-sm input-focus outline-none font-medium"
+          class="w-full px-4 py-3 border border-gray-200 rounded-xl text-sm input-focus outline-none font-medium"
         />
       </div>
       <div>
-        <label for="group-slug" class="block text-xs font-semibold text-surface-500 uppercase tracking-wider mb-2">Slug</label>
+        <label for="group-slug" class="block text-xs font-semibold text-gray-500 uppercase tracking-wider mb-2">Slug</label>
         <input
           id="group-slug"
           type="text"
           bind:value={newGroup.slug}
           placeholder="group-slug"
-          class="w-full px-4 py-3 border border-surface-200 rounded-xl text-sm input-focus outline-none font-medium"
+          class="w-full px-4 py-3 border border-gray-200 rounded-xl text-sm input-focus outline-none font-medium"
         />
       </div>
       <div>
-        <label for="group-type" class="block text-xs font-semibold text-surface-500 uppercase tracking-wider mb-2">Type</label>
+        <label for="group-type" class="block text-xs font-semibold text-gray-500 uppercase tracking-wider mb-2">Type</label>
         <select
           id="group-type"
           bind:value={newGroup.group_type}
-          class="w-full px-4 py-3 border border-surface-200 rounded-xl text-sm input-focus outline-none font-medium bg-white"
+          class="w-full px-4 py-3 border border-gray-200 rounded-xl text-sm input-focus outline-none font-medium bg-white"
         >
           {#each groupTypes as type}
             <option value={type}>{type}</option>
@@ -279,39 +279,39 @@
         </select>
       </div>
       <div>
-        <label for="group-desc" class="block text-xs font-semibold text-surface-500 uppercase tracking-wider mb-2">Description (optional)</label>
+        <label for="group-desc" class="block text-xs font-semibold text-gray-500 uppercase tracking-wider mb-2">Description (optional)</label>
         <textarea
           id="group-desc"
           bind:value={newGroup.description}
           placeholder="Group description"
           rows="2"
-          class="w-full px-4 py-3 border border-surface-200 rounded-xl text-sm input-focus outline-none font-medium resize-none"
+          class="w-full px-4 py-3 border border-gray-200 rounded-xl text-sm input-focus outline-none font-medium resize-none"
         ></textarea>
       </div>
 
-      <div class="border-t border-surface-200 pt-4">
+      <div class="border-t border-gray-200 pt-4">
         <button
           on:click={() => showPermissionConfig = !showPermissionConfig}
-          class="w-full flex items-center justify-between px-4 py-3 rounded-xl border border-surface-200 bg-white hover:bg-surface-50 transition-colors text-sm font-medium text-surface-700"
+          class="w-full flex items-center justify-between px-4 py-3 rounded-xl border border-gray-200 bg-white hover:bg-gray-50 transition-colors text-sm font-medium text-gray-700"
         >
           <span>Configure Default Permissions</span>
           <svg class="w-4 h-4 transition-transform {showPermissionConfig ? 'rotate-180' : ''}" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 9l-7 7-7-7"/></svg>
         </button>
 
         {#if showPermissionConfig && defaultPermissions}
-          <div class="mt-4 bg-white rounded-xl border border-surface-200 overflow-hidden">
+          <div class="mt-4 bg-white rounded-xl border border-gray-200 overflow-hidden">
             <div class="grid grid-cols-2 divide-x divide-surface-200">
               <div>
-                <div class="px-4 py-2.5 bg-amber-50 border-b border-surface-200">
-                  <h3 class="font-semibold text-surface-700 text-xs uppercase tracking-wider">Lead</h3>
+                <div class="px-4 py-2.5 bg-amber-50 border-b border-gray-200">
+                  <h3 class="font-semibold text-gray-700 text-xs uppercase tracking-wider">Lead</h3>
                 </div>
-                <div class="max-h-[300px] overflow-y-auto divide-y divide-surface-100">
+                <div class="max-h-[300px] overflow-y-auto divide-y divide-gray-100">
                   {#each defaultPermissions.lead as permCode}
-                    <div class="px-4 py-2.5 flex items-center justify-between hover:bg-surface-50 transition-colors">
-                      <span class="text-xs text-surface-700 font-medium">{getPermLabel(permCode)}</span>
+                    <div class="px-4 py-2.5 flex items-center justify-between hover:bg-gray-50 transition-colors">
+                      <span class="text-xs text-gray-700 font-medium">{getPermLabel(permCode)}</span>
                       <button
                         on:click={() => permissionToggles[`lead:${permCode}`] = !permissionToggles[`lead:${permCode}`]}
-                        class="relative inline-flex h-5 w-9 items-center rounded-full transition-colors {permissionToggles[`lead:${permCode}`] ? 'bg-emerald-500' : 'bg-surface-300'}"
+                        class="relative inline-flex h-5 w-9 items-center rounded-full transition-colors {permissionToggles[`lead:${permCode}`] ? 'bg-emerald-500' : 'bg-gray-300'}"
                         title={permissionToggles[`lead:${permCode}`] ? 'Click to deny' : 'Click to grant'}
                       >
                         <span class="inline-block h-3.5 w-3.5 transform rounded-full bg-white transition-transform {permissionToggles[`lead:${permCode}`] ? 'translate-x-[18px]' : 'translate-x-[3px]'} shadow-sm" />
@@ -321,16 +321,16 @@
                 </div>
               </div>
               <div>
-                <div class="px-4 py-2.5 bg-surface-50 border-b border-surface-200">
-                  <h3 class="font-semibold text-surface-700 text-xs uppercase tracking-wider">Member</h3>
+                <div class="px-4 py-2.5 bg-gray-50 border-b border-gray-200">
+                  <h3 class="font-semibold text-gray-700 text-xs uppercase tracking-wider">Member</h3>
                 </div>
-                <div class="max-h-[300px] overflow-y-auto divide-y divide-surface-100">
+                <div class="max-h-[300px] overflow-y-auto divide-y divide-gray-100">
                   {#each defaultPermissions.member as permCode}
-                    <div class="px-4 py-2.5 flex items-center justify-between hover:bg-surface-50 transition-colors">
-                      <span class="text-xs text-surface-700 font-medium">{getPermLabel(permCode)}</span>
+                    <div class="px-4 py-2.5 flex items-center justify-between hover:bg-gray-50 transition-colors">
+                      <span class="text-xs text-gray-700 font-medium">{getPermLabel(permCode)}</span>
                       <button
                         on:click={() => permissionToggles[`member:${permCode}`] = !permissionToggles[`member:${permCode}`]}
-                        class="relative inline-flex h-5 w-9 items-center rounded-full transition-colors {permissionToggles[`member:${permCode}`] ? 'bg-emerald-500' : 'bg-surface-300'}"
+                        class="relative inline-flex h-5 w-9 items-center rounded-full transition-colors {permissionToggles[`member:${permCode}`] ? 'bg-emerald-500' : 'bg-gray-300'}"
                         title={permissionToggles[`member:${permCode}`] ? 'Click to deny' : 'Click to grant'}
                       >
                         <span class="inline-block h-3.5 w-3.5 transform rounded-full bg-white transition-transform {permissionToggles[`member:${permCode}`] ? 'translate-x-[18px]' : 'translate-x-[3px]'} shadow-sm" />
@@ -347,7 +347,7 @@
       <div class="flex gap-3 justify-end pt-1">
         <button
           on:click={() => { showCreateModal = false; showPermissionConfig = false; newGroup = { organization_id: '', name: '', slug: '', description: '', group_type: 'team' }; }}
-          class="px-4 py-2.5 text-surface-500 hover:text-surface-800 font-semibold text-sm transition-all rounded-lg hover:bg-surface-50"
+          class="px-4 py-2.5 text-gray-500 hover:text-gray-800 font-semibold text-sm transition-all rounded-lg hover:bg-gray-50"
         >
           Cancel
         </button>

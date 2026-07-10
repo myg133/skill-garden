@@ -10,6 +10,7 @@ pub const MAX_DESCRIPTION_LENGTH: usize = 2000;
 pub const MAX_CONTENT_LENGTH: usize = 500_000;
 
 /// 恶意内容模式
+/// 注意：`..` / `../` 不在列表中，由下方专门的路径穿越检查处理（需同时命中路径特征）
 const MALICIOUS_PATTERNS: &[&str] = &[
     "<script",
     "javascript:",
@@ -21,8 +22,6 @@ const MALICIOUS_PATTERNS: &[&str] = &[
     "innerHTML",
     "/etc/passwd",
     r"C:\Windows",
-    "..",
-    "../",
     "file://",
     "ftp://",
 ];

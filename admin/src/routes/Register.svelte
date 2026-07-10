@@ -46,9 +46,7 @@
 
   <div class="max-w-[420px] w-full relative slide-up">
     <div class="text-center mb-8">
-      <div class="inline-flex w-16 h-16 rounded-2xl gradient-brand items-center justify-center text-2xl font-bold mb-5 shadow-glow pulse-glow float-anim ring-1 ring-brand-400/20">
-        @
-      </div>
+      <img src="/images/logo.png" alt="AionHive" class="w-20 h-20 rounded-2xl mb-5 shadow-glow float-anim mx-auto block" />
       <h1 class="text-[28px] font-extrabold text-surface-800 tracking-tight">AionHive</h1>
       <p class="text-surface-500 text-sm mt-2 font-medium">Create your account</p>
     </div>

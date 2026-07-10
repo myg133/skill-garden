@@ -1,4 +1,8 @@
-//! Skill Git Service — ZIP 上传自动解压 + Git 仓库版本管理 + GitLab 远程同步
+//! Skill Git Service — ZIP 上传自动解压 + 本地 Git 仓库版本管理
+//!
+//! 每个 skill 对应一个普通 Git 仓库，文件直接放在仓库工作目录中。
+//! 版本用 Git tag（v1.0.0, v1.1.0...）管理。
+//! 远程同步（GitLab）作为可选扩展，后续通过管理后台触发。
 
 use std::fs;
 use std::io::{Cursor, Read};
@@ -6,7 +10,7 @@ use std::path::{Path, PathBuf};
 use std::process::Command;
 
 use serde::{Deserialize, Serialize};
-use tracing::{debug, info, warn};
+use tracing::{info, warn};
 use uuid::Uuid;
 use zip::ZipArchive;
 
@@ -63,7 +67,7 @@ pub struct ParsedSkillMetadata {
     pub name: String,
     pub description: String,
     pub tags: Vec<String>,
-    pub version: String,
+    pub version: Option<String>,
     pub dependencies: Vec<String>,
     pub compatibility: String,
 }
@@ -96,14 +100,30 @@ pub struct UploadResult {
     pub files: Vec<String>,
 }
 
+/// 预览阶段单文件信息
+#[derive(Debug, Clone, Serialize)]
+pub struct PreviewFile {
+    pub path: String,
+    pub size: u64,
+}
+
+/// 预览结果（解压后，未提交 Git/DB）
+#[derive(Debug, Clone, Serialize)]
+pub struct PreviewResult {
+    pub preview_id: String,
+    pub metadata: ParsedSkillMetadata,
+    pub files: Vec<PreviewFile>,
+    pub total_files: usize,
+    pub total_size: u64,
+}
+
 /// Skill Git 版本管理服务
 #[derive(Debug, Clone)]
 pub struct SkillGitService {
-    /// Git 裸仓库存储根目录: {data_dir}/git-repos/
+    /// Git 仓库存储根目录: {data_dir}/git-repos/
+    /// 每个 skill 对应一个子目录: {repos_dir}/skill-{name}/
     pub repos_dir: PathBuf,
-    /// Skill 文件存储目录: {data_dir}/skills/
-    pub skills_dir: PathBuf,
-    /// 临时目录
+    /// 临时目录（ZIP 解压、预览）
     temp_dir: PathBuf,
     /// GitLab 远程配置
     pub remote_config: GitRemoteConfig,
@@ -113,15 +133,19 @@ impl SkillGitService {
     /// 允许上传的最大 ZIP 大小: 50 MB
     pub const MAX_UPLOAD_SIZE: u64 = 50 * 1024 * 1024;
 
-    pub fn new(data_dir: PathBuf, skills_dir: PathBuf) -> Self {
+    pub fn new(data_dir: PathBuf) -> Self {
         let repos_dir = data_dir.join("git-repos");
         let temp_dir = data_dir.join("tmp");
         Self {
             repos_dir,
-            skills_dir,
             temp_dir,
             remote_config: GitRemoteConfig::from_env(),
         }
+    }
+
+    /// 构造 skill 本地仓库路径
+    pub fn repo_path(&self, skill_name: &str) -> PathBuf {
+        self.repos_dir.join(format!("skill-{}", skill_name))
     }
 
     /// 确保服务目录存在
@@ -134,9 +158,9 @@ impl SkillGitService {
         Ok(())
     }
 
-    // ==================== ZIP 上传处理 ====================
+    // ==================== 完整上传：ZIP → 解压验证 → 本地 Git 提交 → DB 记录 ====================
 
-    /// 完整的上传流程：ZIP → 解压验证 → Git 提交 → DB 记录
+    /// 完整的上传流程：ZIP → 解压验证 → 拷贝到 Git 仓库 → commit + tag → DB 记录
     pub fn process_upload(
         &self,
         zip_data: &[u8],
@@ -151,106 +175,68 @@ impl SkillGitService {
     ) -> Result<UploadResult, AppError> {
         // 1. 解压 & 验证
         let unpacked = self.unpack_and_validate(zip_data)?;
+        let metadata = unpacked.metadata;
 
-        let metadata = &unpacked.metadata;
-
-        // 2. 检查是否是已有 skill 的新版本
-        let existing_skill = tokio::runtime::Handle::current()
-            .block_on(async {
-                skill_repo
-                    .find_by_id(&format!("skill-{}-{}", metadata.name, metadata.version))
-                    .await
-            })
-            .map_err(|e| AppError::InternalError(e.to_string()))?;
-
-        let is_new_skill = existing_skill.is_none();
-
-        // 如果已存在，检查版本号不重复
-        if let Some(_existing) = &existing_skill {
-            // 版本已存在则不允许覆盖
-            return Err(AppError::SkillAlreadyExists(format!(
-                "Skill {} version {} already exists. Upload with a new version.",
-                metadata.name, metadata.version
-            )));
-        }
-
-        // 如果版本不存在但 skill name 已存在（不同版本），允许
+        // 2. 确定版本号
         let latest_version = tokio::runtime::Handle::current()
             .block_on(async { version_repo.get_latest_version(&metadata.name).await })
             .map_err(|e| AppError::InternalError(e.to_string()))?;
+        let version = resolve_version(&metadata.name, &latest_version, &metadata.version)?;
 
-        // 3. 确保 Git 仓库存在（首次创建）
-        let repo_name = format!("skill-{}", metadata.name);
-        let repo_path = self.repos_dir.join(format!("{}.git", repo_name));
-
-        if !repo_path.exists() {
-            self.init_bare_repo(&repo_path)?;
-            info!("Created bare git repo: {}", repo_path.display());
+        // 3. 检查版本是否已存在
+        let existing_skill = tokio::runtime::Handle::current()
+            .block_on(async {
+                skill_repo
+                    .find_by_id(&format!("skill-{}-{}", metadata.name, version))
+                    .await
+            })
+            .map_err(|e| AppError::InternalError(e.to_string()))?;
+        if existing_skill.is_some() {
+            return Err(AppError::SkillAlreadyExists(format!(
+                "Skill {} version {} already exists. Upload with a new version.",
+                metadata.name, version
+            )));
         }
 
-        // 4. 创建 worktree (临时检出目录)
-        let worktree_dir = self.temp_dir.join(format!(
-            "checkout-{}-{}",
-            metadata.name,
-            uuid::Uuid::new_v4()
-                .to_string()
-                .split('-')
-                .next()
-                .unwrap_or("x")
-        ));
+        // 4. 准备 Git 仓库（首次 init，后续复用）
+        let repo_dir = self.repo_path(&metadata.name);
+        let repo_is_new = self.prepare_repo(&repo_dir)?;
 
-        self.create_worktree(&repo_path, &worktree_dir)?;
-
-        // 5. 复制解压文件到 worktree
-        self.copy_extracted_to_worktree(&unpacked.extract_dir, &worktree_dir)?;
+        // 5. 清空旧文件 + 拷贝新文件到仓库工作目录
+        self.clean_working_dir(&repo_dir)?;
+        copy_dir_recursive(&unpacked.extract_dir, &repo_dir)
+            .map_err(|e| AppError::InternalError(format!("Copy to repo failed: {}", e)))?;
 
         // 6. Git add + commit + tag
+        let tag_name = format!("v{}", version);
         let commit_msg = format!(
             "v{}: {} by {}",
-            metadata.version,
-            if is_new_skill {
+            version,
+            if repo_is_new {
                 "Initial skill upload"
             } else {
                 "New version upload"
             },
             author_agent_id
         );
-        let tag_name = format!("v{}", metadata.version);
-        let commit_hash = self.git_commit_and_tag(&worktree_dir, &commit_msg, &tag_name)?;
-
-        // 6b. Push 到 GitLab（如启用）
-        let git_remote_url = if self.remote_config.push_enabled {
-            let url = self.remote_config.remote_url(&repo_name);
-            match self.push_to_remote(&repo_path, &url) {
-                Ok(()) => {
-                    info!("Pushed to GitLab: {}", url);
-                    Some(url)
-                }
-                Err(e) => {
-                    warn!("GitLab push failed (non-fatal): {}", e);
-                    None
-                }
-            }
-        } else {
-            None
-        };
+        let commit_hash = self.git_commit_and_tag(&repo_dir, &commit_msg, &tag_name)?;
 
         // 7. 写入 DB — skill_versions 表
         let file_count = unpacked.files.len() as i32;
         let total_size = unpacked.total_size_bytes as i64;
-        let _db_version = tokio::runtime::Handle::current()
+        tokio::runtime::Handle::current()
             .block_on(async {
                 version_repo
                     .create(NewSkillVersion {
                         skill_name: metadata.name.clone(),
-                        version: metadata.version.clone(),
+                        version: version.clone(),
                         git_commit_hash: Some(commit_hash.clone()),
                         git_tag: Some(tag_name.clone()),
                         changelog: Some(commit_msg.clone()),
                         file_count,
                         total_size_bytes: total_size,
                         uploaded_by: author_identity_id,
-                        git_remote_url: git_remote_url.clone(),
+                        git_remote_url: None,
                     })
                     .await
             })
@@ -262,7 +248,7 @@ impl SkillGitService {
             description: metadata.description.clone(),
             tags: metadata.tags.clone(),
             content: unpacked.skill_md_content.clone(),
-            version: metadata.version.clone(),
+            version: version.clone(),
             git_url: None,
             visibility: None,
             tools: None,
@@ -276,21 +262,283 @@ impl SkillGitService {
                 .await
         })?;
 
-        // 9. 清理 worktree
-        let _ = self.cleanup_worktree(&repo_path, &worktree_dir);
+        // 将所有文件从 Git 仓库同步到 skills_dir，确保 install 能读取完整文件
+        registry.sync_skill_files_from(&metadata.name, &repo_dir)?;
 
-        // 10. 清理临时解压目录
+        tokio::runtime::Handle::current()
+            .block_on(async { skill_repo.update_status(&skill.id, "pending_review").await })
+            .map_err(|e| AppError::InternalError(format!("Failed to update status: {}", e)))?;
+
+        // 9. 清理临时解压目录
         let _ = fs::remove_dir_all(&unpacked.extract_dir);
+
+        info!(
+            "Skill {} v{} uploaded (commit={}, files={}, is_new={})",
+            metadata.name,
+            version,
+            commit_hash,
+            unpacked.files.len(),
+            repo_is_new
+        );
 
         Ok(UploadResult {
             skill_id: skill.id,
             skill_name: metadata.name.clone(),
-            version: metadata.version.clone(),
+            version: version.clone(),
             git_commit: commit_hash,
             git_tag: tag_name,
-            git_repo_name: repo_name,
+            git_repo_name: format!("skill-{}", metadata.name),
             is_new_skill: latest_version.is_none(),
             files: unpacked.files,
+        })
+    }
+
+    // ==================== 预览模式（仅解压，不提交） ====================
+
+    /// 上传 ZIP → 解压验证 → 保存到临时预览目录 → 返回文件列表+元数据
+    pub fn preview_upload(&self, zip_data: &[u8]) -> Result<PreviewResult, AppError> {
+        let unpacked = self.unpack_and_validate(zip_data)?;
+        let preview_id = Uuid::new_v4()
+            .to_string()
+            .split('-')
+            .next()
+            .unwrap_or("p")
+            .to_string();
+
+        // 移动解压目录到 preview 子目录（带 preview_id）
+        let preview_dir = self.temp_dir.join(format!("preview-{}", preview_id));
+        // 重命名 extract_dir 到 preview_dir
+        if preview_dir.exists() {
+            fs::remove_dir_all(&preview_dir).ok();
+        }
+        fs::rename(&unpacked.extract_dir, &preview_dir).map_err(|e| {
+            AppError::InternalError(format!("Failed to move to preview dir: {}", e))
+        })?;
+
+        let files: Vec<PreviewFile> = unpacked
+            .files
+            .iter()
+            .map(|f| {
+                let size = fs::metadata(preview_dir.join(f))
+                    .map(|m| m.len())
+                    .unwrap_or(0);
+                PreviewFile {
+                    path: f.clone(),
+                    size,
+                }
+            })
+            .collect();
+
+        let total_files = files.len();
+        let total_size = files.iter().map(|f| f.size).sum();
+
+        info!(
+            "Preview {} created: {} files, {} bytes, skill={} v{}",
+            preview_id,
+            total_files,
+            total_size,
+            unpacked.metadata.name,
+            unpacked.metadata.version.as_deref().unwrap_or("?")
+        );
+
+        Ok(PreviewResult {
+            preview_id,
+            metadata: unpacked.metadata,
+            files,
+            total_files,
+            total_size,
+        })
+    }
+
+    /// 获取预览中的某个文件内容
+    pub fn get_preview_file(
+        &self,
+        preview_id: &str,
+        file_path: &str,
+    ) -> Result<(Vec<u8>, String, u64), AppError> {
+        let preview_dir = self.temp_dir.join(format!("preview-{}", preview_id));
+        let safe_path = sanitize_path(file_path)?;
+        let full_path = preview_dir.join(&safe_path);
+
+        // 安全检查
+        if !full_path.starts_with(&preview_dir) {
+            return Err(AppError::ValidationError(
+                "Path traversal attempt".to_string(),
+            ));
+        }
+
+        if !full_path.exists() {
+            return Err(AppError::FileNotFound(format!(
+                "File not found in preview: {}",
+                file_path
+            )));
+        }
+
+        if !full_path.is_file() {
+            return Err(AppError::ValidationError(format!(
+                "Not a file: {}",
+                file_path
+            )));
+        }
+
+        let content = fs::read(&full_path)
+            .map_err(|e| AppError::InternalError(format!("Failed to read file: {}", e)))?;
+
+        let size = content.len() as u64;
+
+        // 判断是否为文本文件（尝试 UTF-8 解码）
+        let mime_type = if String::from_utf8(content.clone()).is_ok() {
+            "text/plain".to_string()
+        } else {
+            "application/octet-stream".to_string()
+        };
+
+        Ok((content, mime_type, size))
+    }
+
+    /// 确认上传：从预览目录复制到 Git 仓库 → commit + tag → DB insert
+    pub async fn confirm_upload_from_preview(
+        &self,
+        preview_id: &str,
+        author_agent_id: &str,
+        author_identity_id: Option<Uuid>,
+        owner_type: &str,
+        owner_id: Option<Uuid>,
+        registry: &RegistryService,
+        search: &SearchService,
+        skill_repo: &SkillRepository,
+        version_repo: &VersionRepository,
+    ) -> Result<UploadResult, AppError> {
+        let preview_dir = self.temp_dir.join(format!("preview-{}", preview_id));
+
+        if !preview_dir.exists() {
+            return Err(AppError::FileNotFound(format!(
+                "Preview session {} not found",
+                preview_id
+            )));
+        }
+
+        // 读取 SKILL.md 获取元数据
+        let skill_md_path = find_skill_md_recursive(&preview_dir)?;
+        let skill_md_content = fs::read_to_string(&skill_md_path)
+            .map_err(|e| AppError::InternalError(format!("Failed to read SKILL.md: {}", e)))?;
+        let metadata = parse_skill_md_frontmatter(&skill_md_content)?;
+
+        // 收集文件列表
+        let mut files: Vec<String> = Vec::new();
+        collect_files(&preview_dir, &preview_dir, &mut files)
+            .map_err(|e| AppError::InternalError(e.to_string()))?;
+
+        // 确定版本号
+        let latest_version = version_repo
+            .get_latest_version(&metadata.name)
+            .await
+            .map_err(|e| AppError::InternalError(e.to_string()))?;
+        let version = resolve_version(&metadata.name, &latest_version, &metadata.version)?;
+
+        // 检查版本是否已存在
+        let existing_skill = skill_repo
+            .find_by_id(&format!("skill-{}-{}", metadata.name, version))
+            .await
+            .map_err(|e| AppError::InternalError(e.to_string()))?;
+        let _is_new_skill = existing_skill.is_none();
+        if existing_skill.is_some() {
+            return Err(AppError::SkillAlreadyExists(format!(
+                "Skill {} version {} already exists. Upload with a new version.",
+                metadata.name, version
+            )));
+        }
+
+        // 准备 Git 仓库
+        let repo_dir = self.repo_path(&metadata.name);
+        let repo_is_new = self.prepare_repo(&repo_dir)?;
+
+        // 清空旧文件 + 拷贝
+        self.clean_working_dir(&repo_dir)?;
+        let mut total_size: u64 = 0;
+        for rel_path in &files {
+            let src = preview_dir.join(rel_path);
+            let dst = repo_dir.join(rel_path);
+            if let Some(parent) = dst.parent() {
+                fs::create_dir_all(parent)
+                    .map_err(|e| AppError::InternalError(format!("Create dir failed: {}", e)))?;
+            }
+            fs::copy(&src, &dst)
+                .map_err(|e| AppError::InternalError(format!("Copy file failed: {}", e)))?;
+            total_size += fs::metadata(&src).map(|m| m.len()).unwrap_or(0) as u64;
+        }
+
+        // Git commit + tag
+        let tag_name = format!("v{}", version);
+        let commit_msg = format!(
+            "v{}: {} by {}",
+            version,
+            if repo_is_new {
+                "Initial skill upload"
+            } else {
+                "New version upload"
+            },
+            author_agent_id
+        );
+        let commit_hash = self.git_commit_and_tag(&repo_dir, &commit_msg, &tag_name)?;
+
+        // 写入 DB（先 skill 后 version）
+        let new_skill = NewSkill {
+            name: metadata.name.clone(),
+            description: metadata.description.clone(),
+            tags: metadata.tags.clone(),
+            content: skill_md_content,
+            version: version.clone(),
+            git_url: None,
+            visibility: None,
+            tools: None,
+            owner_type: owner_type.to_string(),
+            owner_id,
+        };
+
+        let skill = registry
+            .create_skill(new_skill, author_agent_id, search)
+            .await?;
+
+        // 将所有文件从 Git 仓库同步到 skills_dir，确保 install 能读取完整文件
+        registry.sync_skill_files_from(&metadata.name, &repo_dir)?;
+
+        version_repo
+            .create(NewSkillVersion {
+                skill_name: metadata.name.clone(),
+                version: version.clone(),
+                git_commit_hash: Some(commit_hash.clone()),
+                git_tag: Some(tag_name.clone()),
+                changelog: Some(commit_msg.clone()),
+                file_count: files.len() as i32,
+                total_size_bytes: total_size as i64,
+                uploaded_by: author_identity_id,
+                git_remote_url: None,
+            })
+            .await
+            .map_err(|e| AppError::InternalError(format!("Failed to record version: {}", e)))?;
+
+        // 清理预览目录
+        let _ = fs::remove_dir_all(&preview_dir);
+
+        info!(
+            "Skill {} v{} uploaded (commit={}, files={}, is_new={})",
+            metadata.name,
+            version,
+            commit_hash,
+            files.len(),
+            repo_is_new
+        );
+
+        Ok(UploadResult {
+            skill_id: skill.id,
+            skill_name: metadata.name.clone(),
+            version: version.clone(),
+            git_commit: commit_hash,
+            git_tag: tag_name,
+            git_repo_name: format!("skill-{}", metadata.name),
+            is_new_skill: latest_version.is_none(),
+            files,
         })
     }
 
@@ -394,11 +642,7 @@ impl SkillGitService {
                 "SKILL.md frontmatter: 'description' is required".to_string(),
             ));
         }
-        if metadata.version.is_empty() {
-            return Err(AppError::ValidationError(
-                "SKILL.md frontmatter: 'version' is required".to_string(),
-            ));
-        }
+        // 版本号可选——未提供时由后端自动递增
 
         Ok(UnpackedSkill {
             extract_dir,
@@ -409,14 +653,28 @@ impl SkillGitService {
         })
     }
 
-    // ==================== Git 操作 ====================
+    // ==================== Git 操作（本地仓库） ====================
 
-    /// 初始化 bare 仓库
-    fn init_bare_repo(&self, repo_path: &Path) -> Result<(), AppError> {
+    /// 准备 Git 仓库：不存在则 git init，已存在则复用
+    /// 返回 true 表示是新创建的仓库
+    fn prepare_repo(&self, repo_dir: &Path) -> Result<bool, AppError> {
+        if repo_dir.join(".git").exists() {
+            return Ok(false);
+        }
+
+        // 删除可能遗留的空目录（非 git 仓库）
+        if repo_dir.exists() {
+            fs::remove_dir_all(repo_dir).map_err(|e| {
+                AppError::InternalError(format!("Failed to clean stale dir: {}", e))
+            })?;
+        }
+
+        fs::create_dir_all(repo_dir)
+            .map_err(|e| AppError::InternalError(format!("Failed to create repo dir: {}", e)))?;
+
         let output = Command::new("git")
+            .current_dir(repo_dir)
             .arg("init")
-            .arg("--bare")
-            .arg(repo_path)
             .output()
             .map_err(|e| AppError::InternalError(format!("git init failed: {}", e)))?;
 
@@ -427,71 +685,37 @@ impl SkillGitService {
                 stderr
             )));
         }
-        Ok(())
+
+        info!("Created git repo: {}", repo_dir.display());
+        Ok(true)
     }
 
-    /// 创建 worktree
-    fn create_worktree(&self, repo_path: &Path, worktree_dir: &Path) -> Result<(), AppError> {
-        // 清理可能残留的 worktree
-        let _ = fs::remove_dir_all(worktree_dir);
-
-        let output = Command::new("git")
-            .args(["--git-dir", &repo_path.to_string_lossy()])
-            .args(["worktree", "add", &worktree_dir.to_string_lossy(), "HEAD"])
-            .output()
-            .map_err(|e| AppError::InternalError(format!("git worktree add failed: {}", e)))?;
-
-        // worktree add 初次可能是失败（如果没 HEAD），用 --orphan
-        if !output.status.success() {
-            let _ = fs::remove_dir_all(worktree_dir);
-            let output = Command::new("git")
-                .args(["--git-dir", &repo_path.to_string_lossy()])
-                .args([
-                    "worktree",
-                    "add",
-                    "--orphan",
-                    "main",
-                    &worktree_dir.to_string_lossy(),
-                ])
-                .output()
-                .map_err(|e| {
-                    AppError::InternalError(format!("git worktree add --orphan failed: {}", e))
-                })?;
-
-            if !output.status.success() {
-                let stderr = String::from_utf8_lossy(&output.stderr);
-                return Err(AppError::InternalError(format!(
-                    "git worktree add failed: {}",
-                    stderr
-                )));
+    /// 清空工作目录中除 .git 外的所有文件（用于版本更新）
+    fn clean_working_dir(&self, repo_dir: &Path) -> Result<(), AppError> {
+        for entry in fs::read_dir(repo_dir).map_err(|e| AppError::InternalError(e.to_string()))? {
+            let entry = entry.map_err(|e| AppError::InternalError(e.to_string()))?;
+            let path = entry.path();
+            if path.file_name().map(|n| n != ".git").unwrap_or(false) {
+                if path.is_dir() {
+                    fs::remove_dir_all(&path).ok();
+                } else {
+                    fs::remove_file(&path).ok();
+                }
             }
         }
-
         Ok(())
     }
 
-    /// 复制解压文件到 worktree
-    fn copy_extracted_to_worktree(
-        &self,
-        extract_dir: &Path,
-        worktree_dir: &Path,
-    ) -> Result<(), AppError> {
-        // 递归复制
-        copy_dir_recursive(extract_dir, worktree_dir)
-            .map_err(|e| AppError::InternalError(format!("Copy to worktree failed: {}", e)))?;
-        Ok(())
-    }
-
-    /// Git add → commit → tag
+    /// Git add → commit → tag（在仓库目录中操作）
     fn git_commit_and_tag(
         &self,
-        worktree_dir: &Path,
+        repo_dir: &Path,
         message: &str,
         tag_name: &str,
     ) -> Result<String, AppError> {
         // git add -A
         let add = Command::new("git")
-            .current_dir(worktree_dir)
+            .current_dir(repo_dir)
             .args(["add", "-A"])
             .output()
             .map_err(|e| AppError::InternalError(format!("git add failed: {}", e)))?;
@@ -503,7 +727,7 @@ impl SkillGitService {
 
         // git commit
         let commit = Command::new("git")
-            .current_dir(worktree_dir)
+            .current_dir(repo_dir)
             .args(["commit", "-m", message, "--allow-empty"])
             .output()
             .map_err(|e| AppError::InternalError(format!("git commit failed: {}", e)))?;
@@ -516,9 +740,9 @@ impl SkillGitService {
             )));
         }
 
-        // 获取 commit hash
+        // git rev-parse HEAD
         let hash_output = Command::new("git")
-            .current_dir(worktree_dir)
+            .current_dir(repo_dir)
             .args(["rev-parse", "HEAD"])
             .output()
             .map_err(|e| AppError::InternalError(format!("git rev-parse failed: {}", e)))?;
@@ -535,15 +759,15 @@ impl SkillGitService {
 
         // git tag
         let tag_output = Command::new("git")
-            .current_dir(worktree_dir)
+            .current_dir(repo_dir)
             .args(["tag", "-a", tag_name, "-m", message])
             .output()
             .map_err(|e| AppError::InternalError(format!("git tag failed: {}", e)))?;
 
         if !tag_output.status.success() {
-            // 尝试 force update tag（可能标签已存在）
+            // force update tag
             let force_tag = Command::new("git")
-                .current_dir(worktree_dir)
+                .current_dir(repo_dir)
                 .args(["tag", "-fa", tag_name, "-m", message])
                 .output()
                 .map_err(|e| AppError::InternalError(format!("git tag -f failed: {}", e)))?;
@@ -558,135 +782,97 @@ impl SkillGitService {
         }
 
         info!(
-            "Git commit {} tagged as {} for {}",
+            "Git commit {} tagged as {} in {}",
             commit_hash,
             tag_name,
-            worktree_dir.display()
+            repo_dir.display()
         );
         Ok(commit_hash)
     }
 
-    /// 清理 worktree
-    fn cleanup_worktree(&self, repo_path: &Path, worktree_dir: &Path) -> Result<(), AppError> {
-        let output = Command::new("git")
-            .args(["--git-dir", &repo_path.to_string_lossy()])
-            .args([
-                "worktree",
-                "remove",
-                "--force",
-                &worktree_dir.to_string_lossy(),
-            ])
-            .output();
+    // ==================== GitLab 远程操作（可选扩展） ====================
 
-        match output {
-            Ok(o) if o.status.success() => {
-                debug!("Worktree cleanup: {}", worktree_dir.display());
-            }
-            Ok(o) => {
-                let stderr = String::from_utf8_lossy(&o.stderr);
-                warn!("Worktree cleanup warning: {}", stderr);
-                // 强制删除目录
-                let _ = fs::remove_dir_all(worktree_dir);
-            }
-            Err(_) => {
-                let _ = fs::remove_dir_all(worktree_dir);
-            }
-        }
-        Ok(())
-    }
-
-    // ==================== GitLab 远程操作 ====================
-
-    /// 设置 remote origin 并推送所有 tags 到 GitLab
-    pub fn push_to_remote(&self, repo_path: &Path, remote_url: &str) -> Result<(), AppError> {
-        if !self.remote_config.push_enabled {
-            return Ok(());
+    /// 设置 remote 并推送（后续通过管理后台触发）
+    pub fn push_to_remote(&self, skill_name: &str, remote_url: &str) -> Result<(), AppError> {
+        let repo_dir = self.repo_path(skill_name);
+        if !repo_dir.join(".git").exists() {
+            return Err(AppError::SkillNotFound(format!(
+                "Local repo for '{}' not found",
+                skill_name
+            )));
         }
 
-        let repo_str = repo_path.to_string_lossy();
-
-        // 设置 remote（如果已存在则更新 URL）
+        // 设置 remote origin（如已存在则更新）
         let remote_exists = Command::new("git")
-            .args(["--git-dir", &repo_str, "remote", "get-url", "origin"])
+            .current_dir(&repo_dir)
+            .args(["remote", "get-url", "origin"])
             .output()
             .map(|o| o.status.success())
             .unwrap_or(false);
 
         if remote_exists {
             Command::new("git")
-                .args([
-                    "--git-dir",
-                    &repo_str,
-                    "remote",
-                    "set-url",
-                    "origin",
-                    remote_url,
-                ])
+                .current_dir(&repo_dir)
+                .args(["remote", "set-url", "origin", remote_url])
                 .output()
                 .map_err(|e| {
                     AppError::InternalError(format!("git remote set-url failed: {}", e))
                 })?;
         } else {
             Command::new("git")
-                .args([
-                    "--git-dir",
-                    &repo_str,
-                    "remote",
-                    "add",
-                    "origin",
-                    remote_url,
-                ])
+                .current_dir(&repo_dir)
+                .args(["remote", "add", "origin", remote_url])
                 .output()
                 .map_err(|e| AppError::InternalError(format!("git remote add failed: {}", e)))?;
         }
 
         // Push 主分支
         let push_output = Command::new("git")
-            .args(["--git-dir", &repo_str, "push", "-u", "origin", "main"])
+            .current_dir(&repo_dir)
+            .args(["push", "-u", "origin", "main"])
             .output()
             .map_err(|e| AppError::InternalError(format!("git push failed: {}", e)))?;
 
         if !push_output.status.success() {
             let stderr = String::from_utf8_lossy(&push_output.stderr);
-            warn!("git push stderr: {}", stderr);
             return Err(AppError::InternalError(format!(
                 "git push failed: {}",
                 stderr
             )));
         }
 
-        // Push all tags
+        // Push tags
         let tag_output = Command::new("git")
-            .args(["--git-dir", &repo_str, "push", "--tags", "origin"])
+            .current_dir(&repo_dir)
+            .args(["push", "--tags", "origin"])
             .output()
             .map_err(|e| AppError::InternalError(format!("git push --tags failed: {}", e)))?;
 
         if !tag_output.status.success() {
             let stderr = String::from_utf8_lossy(&tag_output.stderr);
             warn!("git push --tags: {}", stderr);
-            // tags 推送失败不阻断主流程
         }
 
-        info!("Successfully pushed repo to {}", remote_url);
+        info!("Pushed repo {} to {}", skill_name, remote_url);
         Ok(())
     }
 
-    /// 从 GitLab 克隆 skill 仓库到本地（Admin 手动触发或首次部署）
+    /// 从 GitLab 克隆 skill 仓库到本地
     pub fn clone_from_gitlab(&self, skill_name: &str) -> Result<PathBuf, AppError> {
-        let repo_name = format!("skill-{}", skill_name);
-        let repo_path = self.repos_dir.join(format!("{}.git", repo_name));
+        let repo_dir = self.repo_path(skill_name);
 
-        if repo_path.exists() {
+        if repo_dir.exists() {
             return Err(AppError::SkillAlreadyExists(format!(
                 "Local repo for '{}' already exists",
                 skill_name
             )));
         }
 
+        let repo_name = format!("skill-{}", skill_name);
         let remote_url = self.remote_config.remote_url(&repo_name);
 
         let output = Command::new("git")
-            .args(["clone", "--bare", &remote_url, &repo_path.to_string_lossy()])
+            .args(["clone", &remote_url, &repo_dir.to_string_lossy()])
             .output()
             .map_err(|e| AppError::InternalError(format!("git clone failed: {}", e)))?;
 
@@ -699,32 +885,23 @@ impl SkillGitService {
         }
 
         info!("Cloned {} from GitLab", repo_name);
-        Ok(repo_path)
+        Ok(repo_dir)
     }
 
     /// 从 GitLab 拉取最新更新
     pub fn fetch_from_gitlab(&self, skill_name: &str) -> Result<(), AppError> {
-        let repo_name = format!("skill-{}", skill_name);
-        let repo_path = self.repos_dir.join(format!("{}.git", repo_name));
+        let repo_dir = self.repo_path(skill_name);
 
-        if !repo_path.exists() {
+        if !repo_dir.join(".git").exists() {
             return Err(AppError::SkillNotFound(format!(
                 "Local repo for '{}' not found. Clone it first.",
                 skill_name
             )));
         }
 
-        let repo_str = repo_path.to_string_lossy();
-
         let output = Command::new("git")
-            .args([
-                "--git-dir",
-                &repo_str,
-                "fetch",
-                "origin",
-                "--tags",
-                "--prune",
-            ])
+            .current_dir(&repo_dir)
+            .args(["fetch", "origin", "--tags", "--prune"])
             .output()
             .map_err(|e| AppError::InternalError(format!("git fetch failed: {}", e)))?;
 
@@ -736,21 +913,21 @@ impl SkillGitService {
             )));
         }
 
-        info!("Fetched latest for {} from GitLab", repo_name);
+        info!("Fetched latest for {} from GitLab", skill_name);
         Ok(())
     }
 
     // ==================== 版本查询 ====================
 
-    /// 列出所有 Git tags（版本）
+    /// 列出所有 Git tags（版本号）
     pub fn list_git_tags(&self, skill_name: &str) -> Result<Vec<String>, AppError> {
-        let repo_path = self.repos_dir.join(format!("skill-{}.git", skill_name));
-        if !repo_path.exists() {
+        let repo_dir = self.repo_path(skill_name);
+        if !repo_dir.join(".git").exists() {
             return Ok(vec![]);
         }
 
         let output = Command::new("git")
-            .args(["--git-dir", &repo_path.to_string_lossy()])
+            .current_dir(&repo_dir)
             .args(["tag", "-l", "--sort=-creatordate"])
             .output()
             .map_err(|e| AppError::InternalError(format!("git tag list failed: {}", e)))?;
@@ -763,15 +940,15 @@ impl SkillGitService {
             .collect())
     }
 
-    /// 获取版本间的 diff
+    /// 获取版本间的 diff（SKILL.md）
     pub fn get_version_diff(
         &self,
         skill_name: &str,
         from_version: &str,
         to_version: &str,
     ) -> Result<String, AppError> {
-        let repo_path = self.repos_dir.join(format!("skill-{}.git", skill_name));
-        if !repo_path.exists() {
+        let repo_dir = self.repo_path(skill_name);
+        if !repo_dir.join(".git").exists() {
             return Err(AppError::SkillNotFound(skill_name.to_string()));
         }
 
@@ -787,24 +964,23 @@ impl SkillGitService {
         };
 
         let output = Command::new("git")
-            .args(["--git-dir", &repo_path.to_string_lossy()])
+            .current_dir(&repo_dir)
             .args(["diff", &from_tag, &to_tag, "--", "SKILL.md"])
             .output()
             .map_err(|e| AppError::InternalError(format!("git diff failed: {}", e)))?;
 
-        // diff 可能为空（相同内容），这不是错误
         Ok(String::from_utf8_lossy(&output.stdout).to_string())
     }
 
-    /// 获取特定版本的 SKILL.md 内容
+    /// 获取特定版本的文件内容
     pub fn get_file_at_version(
         &self,
         skill_name: &str,
         version: &str,
         file_path: &str,
     ) -> Result<String, AppError> {
-        let repo_path = self.repos_dir.join(format!("skill-{}.git", skill_name));
-        if !repo_path.exists() {
+        let repo_dir = self.repo_path(skill_name);
+        if !repo_dir.join(".git").exists() {
             return Err(AppError::SkillNotFound(skill_name.to_string()));
         }
 
@@ -816,7 +992,7 @@ impl SkillGitService {
         let ref_spec = format!("{}:{}", tag, file_path);
 
         let output = Command::new("git")
-            .args(["--git-dir", &repo_path.to_string_lossy()])
+            .current_dir(&repo_dir)
             .args(["show", &ref_spec])
             .output()
             .map_err(|e| AppError::InternalError(format!("git show failed: {}", e)))?;
@@ -830,6 +1006,44 @@ impl SkillGitService {
         }
 
         Ok(String::from_utf8_lossy(&output.stdout).to_string())
+    }
+
+    /// 列出特定版本的所有文件
+    pub fn list_files_at_version(
+        &self,
+        skill_name: &str,
+        version: &str,
+    ) -> Result<Vec<String>, AppError> {
+        let repo_dir = self.repo_path(skill_name);
+        if !repo_dir.join(".git").exists() {
+            return Ok(vec![]);
+        }
+
+        let tag = if version.starts_with('v') {
+            version.to_string()
+        } else {
+            format!("v{}", version)
+        };
+
+        let output = Command::new("git")
+            .current_dir(&repo_dir)
+            .args(["ls-tree", "-r", "--name-only", &tag])
+            .output()
+            .map_err(|e| AppError::InternalError(format!("git ls-tree failed: {}", e)))?;
+
+        if !output.status.success() {
+            let stderr = String::from_utf8_lossy(&output.stderr);
+            return Err(AppError::InternalError(format!(
+                "Failed to list files at version {}: {}",
+                tag, stderr
+            )));
+        }
+
+        Ok(String::from_utf8_lossy(&output.stdout)
+            .lines()
+            .map(|s| s.to_string())
+            .filter(|s| !s.is_empty())
+            .collect())
     }
 }
 
@@ -863,15 +1077,56 @@ fn sanitize_path(entry_name: &str) -> Result<String, AppError> {
     Ok(entry_name.to_string())
 }
 
-/// 递归复制目录
-fn copy_dir_recursive(src: &Path, dst: &Path) -> std::io::Result<()> {
+/// 递归查找预览目录中的 SKILL.md
+///
+/// ZIP 包可能包含根目录（如 `my-skill/SKILL.md`），
+/// 本函数递归搜索直到找到 SKILL.md 为止。
+fn find_skill_md_recursive(dir: &Path) -> Result<PathBuf, AppError> {
+    // 先尝试直接在当前目录找
+    let direct = dir.join("SKILL.md");
+    if direct.exists() {
+        return Ok(direct);
+    }
+
+    // 递归进入子目录查找（取第一个匹配）
+    for entry in
+        fs::read_dir(dir).map_err(|e| AppError::InternalError(format!("Read dir failed: {}", e)))?
+    {
+        let entry =
+            entry.map_err(|e| AppError::InternalError(format!("Dir entry error: {}", e)))?;
+        let path = entry.path();
+        if path.is_dir() {
+            if let Ok(found) = find_skill_md_recursive(&path) {
+                return Ok(found);
+            }
+        }
+    }
+
+    Err(AppError::ValidationError(
+        "SKILL.md not found in preview".to_string(),
+    ))
+}
+
+pub(crate) fn copy_dir_recursive(src: &Path, dst: &Path) -> std::io::Result<()> {
     fs::create_dir_all(dst)?;
 
-    for entry in fs::read_dir(src)? {
-        let entry = entry?;
+    // 收集有效条目（排除 .git）
+    let entries: Vec<_> = fs::read_dir(src)?
+        .filter_map(|e| e.ok())
+        .filter(|e| e.file_name() != ".git")
+        .collect();
+
+    // 如果源目录只有一个子目录，展开它
+    // 处理 ZIP 自带顶层目录的情况（如 my-skill/SKILL.md 解压后 extract_dir/ 只含 my-skill/）
+    if entries.len() == 1 && entries[0].file_type().map(|t| t.is_dir()).unwrap_or(false) {
+        return copy_dir_recursive(&entries[0].path(), dst);
+    }
+
+    for entry in entries {
         let file_type = entry.file_type()?;
+        let file_name = entry.file_name();
         let src_path = entry.path();
-        let dst_path = dst.join(entry.file_name());
+        let dst_path = dst.join(&file_name);
 
         if file_type.is_dir() {
             copy_dir_recursive(&src_path, &dst_path)?;
@@ -882,6 +1137,63 @@ fn copy_dir_recursive(src: &Path, dst: &Path) -> std::io::Result<()> {
     Ok(())
 }
 
+/// 递归收集目录下所有文件的相对路径
+fn collect_files(base: &Path, current: &Path, out: &mut Vec<String>) -> Result<(), std::io::Error> {
+    for entry in fs::read_dir(current)? {
+        let entry = entry?;
+        let path = entry.path();
+        if path.is_dir() {
+            collect_files(base, &path, out)?;
+        } else {
+            let rel = path
+                .strip_prefix(base)
+                .map_err(|e| std::io::Error::new(std::io::ErrorKind::Other, e.to_string()))?;
+            out.push(rel.to_string_lossy().to_string().replace('\\', "/"));
+        }
+    }
+    Ok(())
+}
+
+/// 解析用户指定的版本号，若未提供则在后端自动递增
+///
+/// 规则：
+/// - 用户显式指定版本 → 直接使用
+/// - 首次上传（无历史版本） → 默认 `1.0.0`
+/// - 同一 skill 已有历史版本 → patch +1（如 `1.0.3` → `1.0.4`）
+fn resolve_version(
+    skill_name: &str,
+    latest_version: &Option<String>,
+    user_version: &Option<String>,
+) -> Result<String, AppError> {
+    if let Some(v) = user_version {
+        if !v.is_empty() {
+            info!(
+                "Using user-specified version {} for skill {}",
+                v, skill_name
+            );
+            return Ok(v.clone());
+        }
+    }
+
+    if let Some(latest) = latest_version {
+        let parsed = semver::Version::parse(latest).map_err(|e| {
+            AppError::ValidationError(format!(
+                "Latest version '{}' for skill {} is not valid semver: {}",
+                latest, skill_name, e
+            ))
+        })?;
+        let next = format!("{}.{}.{}", parsed.major, parsed.minor, parsed.patch + 1);
+        info!(
+            "Auto-incremented version for skill {}: {} → {}",
+            skill_name, latest, next
+        );
+        Ok(next)
+    } else {
+        info!("First upload for skill {}, defaulting to 1.0.0", skill_name);
+        Ok("1.0.0".to_string())
+    }
+}
+
 /// 简易 YAML frontmatter 解析
 /// 从 SKILL.md 中提取 `---` 包裹的元数据
 pub fn parse_skill_md_frontmatter(content: &str) -> Result<ParsedSkillMetadata, AppError> {
@@ -889,7 +1201,7 @@ pub fn parse_skill_md_frontmatter(content: &str) -> Result<ParsedSkillMetadata, 
         name: String::new(),
         description: String::new(),
         tags: Vec::new(),
-        version: String::new(),
+        version: None,
         dependencies: Vec::new(),
         compatibility: ">=1.0.0".to_string(),
     };
@@ -978,7 +1290,7 @@ fn apply_scalar_value(meta: &mut ParsedSkillMetadata, key: &str, value: &str) {
     match key {
         "name" => meta.name = value.to_string(),
         "description" => meta.description = value.to_string(),
-        "version" => meta.version = value.to_string(),
+        "version" => meta.version = Some(value.to_string()),
         "compatibility" => meta.compatibility = value.to_string(),
         _ => {}
     }
@@ -1009,7 +1321,7 @@ tags: [web, http]
         let meta = parse_skill_md_frontmatter(md).unwrap();
         assert_eq!(meta.name, "my-skill");
         assert_eq!(meta.description, "A test skill");
-        assert_eq!(meta.version, "1.0.0");
+        assert_eq!(meta.version, Some("1.0.0".to_string()));
         assert_eq!(meta.tags, vec!["web", "http"]);
     }
 
@@ -1029,7 +1341,7 @@ version: 2.0.0
         let meta = parse_skill_md_frontmatter(md).unwrap();
         assert_eq!(meta.name, "browse");
         assert_eq!(meta.tags, vec!["web", "browser", "http"]);
-        assert_eq!(meta.version, "2.0.0");
+        assert_eq!(meta.version, Some("2.0.0".to_string()));
     }
 
     #[test]
@@ -1037,7 +1349,7 @@ version: 2.0.0
         let md = "# Just a heading\n\nSome content";
         let meta = parse_skill_md_frontmatter(md).unwrap();
         assert!(meta.name.is_empty());
-        assert!(meta.version.is_empty());
+        assert!(meta.version.is_none());
     }
 
     #[test]

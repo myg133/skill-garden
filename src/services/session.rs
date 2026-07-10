@@ -1,6 +1,5 @@
-//! Session Service
+//! Session Service — manages MCP connection sessions per identity
 
-use crate::db::repositories::agent::AgentRepository;
 use crate::db::repositories::session::{NewSession, Session as SessionRepo, SessionRepository};
 use crate::db::repositories::session_context::{
     NewSessionContext, NewSessionSkill, NewToolExecution, SessionContext, SessionContextRepository,
@@ -13,7 +12,6 @@ use uuid::Uuid;
 #[derive(Clone)]
 pub struct SessionService {
     session_repo: SessionRepository,
-    agent_repo: AgentRepository,
     context_repo: SessionContextRepository,
 }
 
@@ -24,29 +22,54 @@ impl std::fmt::Debug for SessionService {
 }
 
 impl SessionService {
-    pub fn new(
-        session_repo: SessionRepository,
-        agent_repo: AgentRepository,
-        context_repo: SessionContextRepository,
-    ) -> Self {
+    pub fn new(session_repo: SessionRepository, context_repo: SessionContextRepository) -> Self {
         Self {
             session_repo,
-            agent_repo,
             context_repo,
         }
     }
 
+    // ─── Session lifecycle ───────────────────────────────────
+
+    /// Create a new session for the given identity + organization.
     pub async fn create_session(
         &self,
-        agent_id: String,
+        identity_id: Uuid,
         org_id: Uuid,
     ) -> Result<SessionRepo, AppError> {
-        let new_session = NewSession { agent_id, org_id };
-
+        let new_session = NewSession {
+            identity_id,
+            org_id,
+        };
         self.session_repo
             .create(new_session)
             .await
             .map_err(|e| AppError::InternalError(e.to_string()))
+    }
+
+    /// Find an existing active session for the identity, or create a new one.
+    /// Returns (session, is_new).
+    pub async fn find_or_create_session(
+        &self,
+        identity_id: Uuid,
+        org_id: Uuid,
+    ) -> Result<SessionRepo, AppError> {
+        let existing = self.get_active_session(identity_id).await?;
+        if let Some(session) = existing {
+            tracing::debug!(
+                "Reusing existing session {} for identity {}",
+                session.id,
+                identity_id
+            );
+            return Ok(session);
+        }
+        let session = self.create_session(identity_id, org_id).await?;
+        tracing::info!(
+            "Created new session {} for identity {}",
+            session.id,
+            identity_id
+        );
+        Ok(session)
     }
 
     pub async fn end_session(&self, session_id: Uuid) -> Result<(), AppError> {
@@ -77,16 +100,34 @@ impl SessionService {
 
     pub async fn get_active_session(
         &self,
-        agent_id: &str,
+        identity_id: Uuid,
     ) -> Result<Option<SessionRepo>, AppError> {
         let sessions = self
             .session_repo
-            .find_active_by_agent(agent_id)
+            .find_active_by_identity(identity_id)
             .await
             .map_err(|e| AppError::InternalError(e.to_string()))?;
 
         Ok(sessions.into_iter().next())
     }
+
+    /// Update last_active_at to now (call on each MCP request).
+    pub async fn touch_session(&self, session_id: Uuid) -> Result<(), AppError> {
+        self.session_repo
+            .touch(session_id)
+            .await
+            .map_err(|e| AppError::InternalError(e.to_string()))
+    }
+
+    /// End all sessions idle longer than `idle_secs` seconds.
+    pub async fn end_idle_sessions(&self, idle_secs: i64) -> Result<usize, AppError> {
+        self.session_repo
+            .end_idle_sessions(idle_secs)
+            .await
+            .map_err(|e| AppError::InternalError(e.to_string()))
+    }
+
+    // ─── Tool router ────────────────────────────────────────
 
     pub async fn get_tool_router(
         &self,
@@ -109,6 +150,8 @@ impl SessionService {
         }
     }
 
+    /// Declare capabilities for a session — builds the tool router.
+    /// (No longer looks up agent records; only routes based on declared capabilities.)
     pub async fn declare_capabilities(
         &self,
         session_id: Uuid,
@@ -123,19 +166,8 @@ impl SessionService {
                 AppError::ValidationError(format!("Session {} not found", session_id))
             })?;
 
-        // Get agent's capabilities from agent record
-        let agent = self
-            .agent_repo
-            .find_by_id(&session.agent_id)
-            .await
-            .map_err(|e| AppError::InternalError(e.to_string()))?;
+        let _ = session; // session is validated to exist
 
-        let agent_capabilities = match agent {
-            Some(a) => a.capabilities,
-            None => Vec::new(),
-        };
-
-        // Build tool router based on declared capabilities
         let mut router = ToolRouter::new();
 
         // Platform tools always route to platform
@@ -144,23 +176,13 @@ impl SessionService {
             router.add_route(tool.to_string(), RouteTarget::Platform);
         }
 
-        // Agent capabilities route to local
-        for cap in &agent_capabilities {
+        // Declared capabilities route to local
+        for cap in &capabilities {
             if !platform_tools.contains(&cap.as_str()) {
                 router.add_route(cap.clone(), RouteTarget::Local);
             }
         }
 
-        // Declared additional capabilities route to local
-        for cap in &capabilities {
-            if !platform_tools.contains(&cap.as_str()) {
-                if !agent_capabilities.contains(cap) {
-                    router.add_route(cap.clone(), RouteTarget::Local);
-                }
-            }
-        }
-
-        // Update session with tool router
         let router_json =
             serde_json::to_value(&router).map_err(|e| AppError::ValidationError(e.to_string()))?;
         self.session_repo
@@ -171,7 +193,7 @@ impl SessionService {
         Ok(router)
     }
 
-    // Session Context Methods
+    // ─── Session Context ────────────────────────────────────
 
     pub async fn set_context(
         &self,
@@ -215,7 +237,7 @@ impl SessionService {
             .map_err(|e| AppError::InternalError(e.to_string()))
     }
 
-    // Session Skill State Methods
+    // ─── Session Skill State ────────────────────────────────
 
     pub async fn load_skill(
         &self,
@@ -280,7 +302,7 @@ impl SessionService {
             .map_err(|e| AppError::InternalError(e.to_string()))
     }
 
-    // Tool Execution History Methods
+    // ─── Tool Execution History ─────────────────────────────
 
     pub async fn record_tool_execution(
         &self,

@@ -1,13 +1,11 @@
-//! API Key and Audit Repository
+//! API Key Repository
 
 use chrono::Utc;
 use sqlx::PgPool;
 use uuid::Uuid;
 
 use crate::db::error::{DbError, DbResult};
-use crate::models::api_key::{
-    ApiKey, ApiKeyStatus, AuditLog, CreateApiKeyRequest, CreateAuditLogRequest,
-};
+use crate::models::api_key::{ApiKey, ApiKeyStatus, CreateApiKeyRequest};
 
 #[derive(Clone)]
 pub struct ApiKeyRepository {
@@ -156,93 +154,6 @@ impl ApiKeyRepository {
     }
 }
 
-#[derive(Clone)]
-pub struct AuditLogRepository {
-    pool: PgPool,
-}
-
-impl AuditLogRepository {
-    pub fn new(pool: PgPool) -> Self {
-        Self { pool }
-    }
-
-    pub async fn create(&self, request: CreateAuditLogRequest) -> DbResult<AuditLog> {
-        let log = sqlx::query_as::<_, AuditLogRow>(
-            r#"
-            INSERT INTO audit_logs (tenant_id, organization_id, identity_id, action, resource_type, resource_id, details, ip_address, user_agent)
-            VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
-            RETURNING id, tenant_id, organization_id, identity_id, action, resource_type, resource_id, details, ip_address, user_agent, created_at
-            "#,
-        )
-        .bind(&request.tenant_id)
-        .bind(&request.organization_id)
-        .bind(request.identity_id)
-        .bind(&request.action)
-        .bind(&request.resource_type)
-        .bind(&request.resource_id)
-        .bind(&request.details)
-        .bind(&request.ip_address)
-        .bind(&request.user_agent)
-        .fetch_one(&self.pool)
-        .await
-        .map_err(|e| DbError::QueryError(e.to_string()))?;
-
-        Ok(log.into())
-    }
-
-    pub async fn find_by_id(&self, id: Uuid) -> DbResult<Option<AuditLog>> {
-        let log = sqlx::query_as::<_, AuditLogRow>(
-            r#"
-            SELECT id, tenant_id, organization_id, identity_id, action, resource_type, resource_id, details, ip_address, user_agent, created_at
-            FROM audit_logs WHERE id = $1
-            "#,
-        )
-        .bind(id)
-        .fetch_optional(&self.pool)
-        .await
-        .map_err(|e| DbError::QueryError(e.to_string()))?;
-
-        Ok(log.map(|l| l.into()))
-    }
-
-    pub async fn query(
-        &self,
-        tenant_id: Option<Uuid>,
-        organization_id: Option<Uuid>,
-        identity_id: Option<Uuid>,
-        action: Option<&str>,
-        resource_type: Option<&str>,
-        limit: i64,
-        offset: i64,
-    ) -> DbResult<Vec<AuditLog>> {
-        let logs = sqlx::query_as::<_, AuditLogRow>(
-            r#"
-            SELECT id, tenant_id, organization_id, identity_id, action, resource_type, resource_id, details, ip_address, user_agent, created_at
-            FROM audit_logs
-            WHERE ($1::uuid IS NULL OR tenant_id = $1)
-              AND ($2::uuid IS NULL OR organization_id = $2)
-              AND ($3::uuid IS NULL OR identity_id = $3)
-              AND ($4::text IS NULL OR action = $4)
-              AND ($5::text IS NULL OR resource_type = $5)
-            ORDER BY created_at DESC
-            LIMIT $6 OFFSET $7
-            "#,
-        )
-        .bind(&tenant_id)
-        .bind(&organization_id)
-        .bind(&identity_id)
-        .bind(&action)
-        .bind(&resource_type)
-        .bind(limit)
-        .bind(offset)
-        .fetch_all(&self.pool)
-        .await
-        .map_err(|e| DbError::QueryError(e.to_string()))?;
-
-        Ok(logs.into_iter().map(|l| l.into()).collect())
-    }
-}
-
 #[derive(sqlx::FromRow)]
 struct ApiKeyRow {
     id: Uuid,
@@ -275,39 +186,6 @@ impl From<ApiKeyRow> for ApiKey {
             expires_at: row.expires_at,
             created_at: row.created_at,
             last_used_at: row.last_used_at,
-        }
-    }
-}
-
-#[derive(sqlx::FromRow)]
-struct AuditLogRow {
-    id: Uuid,
-    tenant_id: Option<Uuid>,
-    organization_id: Option<Uuid>,
-    identity_id: Uuid,
-    action: String,
-    resource_type: Option<String>,
-    resource_id: Option<Uuid>,
-    details: Option<serde_json::Value>,
-    ip_address: Option<String>,
-    user_agent: Option<String>,
-    created_at: chrono::DateTime<Utc>,
-}
-
-impl From<AuditLogRow> for AuditLog {
-    fn from(row: AuditLogRow) -> Self {
-        Self {
-            id: row.id,
-            tenant_id: row.tenant_id,
-            organization_id: row.organization_id,
-            identity_id: row.identity_id,
-            action: row.action,
-            resource_type: row.resource_type,
-            resource_id: row.resource_id,
-            details: row.details,
-            ip_address: row.ip_address,
-            user_agent: row.user_agent,
-            created_at: row.created_at,
         }
     }
 }

@@ -1,4 +1,4 @@
-<script>
+﻿<script>
   import { onMount } from 'svelte';
   import { api } from '../lib/api.js';
   import { addToast } from '../stores/app.js';
@@ -11,7 +11,7 @@
   let error = '';
   let showRegisterModal = false;
   let selectedOrgId = '';
-  let newTool = { name: '', tool_id: '', description: '', schema: '{}', implementation: '{}' };
+  let newTool = { name: '', tool_id: '', description: '', schema: '', implementation: '' };
   let registering = false;
 
   onMount(async () => {
@@ -49,8 +49,8 @@
     try {
       let schema, implementation;
       try {
-        schema = JSON.parse(newTool.schema);
-        implementation = JSON.parse(newTool.implementation);
+        schema = newTool.schema.trim() ? JSON.parse(newTool.schema) : {};
+        implementation = newTool.implementation.trim() ? JSON.parse(newTool.implementation) : {};
       } catch {
         addToast('Invalid JSON in schema or implementation', 'error');
         registering = false;
@@ -85,13 +85,42 @@
       addToast(e.message, 'error');
     }
   }
+
+  async function handleApprove(id) {
+    try {
+      await api.approveOrgTool(id);
+      addToast('Tool approved', 'success');
+      await loadTools();
+    } catch (e) {
+      addToast(e.message, 'error');
+    }
+  }
+
+  async function handleReject(id) {
+    try {
+      await api.rejectOrgTool(id);
+      addToast('Tool rejected', 'success');
+      await loadTools();
+    } catch (e) {
+      addToast(e.message, 'error');
+    }
+  }
+
+  function statusBadgeClass(status) {
+    switch (status) {
+      case 'approved': return 'bg-emerald-50 text-emerald-600 ring-1 ring-emerald-600/20';
+      case 'rejected': return 'bg-rose-50 text-rose-600 ring-1 ring-rose-600/20';
+      case 'pending':
+      default: return 'bg-amber-50 text-amber-600 ring-1 ring-amber-600/20';
+    }
+  }
 </script>
 
 <div class="p-8">
   <div class="page-header flex items-center justify-between">
     <div>
-      <h1 class="text-[28px] font-extrabold text-surface-800 tracking-tight">Org Tools</h1>
-      <p class="text-surface-500 text-sm mt-1.5 font-medium">Manage organization tools and schemas</p>
+      <h1 class="text-[28px] font-extrabold text-gray-800 tracking-tight">Org Tools</h1>
+      <p class="text-gray-500 text-sm mt-1.5 font-medium">Manage organization tools and schemas</p>
     </div>
     <button
       on:click={() => showRegisterModal = true}
@@ -107,43 +136,59 @@
   {:else if error}
     <div class="bg-rose-50 border border-rose-100 text-rose-600 px-5 py-4 rounded-2xl text-sm font-medium">{error}</div>
   {:else if tools.length === 0}
-    <div class="bg-sky-50 rounded-2xl border border-indigo-200 shadow-card">
+    <div class="bg-white rounded-2xl border border-gray-200 shadow-card">
       <EmptyState message="No tools registered yet" />
     </div>
   {:else}
-    <div class="bg-sky-50 rounded-2xl border border-indigo-200 overflow-hidden shadow-card">
+    <div class="bg-white rounded-2xl border border-gray-200 overflow-hidden shadow-card">
       <table class="w-full">
         <thead>
-          <tr class="border-b border-surface-100 bg-gradient-to-r from-surface-50/80 to-transparent">
-            <th class="px-6 py-4 text-left text-xs font-semibold text-surface-400 uppercase tracking-wider">Name</th>
-            <th class="px-6 py-4 text-left text-xs font-semibold text-surface-400 uppercase tracking-wider">Tool ID</th>
-            <th class="px-6 py-4 text-left text-xs font-semibold text-surface-400 uppercase tracking-wider">Description</th>
-            <th class="px-6 py-4 text-left text-xs font-semibold text-surface-400 uppercase tracking-wider">Status</th>
-            <th class="px-6 py-4 text-left text-xs font-semibold text-surface-400 uppercase tracking-wider">Registered</th>
-            <th class="px-6 py-4 text-right text-xs font-semibold text-surface-400 uppercase tracking-wider">Actions</th>
+          <tr class="border-b border-gray-100 bg-gray-50">
+            <th class="px-6 py-4 text-left text-xs font-semibold text-gray-400 uppercase tracking-wider">Name</th>
+            <th class="px-6 py-4 text-left text-xs font-semibold text-gray-400 uppercase tracking-wider">Tool ID</th>
+            <th class="px-6 py-4 text-left text-xs font-semibold text-gray-400 uppercase tracking-wider">Description</th>
+            <th class="px-6 py-4 text-left text-xs font-semibold text-gray-400 uppercase tracking-wider">Status</th>
+            <th class="px-6 py-4 text-left text-xs font-semibold text-gray-400 uppercase tracking-wider">Registered</th>
+            <th class="px-6 py-4 text-right text-xs font-semibold text-gray-400 uppercase tracking-wider">Actions</th>
           </tr>
         </thead>
-        <tbody class="divide-y divide-surface-50">
+        <tbody class="divide-y divide-gray-50">
           {#each tools as tool (tool.id)}
             <tr class="table-row">
-              <td class="px-6 py-4 text-surface-800 font-semibold text-sm">{tool.name}</td>
-              <td class="px-6 py-4 text-surface-500 text-sm font-mono text-xs">{tool.tool_id}</td>
-              <td class="px-6 py-4 text-surface-500 text-sm truncate max-w-[200px]">{tool.description}</td>
+              <td class="px-6 py-4 text-gray-800 font-semibold text-sm">{tool.name}</td>
+              <td class="px-6 py-4 text-gray-500 text-sm font-mono text-xs">{tool.tool_id}</td>
+              <td class="px-6 py-4 text-gray-500 text-sm truncate max-w-[200px]">{tool.description}</td>
               <td class="px-6 py-4">
-                <span class="inline-flex px-2.5 py-1 text-xs font-semibold rounded-full bg-surface-100 text-surface-600 ring-1 ring-surface-600/10">
+                <span class="inline-flex px-2.5 py-1 text-xs font-semibold rounded-full {statusBadgeClass(tool.status)}">
                   {tool.status}
                 </span>
               </td>
-              <td class="px-6 py-4 text-surface-400 text-sm">
+              <td class="px-6 py-4 text-gray-400 text-sm">
                 {new Date(tool.created_at).toLocaleDateString()}
               </td>
               <td class="px-6 py-4 text-right">
-                <button
-                  on:click={() => handleDelete(tool.id)}
-                  class="text-rose-500 hover:text-rose-600 text-sm font-semibold transition-colors"
-                >
-                  Delete
-                </button>
+                <div class="flex items-center justify-end gap-3">
+                  {#if tool.status === 'pending'}
+                    <button
+                      on:click={() => handleApprove(tool.id)}
+                      class="text-emerald-600 hover:text-emerald-700 text-sm font-semibold transition-colors"
+                    >
+                      Approve
+                    </button>
+                    <button
+                      on:click={() => handleReject(tool.id)}
+                      class="text-rose-500 hover:text-rose-600 text-sm font-semibold transition-colors"
+                    >
+                      Reject
+                    </button>
+                  {/if}
+                  <button
+                    on:click={() => handleDelete(tool.id)}
+                    class="text-gray-400 hover:text-rose-500 text-sm font-semibold transition-colors"
+                  >
+                    Delete
+                  </button>
+                </div>
               </td>
             </tr>
           {/each}
@@ -156,25 +201,25 @@
 <!-- Register Modal -->
   {#if showRegisterModal}
     <!-- svelte-ignore a11y-no-noninteractive-element-interactions -->
-    <div class="fixed inset-0 bg-surface-900/40 backdrop-blur-sm flex items-center justify-center z-50 fade-in" on:click={() => showRegisterModal = false} on:keydown={(e) => e.key === 'Escape' && (showRegisterModal = false)} role="button" tabindex="0">
+    <div class="fixed inset-0 bg-black/40 flex items-center justify-center z-50 fade-in" on:click={() => showRegisterModal = false} on:keydown={(e) => e.key === 'Escape' && (showRegisterModal = false)} role="button" tabindex="0">
       <!-- svelte-ignore a11y-no-noninteractive-element-interactions -->
-      <div class="bg-sky-50 rounded-2xl p-6 w-full max-w-lg shadow-elevated border border-indigo-200 max-h-[85vh] overflow-y-auto" on:click|stopPropagation on:keydown|stopPropagation role="dialog" aria-modal="true">
+      <div class="bg-white rounded-2xl p-6 w-full max-w-lg shadow-elevated border border-gray-200 max-h-[85vh] overflow-y-auto" on:click|stopPropagation on:keydown|stopPropagation role="dialog" aria-modal="true">
         <div class="flex items-center justify-between mb-5">
-          <h2 class="text-lg font-semibold text-surface-800">Register Tool</h2>
+          <h2 class="text-lg font-semibold text-gray-800">Register Tool</h2>
           <button
             on:click={() => showRegisterModal = false}
-            class="p-2 text-surface-400 hover:text-surface-600 hover:bg-surface-100 rounded-xl transition-all duration-200"
+            class="p-2 text-gray-400 hover:text-gray-600 hover:bg-gray-100 rounded-xl transition-all duration-200"
           >
             <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M6 18L18 6M6 6l12 12"/></svg>
           </button>
         </div>
         <div class="space-y-4">
       <div>
-        <label for="org-select" class="block text-sm font-semibold text-surface-500 mb-2">Organization</label>
+        <label for="org-select" class="block text-sm font-semibold text-gray-500 mb-2">Organization</label>
         <select
           id="org-select"
           bind:value={selectedOrgId}
-          class="w-full px-4 py-2.5 border border-surface-200 rounded-xl text-sm focus:ring-2 focus:ring-brand-500/30 focus:border-brand-500 outline-none bg-white transition-all"
+          class="w-full px-4 py-2.5 border border-gray-200 rounded-xl text-sm focus:ring-2 focus:ring-brand-500/30 focus:border-blue-500 outline-none bg-white transition-all"
         >
           {#each organizations as org (org.id)}
             <option value={org.id}>{org.name}</option>
@@ -183,57 +228,68 @@
       </div>
 
       <div>
-        <label for="tool-name" class="block text-sm font-semibold text-surface-500 mb-2">Tool Name</label>
+        <label for="tool-name" class="block text-sm font-semibold text-gray-500 mb-2">Tool Name</label>
         <input
           id="tool-name"
           type="text"
           bind:value={newTool.name}
           placeholder="e.g., github-cli, docker-tool"
-          class="w-full px-4 py-2.5 border border-surface-200 rounded-xl text-sm focus:ring-2 focus:ring-brand-500/30 focus:border-brand-500 outline-none transition-all"
+          class="w-full px-4 py-2.5 border border-gray-200 rounded-xl text-sm focus:ring-2 focus:ring-brand-500/30 focus:border-blue-500 outline-none transition-all"
         />
       </div>
 
       <div>
-        <label for="tool-id" class="block text-sm font-semibold text-surface-500 mb-2">Tool ID</label>
+        <label for="tool-id" class="block text-sm font-semibold text-gray-500 mb-2">Tool ID</label>
         <input
           id="tool-id"
           type="text"
           bind:value={newTool.tool_id}
           placeholder="e.g., github_issue_lister"
-          class="w-full px-4 py-2.5 border border-surface-200 rounded-xl text-sm focus:ring-2 focus:ring-brand-500/30 focus:border-brand-500 outline-none transition-all"
+          class="w-full px-4 py-2.5 border border-gray-200 rounded-xl text-sm focus:ring-2 focus:ring-brand-500/30 focus:border-blue-500 outline-none transition-all"
         />
       </div>
 
       <div>
-        <label for="tool-desc" class="block text-sm font-semibold text-surface-500 mb-2">Description</label>
+        <label for="tool-desc" class="block text-sm font-semibold text-gray-500 mb-2">Description</label>
         <input
           id="tool-desc"
           type="text"
           bind:value={newTool.description}
           placeholder="Describe what this tool does"
-          class="w-full px-4 py-2.5 border border-surface-200 rounded-xl text-sm focus:ring-2 focus:ring-brand-500/30 focus:border-brand-500 outline-none transition-all"
+          class="w-full px-4 py-2.5 border border-gray-200 rounded-xl text-sm focus:ring-2 focus:ring-brand-500/30 focus:border-blue-500 outline-none transition-all"
         />
       </div>
 
       <div>
-        <label for="tool-schema" class="block text-sm font-semibold text-surface-500 mb-2">Schema (JSON)</label>
+        <label for="tool-schema" class="block text-sm font-semibold text-gray-500 mb-2">Schema (JSON) <span class="text-gray-400 font-normal text-xs">— 定义工具接受的输入参数</span></label>
         <textarea
           id="tool-schema"
           bind:value={newTool.schema}
-          rows="3"
-          placeholder={`{"type": "object", "properties": {}}`}
-          class="w-full px-4 py-2.5 border border-surface-200 rounded-xl text-sm focus:ring-2 focus:ring-brand-500/30 focus:border-brand-500 outline-none font-mono transition-all"
+          rows="5"
+          placeholder={`{
+  "type": "object",
+  "properties": {
+    "repo": { "type": "string", "description": "仓库名" },
+    "limit": { "type": "number", "description": "返回条数" }
+  },
+  "required": ["repo"]
+}`}
+          class="w-full px-4 py-2.5 border border-gray-200 rounded-xl text-sm focus:ring-2 focus:ring-brand-500/30 focus:border-blue-500 outline-none font-mono transition-all"
         ></textarea>
       </div>
 
       <div>
-        <label for="tool-impl" class="block text-sm font-semibold text-surface-500 mb-2">Implementation (JSON)</label>
+        <label for="tool-impl" class="block text-sm font-semibold text-gray-500 mb-2">Implementation (JSON) <span class="text-gray-400 font-normal text-xs">— 指定镜像、容器内执行的命令和超时</span></label>
         <textarea
           id="tool-impl"
           bind:value={newTool.implementation}
-          rows="3"
-          placeholder={`{"command": "gh", "args": ["issue", "list"]}`}
-          class="w-full px-4 py-2.5 border border-surface-200 rounded-xl text-sm focus:ring-2 focus:ring-brand-500/30 focus:border-brand-500 outline-none font-mono transition-all"
+          rows="5"
+          placeholder={`{
+  "docker_image": "ghcr.io/myorg/shared-image:v1",
+  "cmd": ["python", "/app/tools/issue_lister.py"],
+  "timeout_seconds": 60
+}`}
+          class="w-full px-4 py-2.5 border border-gray-200 rounded-xl text-sm focus:ring-2 focus:ring-brand-500/30 focus:border-blue-500 outline-none font-mono transition-all"
         ></textarea>
       </div>
     </div>

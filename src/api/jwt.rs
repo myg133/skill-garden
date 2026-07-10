@@ -4,6 +4,7 @@ use axum::{async_trait, extract::FromRequestParts, http::request::Parts};
 use chrono::{Duration, Utc};
 use jsonwebtoken::{decode, encode, DecodingKey, EncodingKey, Header, Validation};
 use serde::{Deserialize, Serialize};
+use uuid::Uuid;
 
 use super::error::ApiError;
 
@@ -19,11 +20,40 @@ fn get_jwt_expiry_hours() -> i64 {
         .unwrap_or(24)
 }
 
+/// 认证来源，区分 JWT 的签发途径
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum AuthSource {
+    /// 用户/管理员直接登录（subject = identity_id UUID）
+    UserLogin,
+    /// Admin 登录
+    AdminLogin,
+    /// 通过 API Key 注册的 Agent（subject = agent_id UUID）
+    RegisteredAgent,
+    /// 旧的 agent（subject = agent_id string，向后兼容）
+    LegacyAgent,
+}
+
+impl Default for AuthSource {
+    fn default() -> Self {
+        AuthSource::LegacyAgent
+    }
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Claims {
     pub subject: String,
     pub roles: Vec<String>,
     pub scope: Vec<String>,
+    /// 归属 identity 的 UUID（新字段，旧 token 默认为空）
+    #[serde(default)]
+    pub identity_id: String,
+    /// 认证来源
+    #[serde(default)]
+    pub auth_source: AuthSource,
+    /// Agent 调用时携带的自定义名称
+    #[serde(default)]
+    pub agent_name: Option<String>,
     pub exp: i64,
     pub iat: i64,
 }
@@ -33,6 +63,18 @@ pub struct AgentContext {
     pub subject: String,
     pub roles: Vec<String>,
     pub scope: Vec<String>,
+    /// 归属的 identity UUID（从 JWT claims 解析）
+    pub identity_id: Option<Uuid>,
+    /// 调用方 agent 的 UUID（仅 RegisteredAgent 来源时有值）
+    pub agent_id: Option<Uuid>,
+    /// 当前 MCP session UUID（MCP 连接时自动创建）
+    pub session_id: Option<Uuid>,
+    /// API key 关联的组织 UUID（API key 认证时自动填充）
+    pub org_id: Option<Uuid>,
+    /// 认证来源
+    pub auth_source: AuthSource,
+    /// Agent 名称
+    pub agent_name: Option<String>,
 }
 
 pub struct JwtAuth;
@@ -43,6 +85,38 @@ impl AgentContext {
             subject,
             roles: vec![],
             scope: vec![],
+            identity_id: None,
+            agent_id: None,
+            session_id: None,
+            org_id: None,
+            auth_source: AuthSource::LegacyAgent,
+            agent_name: None,
+        }
+    }
+
+    pub fn from_claims(claims: Claims) -> Self {
+        let identity_id = if claims.identity_id.is_empty() {
+            None
+        } else {
+            Uuid::parse_str(&claims.identity_id).ok()
+        };
+
+        let agent_id = if claims.auth_source == AuthSource::RegisteredAgent {
+            Uuid::parse_str(&claims.subject).ok()
+        } else {
+            None
+        };
+
+        Self {
+            subject: claims.subject,
+            roles: claims.roles,
+            scope: claims.scope,
+            identity_id,
+            agent_id,
+            session_id: None,
+            org_id: None,
+            auth_source: claims.auth_source,
+            agent_name: claims.agent_name,
         }
     }
 
@@ -51,6 +125,11 @@ impl AgentContext {
             return Err(ApiError::Unauthorized("Admin access required".to_string()));
         }
         Ok(())
+    }
+
+    pub fn require_identity(&self) -> Result<Uuid, ApiError> {
+        self.identity_id
+            .ok_or_else(|| ApiError::Unauthorized("Identity not found in token".to_string()))
     }
 
     pub fn with_roles(mut self, roles: Vec<String>) -> Self {
@@ -72,6 +151,43 @@ pub fn generate_token(subject: &str, roles: &[&str], scope: &[&str]) -> Result<S
         subject: subject.to_string(),
         roles: roles.iter().map(|s| s.to_string()).collect(),
         scope: scope.iter().map(|s| s.to_string()).collect(),
+        identity_id: String::new(),
+        auth_source: AuthSource::default(),
+        agent_name: None,
+        exp: exp.timestamp(),
+        iat: now.timestamp(),
+    };
+
+    encode(
+        &Header::default(),
+        &claims,
+        &EncodingKey::from_secret(get_jwt_secret().as_bytes()),
+    )
+    .map_err(|e| ApiError::InternalError(format!("Failed to generate token: {}", e)))
+}
+
+/// 生成管理员/用户登录 Token
+pub fn generate_identity_token(
+    identity_id: Uuid,
+    roles: &[&str],
+    scope: &[&str],
+) -> Result<String, ApiError> {
+    let now = Utc::now();
+    let exp = now + Duration::hours(get_jwt_expiry_hours());
+
+    let auth_source = if roles.iter().any(|r| *r == "admin") {
+        AuthSource::AdminLogin
+    } else {
+        AuthSource::UserLogin
+    };
+
+    let claims = Claims {
+        subject: identity_id.to_string(),
+        roles: roles.iter().map(|s| s.to_string()).collect(),
+        scope: scope.iter().map(|s| s.to_string()).collect(),
+        identity_id: identity_id.to_string(),
+        auth_source,
+        agent_name: None,
         exp: exp.timestamp(),
         iat: now.timestamp(),
     };
@@ -107,6 +223,9 @@ pub fn generate_short_lived_token(
         subject: subject.to_string(),
         roles: vec![purpose.to_string()],
         scope: vec![],
+        identity_id: String::new(),
+        auth_source: AuthSource::default(),
+        agent_name: None,
         exp: exp.timestamp(),
         iat: now.timestamp(),
     };
@@ -123,9 +242,42 @@ pub fn generate_short_lived_token(
 pub fn verify_purpose_token(token: &str, purpose: &str) -> Result<String, ApiError> {
     let claims = verify_token(token)?;
     if !claims.roles.iter().any(|r| r == purpose) {
-        return Err(ApiError::Unauthorized(format!("Invalid token purpose")));
+        return Err(ApiError::Unauthorized("Invalid token purpose".to_string()));
     }
     Ok(claims.subject)
+}
+
+/// Hash a token string for storage (SHA-256)
+pub fn hash_token(token: &str) -> String {
+    use sha2::{Digest, Sha256};
+    let mut hasher = Sha256::new();
+    hasher.update(token.as_bytes());
+    hex::encode(hasher.finalize())
+}
+
+/// 判断一个 Bearer token 是否看起来像 API key（sk_ 前缀）
+pub fn is_api_key_format(token: &str) -> bool {
+    token.starts_with("sk_")
+}
+
+/// 从 Identity 信息直接构建 AgentContext（仅 API Key 验证，无需 Agent 注册/JWT）
+pub fn agent_context_from_identity(
+    identity_id: Uuid,
+    identity_name: &str,
+    session_id: Option<Uuid>,
+    org_id: Option<Uuid>,
+) -> AgentContext {
+    AgentContext {
+        subject: identity_id.to_string(),
+        roles: vec![],
+        scope: vec![],
+        identity_id: Some(identity_id),
+        agent_id: None,
+        session_id,
+        org_id,
+        auth_source: AuthSource::RegisteredAgent,
+        agent_name: Some(identity_name.to_string()),
+    }
 }
 
 #[async_trait]
@@ -148,11 +300,7 @@ impl<S: Send + Sync> FromRequestParts<S> for AgentContext {
         let token = &auth_header[7..];
         let claims = verify_token(token)?;
 
-        Ok(AgentContext {
-            subject: claims.subject,
-            roles: claims.roles,
-            scope: claims.scope,
-        })
+        Ok(AgentContext::from_claims(claims))
     }
 }
 
@@ -170,6 +318,18 @@ mod tests {
     }
 
     #[test]
+    fn test_identity_token() {
+        let identity_id = Uuid::new_v4();
+        let token = generate_identity_token(identity_id, &["admin"], &[]).unwrap();
+        let claims = verify_token(&token).unwrap();
+        let ctx = AgentContext::from_claims(claims);
+
+        assert_eq!(ctx.identity_id, Some(identity_id));
+        assert_eq!(ctx.auth_source, AuthSource::AdminLogin);
+        assert_eq!(ctx.agent_id, None);
+    }
+
+    #[test]
     fn test_invalid_token() {
         let result = verify_token("invalid_token");
         assert!(result.is_err());
@@ -183,5 +343,38 @@ mod tests {
         assert_eq!(ctx.subject, "user-1");
         assert_eq!(ctx.roles, vec!["admin"]);
         assert_eq!(ctx.scope, vec!["write"]);
+        assert_eq!(ctx.identity_id, None);
+    }
+
+    #[test]
+    fn test_require_identity() {
+        let ctx_no_identity = AgentContext::new("user-1".to_string());
+        assert!(ctx_no_identity.require_identity().is_err());
+
+        let ctx_with_identity = AgentContext {
+            identity_id: Some(Uuid::new_v4()),
+            ..AgentContext::new("user-1".to_string())
+        };
+        assert!(ctx_with_identity.require_identity().is_ok());
+    }
+
+    #[test]
+    fn test_token_hash() {
+        let hash1 = hash_token("test-token-123");
+        let hash2 = hash_token("test-token-123");
+        assert_eq!(hash1, hash2);
+        assert_eq!(hash1.len(), 64); // SHA-256 hex = 64 chars
+    }
+
+    #[test]
+    fn test_legacy_token_backward_compat() {
+        // Old-style token without identity_id/auth_source should still work
+        let token = generate_token("old-agent", &[], &[]).unwrap();
+        let claims = verify_token(&token).unwrap();
+        let ctx = AgentContext::from_claims(claims);
+
+        assert_eq!(ctx.subject, "old-agent");
+        assert_eq!(ctx.identity_id, None);
+        assert_eq!(ctx.agent_id, None);
     }
 }

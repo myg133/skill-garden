@@ -28,6 +28,31 @@ impl AuditService {
             .map_err(|e| AppError::InternalError(e.to_string()))
     }
 
+    /// 便捷写入审计日志（不 panic，失败时仅 log warning）
+    pub async fn write_entry(
+        &self,
+        identity_id: Uuid,
+        action: &str,
+        resource_type: &str,
+        resource_id: Option<Uuid>,
+        details: Option<serde_json::Value>,
+    ) {
+        let req = CreateAuditLogRequest {
+            tenant_id: None,
+            organization_id: None,
+            identity_id,
+            action: action.to_string(),
+            resource_type: Some(resource_type.to_string()),
+            resource_id,
+            details,
+            ip_address: None,
+            user_agent: None,
+        };
+        if let Err(e) = self.create(req).await {
+            tracing::warn!("Failed to write audit entry: {}", e);
+        }
+    }
+
     pub async fn get(&self, id: Uuid) -> Result<Option<AuditLog>, AppError> {
         self.repo
             .find_by_id(id)
@@ -48,6 +73,26 @@ impl AuditService {
                 query.resource_type.as_deref(),
                 limit,
                 offset,
+            )
+            .await
+            .map_err(|e| AppError::InternalError(e.to_string()))
+    }
+
+    pub async fn count(
+        &self,
+        tenant_id: Option<Uuid>,
+        organization_id: Option<Uuid>,
+        identity_id: Option<Uuid>,
+        action: Option<&str>,
+        resource_type: Option<&str>,
+    ) -> Result<i64, AppError> {
+        self.repo
+            .count(
+                tenant_id,
+                organization_id,
+                identity_id,
+                action,
+                resource_type,
             )
             .await
             .map_err(|e| AppError::InternalError(e.to_string()))

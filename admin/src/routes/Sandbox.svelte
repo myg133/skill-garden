@@ -1,4 +1,4 @@
-<script>
+﻿<script>
   import { onMount } from 'svelte';
   import { api } from '../lib/api.js';
   import { addToast } from '../stores/app.js';
@@ -114,7 +114,7 @@
               </p>
             </div>
           </div>
-          <div class="flex items-center gap-3 p-4 rounded-xl bg-indigo-50 border border-indigo-100">
+          <div class="flex items-center gap-3 p-4 rounded-xl bg-indigo-50 border border-gray-100">
             <svg class="w-5 h-5 text-indigo-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
               <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M20 7l-8-4-8 4m16 0l-8 4m8-4v10l-8 4m0-10L4 7m8 4v10M4 7v10l8 4"/>
             </svg>
@@ -123,7 +123,7 @@
               <p class="text-sm font-semibold text-indigo-700">{health.active_containers}</p>
             </div>
           </div>
-          <div class="flex items-center gap-3 p-4 rounded-xl bg-indigo-50 border border-indigo-100">
+          <div class="flex items-center gap-3 p-4 rounded-xl bg-indigo-50 border border-gray-100">
             <svg class="w-5 h-5 text-indigo-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
               <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"/>
             </svg>
@@ -152,7 +152,7 @@
       <div class="overflow-x-auto">
         <table class="w-full text-sm">
           <thead>
-            <tr class="border-b border-indigo-100 text-left">
+            <tr class="border-b border-gray-100 text-left">
               <th class="px-5 py-3.5 text-xs font-semibold text-indigo-500 uppercase tracking-wider">ID / Key</th>
               <th class="px-5 py-3.5 text-xs font-semibold text-indigo-500 uppercase tracking-wider">Session</th>
               <th class="px-5 py-3.5 text-xs font-semibold text-indigo-500 uppercase tracking-wider">Container ID</th>
@@ -164,7 +164,7 @@
           </thead>
           <tbody>
             {#each containers as c (c.container_id)}
-              <tr class="border-b border-indigo-50 hover:bg-indigo-50/50 transition-colors">
+              <tr class="border-b border-gray-50 hover:bg-blue-50 transition-colors">
                 <td class="px-5 py-3.5">
                   <p class="font-mono text-xs text-indigo-700 truncate max-w-[160px]" title={c.id}>{c.id || '—'}</p>
                 </td>

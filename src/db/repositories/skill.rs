@@ -147,12 +147,14 @@ impl SkillRepository {
         }
 
         for dep in &new_skill.dependencies {
-            sqlx::query("INSERT INTO skill_dependencies (skill_id, dependency_id) VALUES ($1, $2)")
-                .bind(&id)
-                .bind(dep)
-                .execute(&self.pool)
-                .await
-                .map_err(|e| DbError::QueryError(e.to_string()))?;
+            sqlx::query(
+                "INSERT INTO skill_dependencies (skill_id, dependency_skill_id) VALUES ($1, $2)",
+            )
+            .bind(&id)
+            .bind(dep)
+            .execute(&self.pool)
+            .await
+            .map_err(|e| DbError::QueryError(e.to_string()))?;
         }
 
         Ok(Skill {
@@ -229,19 +231,40 @@ impl SkillRepository {
     }
 
     pub async fn list(&self, limit: i64, offset: i64) -> DbResult<Vec<SkillMetadata>> {
-        let rows = sqlx::query_as::<_, SkillMetadataRow>(
+        self.list_sorted(limit, offset, "created").await
+    }
+
+    pub async fn list_sorted(
+        &self,
+        limit: i64,
+        offset: i64,
+        sort_by: &str,
+    ) -> DbResult<Vec<SkillMetadata>> {
+        let order_clause = match sort_by {
+            "installs" => "ORDER BY install_count DESC, created_at DESC",
+            "name" => "ORDER BY name ASC, created_at DESC",
+            "updated" => "ORDER BY updated_at DESC",
+            _ => "ORDER BY created_at DESC",
+        };
+
+        let query = format!(
             r#"
-            SELECT id, name, description, version, author_agent_id, author_identity_id, owner_type, owner_id, install_count, status, git_url, visibility, review_status, reviewed_by, reviewed_at, review_comment, created_at, updated_at
+            SELECT id, name, description, version, author_agent_id, author_identity_id,
+                   owner_type, owner_id, install_count, status, git_url, visibility,
+                   review_status, reviewed_by, reviewed_at, review_comment, created_at, updated_at
             FROM skills
-            ORDER BY created_at DESC
-            LIMIT $1 OFFSET $2
+            WHERE review_status != 'rejected'
+            {} LIMIT $1 OFFSET $2
             "#,
-        )
-        .bind(limit)
-        .bind(offset)
-        .fetch_all(&self.pool)
-        .await
-        .map_err(|e| DbError::QueryError(e.to_string()))?;
+            order_clause
+        );
+
+        let rows = sqlx::query_as::<_, SkillMetadataRow>(&query)
+            .bind(limit)
+            .bind(offset)
+            .fetch_all(&self.pool)
+            .await
+            .map_err(|e| DbError::QueryError(e.to_string()))?;
 
         let mut results = Vec::new();
         for row in rows {
@@ -273,10 +296,12 @@ impl SkillRepository {
     }
 
     pub async fn count(&self) -> DbResult<i64> {
-        let row: (i64,) = sqlx::query_as("SELECT COUNT(*) FROM skills")
-            .fetch_one(&self.pool)
-            .await
-            .map_err(|e| DbError::QueryError(e.to_string()))?;
+        let row: (i64,) = sqlx::query_as(
+            "SELECT COUNT(*) FROM skills WHERE review_status != 'rejected'",
+        )
+        .fetch_one(&self.pool)
+        .await
+        .map_err(|e| DbError::QueryError(e.to_string()))?;
         Ok(row.0)
     }
 
@@ -449,6 +474,50 @@ impl SkillRepository {
         Ok(())
     }
 
+    pub async fn list_by_name(&self, name: &str) -> DbResult<Vec<SkillMetadata>> {
+        let rows = sqlx::query_as::<_, SkillMetadataRow>(
+            r#"
+            SELECT id, name, description, version, author_agent_id, author_identity_id,
+                   owner_type, owner_id, install_count, status, git_url, visibility,
+                   review_status, reviewed_by, reviewed_at, review_comment, created_at, updated_at
+            FROM skills
+            WHERE name = $1
+            ORDER BY created_at DESC
+            "#,
+        )
+        .bind(name)
+        .fetch_all(&self.pool)
+        .await
+        .map_err(|e| DbError::QueryError(e.to_string()))?;
+
+        let mut results = Vec::new();
+        for row in rows {
+            let tags = self.get_tags(&row.id).await?;
+            results.push(SkillMetadata {
+                id: row.id,
+                name: row.name,
+                description: row.description,
+                version: row.version,
+                author_agent_id: row.author_agent_id,
+                author_identity_id: row.author_identity_id,
+                owner_type: row.owner_type,
+                owner_id: row.owner_id,
+                install_count: row.install_count,
+                tags,
+                status: row.status,
+                git_url: row.git_url,
+                visibility: row.visibility,
+                review_status: row.review_status,
+                reviewed_by: row.reviewed_by,
+                reviewed_at: row.reviewed_at,
+                review_comment: row.review_comment,
+                created_at: row.created_at,
+                updated_at: row.updated_at,
+            });
+        }
+        Ok(results)
+    }
+
     pub async fn update_status(&self, skill_id: &str, status: &str) -> DbResult<()> {
         if !VALID_STATUSES.contains(&status) {
             return Err(DbError::ValidationError(format!(
@@ -504,12 +573,13 @@ impl SkillRepository {
     }
 
     async fn get_dependencies(&self, skill_id: &str) -> DbResult<Vec<String>> {
-        let deps: Vec<(String,)> =
-            sqlx::query_as("SELECT dependency_id FROM skill_dependencies WHERE skill_id = $1")
-                .bind(skill_id)
-                .fetch_all(&self.pool)
-                .await
-                .map_err(|e| DbError::QueryError(e.to_string()))?;
+        let deps: Vec<(String,)> = sqlx::query_as(
+            "SELECT dependency_skill_id FROM skill_dependencies WHERE skill_id = $1",
+        )
+        .bind(skill_id)
+        .fetch_all(&self.pool)
+        .await
+        .map_err(|e| DbError::QueryError(e.to_string()))?;
         Ok(deps.into_iter().map(|(d,)| d).collect())
     }
 }

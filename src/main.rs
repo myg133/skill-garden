@@ -31,9 +31,10 @@ use tracing_subscriber::{layer::SubscriberExt, util::SubscriberInitExt};
 use uuid::Uuid;
 
 use aion_hive::api::create_api_router;
-use aion_hive::api::http_state::{AppRouterState, HttpState, SseState};
+use aion_hive::api::http_state::{AppRouterState, HttpState, SseSession, SseState, SSE_IDLE_TIMEOUT_SECS};
 use aion_hive::db::repositories::{
-    AgentRepository, AuditRepository, EvaluationRepository, SkillRepository, VersionRepository,
+    AgentRepository, AuditLogRepository, AuditRepository, EvaluationRepository, SkillRepository,
+    VersionRepository,
 };
 use aion_hive::{mcp::McpServer, AppState};
 
@@ -50,9 +51,14 @@ async fn request_logging_middleware(req: Request, next: Next) -> Response {
     response
 }
 
-async fn mcp_handler(State(state): State<Arc<AppRouterState>>, body: String) -> impl IntoResponse {
+async fn mcp_handler(
+    State(state): State<Arc<AppRouterState>>,
+    headers: axum::http::HeaderMap,
+    body: String,
+) -> impl IntoResponse {
     let server = state.http.mcp_server.read().await;
-    let result = server.handle_jsonrpc(&body).await;
+    let auth_header = headers.get("authorization").and_then(|v| v.to_str().ok());
+    let result = server.handle_jsonrpc(&body, auth_header).await;
     match result {
         Ok(response) => (
             StatusCode::OK,
@@ -89,7 +95,10 @@ async fn sse_handler(State(state): State<Arc<AppRouterState>>) -> impl IntoRespo
 
     {
         let mut sessions = state.sse.sessions.write().await;
-        sessions.insert(session_id.clone(), tx.clone());
+        sessions.insert(session_id.clone(), SseSession {
+            tx: tx.clone(),
+            last_activity: Instant::now(),
+        });
     }
 
     let message_endpoint = format!("/sse/{}", session_id);
@@ -115,15 +124,33 @@ async fn sse_handler(State(state): State<Arc<AppRouterState>>) -> impl IntoRespo
 async fn sse_message_handler(
     State(state): State<Arc<AppRouterState>>,
     Path(session_id): Path<String>,
+    headers: axum::http::HeaderMap,
     body: String,
 ) -> impl IntoResponse {
+    // Update last_activity timestamp (write lock short scope)
+    {
+        let mut sessions = state.sse.sessions.write().await;
+        if let Some(session) = sessions.get_mut(&session_id) {
+            session.last_activity = Instant::now();
+        } else {
+            return (
+                StatusCode::NOT_FOUND,
+                [(header::CONTENT_TYPE, "application/json")],
+                r#"{"error":"session not found"}"#,
+            )
+                .into_response();
+        }
+    }
+
     let sessions = state.sse.sessions.read().await;
-    if let Some(tx) = sessions.get(&session_id) {
+    if let Some(session) = sessions.get(&session_id) {
+        let tx = session.tx.clone();
+        drop(sessions); // release read lock before MCP processing
         let mcp_server = state.http.mcp_server.read().await;
-        match mcp_server.handle_jsonrpc(&body).await {
+        let auth_header = headers.get("authorization").and_then(|v| v.to_str().ok());
+        match mcp_server.handle_jsonrpc(&body, auth_header).await {
             Ok(response) => {
                 if tx.send(response).is_err() {
-                    drop(sessions);
                     let mut sessions = state.sse.sessions.write().await;
                     sessions.remove(&session_id);
                 }
@@ -131,7 +158,6 @@ async fn sse_message_handler(
             Err(e) => {
                 let error_response = format!("{{\"error\": \"{}\"}}", e);
                 if tx.send(error_response).is_err() {
-                    drop(sessions);
                     let mut sessions = state.sse.sessions.write().await;
                     sessions.remove(&session_id);
                 }
@@ -153,6 +179,34 @@ async fn sse_message_handler(
     }
 }
 
+async fn shutdown_signal() {
+    let ctrl_c = async {
+        tokio::signal::ctrl_c()
+            .await
+            .expect("failed to install Ctrl+C handler");
+    };
+
+    #[cfg(unix)]
+    let terminate = async {
+        tokio::signal::unix::signal(tokio::signal::unix::SignalKind::terminate())
+            .expect("failed to install signal handler")
+            .recv()
+            .await;
+    };
+
+    #[cfg(not(unix))]
+    let terminate = std::future::pending::<()>();
+
+    tokio::select! {
+        _ = ctrl_c => {
+            tracing::info!("Received Ctrl+C, shutting down gracefully...");
+        },
+        _ = terminate => {
+            tracing::info!("Received SIGTERM, shutting down gracefully...");
+        },
+    }
+}
+
 async fn run_http_server(state: AppState, port: u16) -> Result<()> {
     let pool = sqlx::PgPool::connect(
         &std::env::var("DATABASE_URL")
@@ -161,7 +215,8 @@ async fn run_http_server(state: AppState, port: u16) -> Result<()> {
     .await?;
     let eval_repo = EvaluationRepository::new(pool.clone());
     let agent_repo = AgentRepository::new(pool.clone());
-    let audit_repo = AuditRepository::new(pool.clone());
+    let audit_log_repo = AuditLogRepository::new(pool.clone());
+    let audit_repo = AuditRepository::new(audit_log_repo);
     let skill_repo = SkillRepository::new(pool.clone());
     let version_repo = VersionRepository::new(pool.clone());
     let group_perm_override_repo = aion_hive::db::repositories::group_permission_override::GroupPermissionOverrideRepository::new(pool.clone());
@@ -175,8 +230,7 @@ async fn run_http_server(state: AppState, port: u16) -> Result<()> {
     // Initialize sandbox (isolation network + background cleanup)
     state.sandbox.initialize().await?;
     let sandbox = state.sandbox.clone();
-    let skill_git =
-        aion_hive::services::SkillGitService::new(state.data_dir.clone(), state.skills_dir.clone());
+    let skill_git = aion_hive::services::SkillGitService::new(state.data_dir.clone());
     // Ensure skill git directories exist
     skill_git.ensure_dirs()?;
     let mcp_server = McpServer::new(
@@ -187,6 +241,8 @@ async fn run_http_server(state: AppState, port: u16) -> Result<()> {
         state.org_tool.clone(),
         state.tool_router.clone(),
         sandbox,
+        state.api_key.clone(),
+        state.identity.clone(),
     );
     let mcp_server_arc = Arc::new(tokio::sync::RwLock::new(mcp_server));
 
@@ -194,6 +250,10 @@ async fn run_http_server(state: AppState, port: u16) -> Result<()> {
         mcp_server: mcp_server_arc,
     };
     let sse_state = SseState::new();
+    let sse_state_clone = sse_state.clone();
+
+    // Clone session service for the background DB cleanup task
+    let session_service = state.session.clone();
 
     let app_state: Arc<AppRouterState> = Arc::new(AppRouterState {
         http: http_state,
@@ -224,6 +284,34 @@ async fn run_http_server(state: AppState, port: u16) -> Result<()> {
         group_perm_override_repo: group_perm_override_repo.clone(),
     });
 
+    // Spawn background SSE session cleanup task (runs every 60 seconds)
+    tokio::spawn(async move {
+        let idle_timeout = std::time::Duration::from_secs(SSE_IDLE_TIMEOUT_SECS);
+        let mut interval = tokio::time::interval(std::time::Duration::from_secs(60));
+        loop {
+            interval.tick().await;
+            sse_state_clone.cleanup_idle(idle_timeout).await;
+        }
+    });
+
+    // Spawn background DB session cleanup task (runs every 120 seconds, 30 min idle timeout)
+    let db_idle_secs: i64 = 1800; // 30 minutes
+    tokio::spawn(async move {
+        let mut interval = tokio::time::interval(std::time::Duration::from_secs(120));
+        loop {
+            interval.tick().await;
+            match session_service.end_idle_sessions(db_idle_secs).await {
+                Ok(count) if count > 0 => {
+                    tracing::info!("DB session cleanup: ended {} idle sessions", count);
+                }
+                Ok(_) => {}
+                Err(e) => {
+                    tracing::warn!("DB session cleanup error: {}", e);
+                }
+            }
+        }
+    });
+
     let api_router = create_api_router(app_state.clone());
 
     let app = Router::new()
@@ -237,9 +325,15 @@ async fn run_http_server(state: AppState, port: u16) -> Result<()> {
 
     let addr = format!("127.0.0.1:{}", port);
     info!("Starting HTTP server on http://{}", addr);
+    info!(
+        "SSE session idle timeout: {}s (cleanup runs every 60s)",
+        SSE_IDLE_TIMEOUT_SECS
+    );
 
     let listener = tokio::net::TcpListener::bind(&addr).await?;
-    axum::serve(listener, app).await?;
+    axum::serve(listener, app)
+        .with_graceful_shutdown(shutdown_signal())
+        .await?;
 
     Ok(())
 }
@@ -264,9 +358,10 @@ async fn main() -> Result<()> {
 
     let skills_dir = std::env::var("AION_HIVE_SKILLS_DIR")
         .map(PathBuf::from)
-        .unwrap_or_else(|_| PathBuf::from("skills"));
+        .unwrap_or_else(|_| data_dir.join("skills"));
 
     std::fs::create_dir_all(&data_dir)?;
+    std::fs::create_dir_all(&skills_dir)?;
     std::fs::create_dir_all(&data_dir.join("registry"))?;
     std::fs::create_dir_all(&data_dir.join("evaluations"))?;
     std::fs::create_dir_all(&data_dir.join("search_index"))?;

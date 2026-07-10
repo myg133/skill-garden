@@ -87,6 +87,17 @@ impl OrgToolService {
             .map_err(|e| AppError::InternalError(e.to_string()))
     }
 
+    pub async fn get_tool_by_tool_id(
+        &self,
+        org_id: Uuid,
+        tool_id: &str,
+    ) -> Result<Option<OrgToolRepo>, AppError> {
+        self.org_tool_repo
+            .find_by_tool_id(org_id, tool_id)
+            .await
+            .map_err(|e| AppError::InternalError(e.to_string()))
+    }
+
     pub async fn delete(&self, tool_id: Uuid) -> Result<(), AppError> {
         self.org_tool_repo
             .delete(tool_id)

@@ -1,5 +1,6 @@
-<script>
+﻿<script>
   import { Router, Route, navigate } from 'svelte-routing';
+  import { fade } from 'svelte/transition';
   import { isAuthenticated } from './stores/auth.js';
   import Nav from './components/Nav.svelte';
   import Toast from './components/Toast.svelte';
@@ -38,10 +39,10 @@
       <Route path="*" component={Login} />
     </div>
   {:else}
-    <div class="flex h-screen overflow-hidden" style="background: linear-gradient(160deg, #dbeafe 0%, #e0f2fe 30%, #f0f9ff 60%, #f8fafc 100%);">
+    <div class="flex h-screen overflow-hidden bg-gray-50">
       <Nav />
       <div class="flex-1 overflow-y-auto relative">
-        <main class="relative fade-in">
+        <main class="relative fade-in" in:fade={{ duration: 150 }} out:fade={{ duration: 100 }}>
           <Route path="/" component={Organizations} />
           <Route path="/review" component={Review} />
           <Route path="/skills/:id" component={SkillDetail} />

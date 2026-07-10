@@ -10,6 +10,17 @@ async function request(path, options = {}) {
 
   const res = await fetch(`${API_BASE}${path}`, { ...options, headers });
 
+  // Token expired or unauthorized — clear token and redirect to login
+  if (res.status === 401) {
+    localStorage.removeItem('admin_token');
+    // Use dynamic import to avoid circular dependency
+    try {
+      const { navigate } = await import('svelte-routing');
+      navigate('/login', { replace: true });
+    } catch {}
+    throw new Error('Session expired. Please log in again.');
+  }
+
   if (!res.ok) {
     const err = await res.json().catch(() => ({ message: 'Request failed' }));
     throw new Error(err.message || `HTTP ${res.status}`);
@@ -252,12 +263,43 @@ export const api = {
     return request(`/skills/${id}`);
   },
 
+  getSkillFiles(id) {
+    return request(`/skills/${id}/files`);
+  },
+
+  getSkillFile(id, filePath) {
+    return request(`/skills/${id}/files/${encodeURIComponent(filePath)}`);
+  },
+
   getSkillStats(id) {
     return request(`/skills/${id}/stats`);
   },
 
+  updateSkill(id, data) {
+    return request(`/skills/${id}`, {
+      method: 'PUT',
+      body: JSON.stringify(data)
+    });
+  },
+
   uploadSkill(formData) {
     return requestUpload('/skills/upload', formData);
+  },
+
+  // Skill Upload Preview & Confirm
+  previewSkillUpload(formData) {
+    return requestUpload('/skills/upload/preview', formData);
+  },
+
+  getPreviewFile(previewId, filePath) {
+    return request(`/skills/upload/preview/${previewId}/files/${encodeURIComponent(filePath)}`);
+  },
+
+  confirmSkillUpload(previewId, data = {}) {
+    return request(`/skills/upload/preview/${previewId}/confirm`, {
+      method: 'POST',
+      body: JSON.stringify(data)
+    });
   },
 
   listAuditLogs(params = {}) {
@@ -337,6 +379,14 @@ export const api = {
 
   deleteOrgTool(id) {
     return request(`/org-tools/${id}`, { method: 'DELETE' });
+  },
+
+  approveOrgTool(id) {
+    return request(`/org-tools/${id}/approve`, { method: 'POST' });
+  },
+
+  rejectOrgTool(id) {
+    return request(`/org-tools/${id}/reject`, { method: 'POST' });
   },
 
   listApprovedTools(orgId) {

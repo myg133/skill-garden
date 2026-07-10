@@ -1,7 +1,6 @@
 //! 评价服务 - 评价收集、置信度计算
 
 use std::path::PathBuf;
-use tokio::runtime::Handle;
 
 use anyhow::Result;
 use reqwest::Client;
@@ -152,9 +151,11 @@ impl EvaluatorService {
     }
 
     /// 获取 Skill 统计
-    pub fn get_stats(&self, skill_id: &str) -> Result<SkillStats, AppError> {
-        let stats = Handle::current()
-            .block_on(async { self.eval_repo.get_stats(skill_id).await })
+    pub async fn get_stats(&self, skill_id: &str) -> Result<SkillStats, AppError> {
+        let stats = self
+            .eval_repo
+            .get_stats(skill_id)
+            .await
             .map_err(|e| AppError::from(e))?;
 
         Ok(SkillStats {
@@ -172,9 +173,11 @@ impl EvaluatorService {
     }
 
     /// 获取评价列表
-    pub fn list_evaluations(&self, skill_id: &str) -> Result<Vec<Evaluation>, AppError> {
-        let evals = Handle::current()
-            .block_on(async { self.eval_repo.list_by_skill(skill_id, 100).await })
+    pub async fn list_evaluations(&self, skill_id: &str) -> Result<Vec<Evaluation>, AppError> {
+        let evals = self
+            .eval_repo
+            .list_by_skill(skill_id, 100)
+            .await
             .map_err(|e| AppError::from(e))?;
 
         Ok(evals
@@ -208,9 +211,14 @@ impl EvaluatorService {
     }
 
     /// 获取单条评价
-    pub fn get_evaluation(&self, eval_id: uuid::Uuid) -> Result<Option<Evaluation>, AppError> {
-        let eval = Handle::current()
-            .block_on(async { self.eval_repo.find_by_id(eval_id).await })
+    pub async fn get_evaluation(
+        &self,
+        eval_id: uuid::Uuid,
+    ) -> Result<Option<Evaluation>, AppError> {
+        let eval = self
+            .eval_repo
+            .find_by_id(eval_id)
+            .await
             .map_err(|e| AppError::from(e))?;
 
         Ok(eval.map(|e| Evaluation {
@@ -241,9 +249,10 @@ impl EvaluatorService {
     }
 
     /// 删除评价
-    pub fn delete_evaluation(&self, eval_id: uuid::Uuid) -> Result<(), AppError> {
-        Handle::current()
-            .block_on(async { self.eval_repo.delete_by_id(eval_id).await })
+    pub async fn delete_evaluation(&self, eval_id: uuid::Uuid) -> Result<(), AppError> {
+        self.eval_repo
+            .delete_by_id(eval_id)
+            .await
             .map_err(|e| AppError::from(e))
     }
 

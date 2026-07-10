@@ -1,4 +1,4 @@
-<script>
+﻿<script>
   import { onMount } from 'svelte';
   import { api } from '../lib/api.js';
   import { addToast } from '../stores/app.js';
@@ -97,8 +97,8 @@
       case 'admin': return 'bg-blue-100 text-blue-700';
       case 'developer': return 'bg-emerald-100 text-emerald-700';
       case 'reviewer': return 'bg-amber-100 text-amber-700';
-      case 'member': return 'bg-surface-100 text-surface-700';
-      default: return 'bg-surface-100 text-surface-700';
+      case 'member': return 'bg-gray-100 text-gray-700';
+      default: return 'bg-gray-100 text-gray-700';
     }
   }
 
@@ -107,7 +107,7 @@
       case 'user': return 'bg-blue-100 text-blue-700';
       case 'agent': return 'bg-purple-100 text-purple-700';
       case 'system': return 'bg-amber-100 text-amber-700';
-      default: return 'bg-surface-100 text-surface-700';
+      default: return 'bg-gray-100 text-gray-700';
     }
   }
 
@@ -139,8 +139,8 @@
   <div class="page-header">
     <div class="flex items-center justify-between">
       <div>
-        <h1 class="text-[28px] font-extrabold text-surface-800 tracking-tight">My Profile</h1>
-        <p class="text-surface-500 text-sm mt-1.5 font-medium">Manage your account information</p>
+        <h1 class="text-[28px] font-extrabold text-gray-800 tracking-tight">My Profile</h1>
+        <p class="text-gray-500 text-sm mt-1.5 font-medium">Manage your account information</p>
       </div>
       {#if !editing}
         <button
@@ -161,47 +161,47 @@
   {:else if user}
     <div class="grid grid-cols-1 xl:grid-cols-3 gap-6">
       <div class="xl:col-span-2 space-y-6">
-        <div class="gradient-card-sky rounded-2xl border border-indigo-200/60 shadow-card">
-          <div class="px-6 py-5 border-b border-indigo-100/60">
-            <h2 class="font-semibold text-surface-800 text-sm">Account Information</h2>
+        <div class="bg-white rounded-2xl border border-gray-200 shadow-card">
+          <div class="px-6 py-5 border-b border-gray-100">
+            <h2 class="font-semibold text-gray-800 text-sm">Account Information</h2>
           </div>
           <div class="p-6">
             {#if editing}
               <div class="space-y-4">
                 <div>
-                  <label for="display-name" class="block text-xs font-semibold text-surface-500 uppercase tracking-wider mb-2">Display Name</label>
+                  <label for="display-name" class="block text-xs font-semibold text-gray-500 uppercase tracking-wider mb-2">Display Name</label>
                   <input
                     id="display-name"
                     type="text"
                     bind:value={editForm.display_name}
                     placeholder="Your display name"
-                    class="w-full px-4 py-3 border border-surface-200 rounded-xl text-sm input-focus outline-none font-medium bg-white"
+                    class="w-full px-4 py-3 border border-gray-200 rounded-xl text-sm input-focus outline-none font-medium bg-white"
                   />
                 </div>
                 <div>
-                  <label for="email" class="block text-xs font-semibold text-surface-500 uppercase tracking-wider mb-2">Email</label>
+                  <label for="email" class="block text-xs font-semibold text-gray-500 uppercase tracking-wider mb-2">Email</label>
                   <input
                     id="email"
                     type="email"
                     bind:value={editForm.email}
                     placeholder="email@example.com"
-                    class="w-full px-4 py-3 border border-surface-200 rounded-xl text-sm input-focus outline-none font-medium bg-white"
+                    class="w-full px-4 py-3 border border-gray-200 rounded-xl text-sm input-focus outline-none font-medium bg-white"
                   />
                 </div>
                 <div>
-                  <label for="avatar-url" class="block text-xs font-semibold text-surface-500 uppercase tracking-wider mb-2">Avatar URL</label>
+                  <label for="avatar-url" class="block text-xs font-semibold text-gray-500 uppercase tracking-wider mb-2">Avatar URL</label>
                   <input
                     id="avatar-url"
                     type="url"
                     bind:value={editForm.avatar_url}
                     placeholder="https://example.com/avatar.png"
-                    class="w-full px-4 py-3 border border-surface-200 rounded-xl text-sm input-focus outline-none font-medium bg-white"
+                    class="w-full px-4 py-3 border border-gray-200 rounded-xl text-sm input-focus outline-none font-medium bg-white"
                   />
                 </div>
                 <div class="flex gap-3 justify-end pt-2">
                   <button
                     on:click={() => editing = false}
-                    class="px-4 py-2.5 text-surface-500 hover:text-surface-800 font-semibold text-sm transition-all rounded-lg hover:bg-surface-50"
+                    class="px-4 py-2.5 text-gray-500 hover:text-gray-800 font-semibold text-sm transition-all rounded-lg hover:bg-gray-50"
                   >
                     Cancel
                   </button>
@@ -230,25 +230,25 @@
                   {/if}
                   <div class="flex-1">
                     <div class="flex items-center gap-3 mb-1">
-                      <h3 class="text-surface-800 font-bold text-lg">{user.display_name || user.username}</h3>
+                      <h3 class="text-gray-800 font-bold text-lg">{user.display_name || user.username}</h3>
                       <span class="px-2 py-0.5 rounded-full text-xs font-medium {getTypeColor(user.identity_type)}">
                         {user.identity_type}
                       </span>
                     </div>
-                    <p class="text-surface-400 text-sm font-mono">@{user.username}</p>
+                    <p class="text-gray-400 text-sm font-mono">@{user.username}</p>
                     {#if user.email}
-                      <p class="text-surface-400 text-sm mt-1">{user.email}</p>
+                      <p class="text-gray-400 text-sm mt-1">{user.email}</p>
                     {/if}
                   </div>
                 </div>
-                <div class="grid grid-cols-2 gap-4 pt-4 border-t border-surface-100">
+                <div class="grid grid-cols-2 gap-4 pt-4 border-t border-gray-100">
                   <div>
-                    <p class="text-surface-400 text-xs font-semibold uppercase tracking-wider mb-1">User ID</p>
-                    <p class="text-surface-600 text-sm font-mono">{user.id}</p>
+                    <p class="text-gray-400 text-xs font-semibold uppercase tracking-wider mb-1">User ID</p>
+                    <p class="text-gray-600 text-sm font-mono">{user.id}</p>
                   </div>
                   <div>
-                    <p class="text-surface-400 text-xs font-semibold uppercase tracking-wider mb-1">Created</p>
-                    <p class="text-surface-600 text-sm">{new Date(user.created_at).toLocaleDateString()}</p>
+                    <p class="text-gray-400 text-xs font-semibold uppercase tracking-wider mb-1">Created</p>
+                    <p class="text-gray-600 text-sm">{new Date(user.created_at).toLocaleDateString()}</p>
                   </div>
                 </div>
               </div>
@@ -256,15 +256,15 @@
           </div>
         </div>
 
-        <div class="gradient-card-brand-light rounded-2xl border border-brand-200/60 shadow-card">
-          <div class="px-6 py-5 border-b border-brand-200/60 flex items-center justify-between">
-            <h2 class="font-semibold text-surface-800 text-sm">Security</h2>
+        <div class="bg-white rounded-2xl border border-gray-200 shadow-card">
+          <div class="px-6 py-5 border-b border-gray-200 flex items-center justify-between">
+            <h2 class="font-semibold text-gray-800 text-sm">Security</h2>
           </div>
           <div class="p-6">
             <div class="flex items-center justify-between">
               <div>
-                <p class="text-surface-800 font-semibold text-sm">Password</p>
-                <p class="text-surface-400 text-xs mt-0.5">Last changed: never</p>
+                <p class="text-gray-800 font-semibold text-sm">Password</p>
+                <p class="text-gray-400 text-xs mt-0.5">Last changed: never</p>
               </div>
               <button
                 on:click={() => { showPasswordModal = true; newPassword = ''; confirmPassword = ''; }}
@@ -278,26 +278,26 @@
       </div>
 
       <div class="space-y-6">
-        <div class="gradient-card-green rounded-2xl border border-emerald-200/60 shadow-card">
+        <div class="bg-white rounded-2xl border border-gray-200 shadow-card">
           <div class="px-6 py-5 border-b border-emerald-100/60">
-            <h2 class="font-semibold text-surface-800 text-sm">My Organizations ({userOrgs.length})</h2>
+            <h2 class="font-semibold text-gray-800 text-sm">My Organizations ({userOrgs.length})</h2>
           </div>
           <div class="p-4">
             {#if userOrgs.length === 0}
-              <p class="text-surface-400 text-sm text-center py-4">No organizations yet</p>
+              <p class="text-gray-400 text-sm text-center py-4">No organizations yet</p>
             {:else}
               <div class="space-y-3">
                 {#each userOrgs as org (org.id)}
                   <a
                     href={"/organizations/" + org.id}
-                    class="flex items-center gap-3 p-3 rounded-xl hover:bg-surface-50 transition-all group"
+                    class="flex items-center gap-3 p-3 rounded-xl hover:bg-gray-50 transition-all group"
                   >
-                    <div class="w-9 h-9 rounded-xl bg-gradient-to-br from-emerald-500 to-teal-600 flex items-center justify-center text-white text-xs font-bold shadow-glow flex-shrink-0 group-hover:scale-105 transition-transform">
+                    <div class="w-9 h-9 rounded-xl bg-blue-600 flex items-center justify-center text-white text-xs font-bold shadow-glow flex-shrink-0 group-hover:scale-105 transition-transform">
                       {org.name[0]?.toUpperCase() || '?'}
                     </div>
                     <div class="flex-1 min-w-0">
-                      <p class="text-surface-800 font-semibold text-sm truncate">{org.name}</p>
-                      <p class="text-surface-400 text-xs truncate">{org.slug || '—'}</p>
+                      <p class="text-gray-800 font-semibold text-sm truncate">{org.name}</p>
+                      <p class="text-gray-400 text-xs truncate">{org.slug || '—'}</p>
                     </div>
                     <span class="px-2 py-1 rounded-full text-xs font-medium {getRoleColor(org.role)}">
                       {org.role}
@@ -314,34 +314,34 @@
 </div>
 
 {#if showPasswordModal}
-<div class="fixed inset-0 bg-surface-900/50 backdrop-blur-sm flex items-center justify-center z-50 modal-overlay">
-  <div class="bg-sky-50 rounded-2xl p-6 w-full max-w-md shadow-elevated-lg border border-indigo-200 modal-content">
-    <h2 class="text-lg font-bold text-surface-800 mb-5">Change Password</h2>
+<div class="fixed inset-0 bg-black/40 flex items-center justify-center z-50 modal-overlay">
+  <div class="bg-white rounded-2xl p-6 w-full max-w-md shadow-elevated-lg border border-gray-200 modal-content">
+    <h2 class="text-lg font-bold text-gray-800 mb-5">Change Password</h2>
     <div class="space-y-4">
       <div>
-        <label for="new-password" class="block text-xs font-semibold text-surface-500 uppercase tracking-wider mb-2">New Password</label>
+        <label for="new-password" class="block text-xs font-semibold text-gray-500 uppercase tracking-wider mb-2">New Password</label>
         <input
           id="new-password"
           type="password"
           bind:value={newPassword}
           placeholder="At least 6 characters"
-          class="w-full px-4 py-3 border border-surface-200 rounded-xl text-sm input-focus outline-none font-medium bg-white"
+          class="w-full px-4 py-3 border border-gray-200 rounded-xl text-sm input-focus outline-none font-medium bg-white"
         />
       </div>
       <div>
-        <label for="confirm-password" class="block text-xs font-semibold text-surface-500 uppercase tracking-wider mb-2">Confirm Password</label>
+        <label for="confirm-password" class="block text-xs font-semibold text-gray-500 uppercase tracking-wider mb-2">Confirm Password</label>
         <input
           id="confirm-password"
           type="password"
           bind:value={confirmPassword}
           placeholder="Re-enter password"
-          class="w-full px-4 py-3 border border-surface-200 rounded-xl text-sm input-focus outline-none font-medium bg-white"
+          class="w-full px-4 py-3 border border-gray-200 rounded-xl text-sm input-focus outline-none font-medium bg-white"
         />
       </div>
       <div class="flex gap-3 justify-end pt-1">
         <button
           on:click={() => { showPasswordModal = false; newPassword = ''; confirmPassword = ''; }}
-          class="px-4 py-2.5 text-surface-500 hover:text-surface-800 font-semibold text-sm transition-all rounded-lg hover:bg-surface-50"
+          class="px-4 py-2.5 text-gray-500 hover:text-gray-800 font-semibold text-sm transition-all rounded-lg hover:bg-gray-50"
         >
           Cancel
         </button>

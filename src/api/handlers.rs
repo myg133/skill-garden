@@ -910,16 +910,82 @@ pub async fn execute_tool_handler(
     AgentContext { subject, .. }: AgentContext,
     Json(body): Json<crate::api::models::ExecuteToolBody>,
 ) -> Result<impl IntoResponse, ApiError> {
+    // Ensure the org tool exists and is approved before execution
+    let org_id_uuid = Uuid::parse_str(&body.org_id)
+        .map_err(|_| ApiError::BadRequest("Invalid org_id".to_string()))?;
+    let tool = state
+        .org_tool
+        .get_tool_by_tool_id(org_id_uuid, &body.tool_id)
+        .await
+        .map_err(|e| ApiError::InternalError(e.to_string()))?;
+    let tool = match tool {
+        Some(t) if t.status == "approved" => t,
+        Some(_) => {
+            return Err(ApiError::Forbidden(
+                "Tool must be approved before execution".to_string(),
+            ));
+        }
+        None => {
+            return Err(ApiError::NotFound(format!(
+                "Tool {} not found in organization {}",
+                body.tool_id, body.org_id
+            )));
+        }
+    };
+
+    // Read defaults from stored implementation config; request body can override
+    let impl_docker = tool
+        .implementation
+        .get("docker_image")
+        .and_then(|v| v.as_str())
+        .map(|s| s.to_string());
+    let impl_timeout = tool
+        .implementation
+        .get("timeout_seconds")
+        .and_then(|v| v.as_u64());
+    let impl_cmd = tool
+        .implementation
+        .get("cmd")
+        .and_then(|v| v.as_array())
+        .map(|arr| {
+            arr.iter()
+                .filter_map(|v| v.as_str().map(|s| s.to_string()))
+                .collect::<Vec<String>>()
+        });
+
     let request = crate::services::ToolExecutionRequest {
         tool_id: body.tool_id,
         org_id: body.org_id,
         parameters: body.parameters,
-        timeout_seconds: body.timeout_seconds.unwrap_or(30),
+        timeout_seconds: body.timeout_seconds.or(impl_timeout).unwrap_or(30),
+        docker_image: body.docker_image.or(impl_docker),
+        session_id: None,
+        cmd: impl_cmd,
     };
 
     let result = state
         .sandbox
         .execute_org_tool(request)
+        .await
+        .map_err(|e| ApiError::InternalError(e.to_string()))?;
+
+    Ok((
+        StatusCode::OK,
+        Json(serde_json::json!({
+            "subject": subject,
+            "result": result
+        })),
+    ))
+}
+
+pub async fn execute_platform_tool_handler(
+    State(state): State<ApiState>,
+    AgentContext { subject, .. }: AgentContext,
+    Json(body): Json<crate::api::models::ExecutePlatformToolBody>,
+) -> Result<impl IntoResponse, ApiError> {
+    let result = state
+        .sandbox
+        .execute_platform_tool(&body.tool_name, body.parameters, body.timeout_seconds)
         .await
         .map_err(|e| ApiError::InternalError(e.to_string()))?;
 
@@ -946,6 +1012,60 @@ pub async fn remove_sandbox_handler(
         .map_err(|e| ApiError::InternalError(e.to_string()))?;
 
     Ok((StatusCode::OK, Json(serde_json::json!({ "removed": key }))))
+}
+
+/// Release a sandbox by org_id + tool_id (non-admin, any authenticated user).
+pub async fn release_sandbox_handler(
+    State(state): State<ApiState>,
+    AgentContext { .. }: AgentContext,
+    Json(body): Json<crate::api::models::ReleaseSandboxBody>,
+) -> Result<impl IntoResponse, ApiError> {
+    let released = state
+        .sandbox
+        .release_sandbox(&body.org_id, &body.tool_id)
+        .await
+        .map_err(|e| ApiError::InternalError(e.to_string()))?;
+
+    Ok((
+        StatusCode::OK,
+        Json(serde_json::json!({
+            "released": released,
+            "org_id": body.org_id,
+            "tool_id": body.tool_id
+        })),
+    ))
+}
+
+/// List sandbox status (authenticated users, not admin-only).
+pub async fn list_sandbox_status_handler(
+    State(state): State<ApiState>,
+    AgentContext { .. }: AgentContext,
+) -> Result<impl IntoResponse, ApiError> {
+    let now = chrono::Utc::now().timestamp();
+    let sandboxes: Vec<crate::api::models::SandboxInfoItem> = state
+        .sandbox
+        .list_active_sandboxes()
+        .into_iter()
+        .map(|info| {
+            let idle = now - info.last_used.timestamp();
+            crate::api::models::SandboxInfoItem {
+                key: info.id,
+                container_id: info.container_id,
+                image: info.image,
+                status: info.status.to_string(),
+                idle_seconds: idle,
+                created_at: info.created_at.to_rfc3339(),
+            }
+        })
+        .collect();
+
+    let status = crate::api::models::SandboxStatusResponse {
+        total: sandboxes.len(),
+        max: state.sandbox.max_containers(),
+        containers: sandboxes,
+    };
+
+    Ok((StatusCode::OK, Json(serde_json::json!(status))))
 }
 
 /// Git Proxy Admin API Handlers
@@ -1068,6 +1188,7 @@ pub async fn get_git_proxy_health_handler(
 
 pub async fn list_skills_handler(
     State(state): State<ApiState>,
+    AgentContext { subject: _, .. }: AgentContext,
     Query(query): Query<crate::api::models::ListSkillsQuery>,
 ) -> Result<impl IntoResponse, ApiError> {
     let page = query.page.unwrap_or(1).max(1);
@@ -1109,15 +1230,16 @@ pub async fn list_skills_handler(
 
 pub async fn get_skill_handler(
     State(state): State<ApiState>,
+    AgentContext { subject: _, .. }: AgentContext,
     Path(skill_id): Path<String>,
 ) -> Result<impl IntoResponse, ApiError> {
     let skill = state
         .registry
         .get_skill(&skill_id)
         .await
-        .map_err(|_| ApiError::NotFound(format!("Skill {} not found", skill_id)))?;
+        .map_err(|e| ApiError::NotFound(format!("Skill {} not found: {}", skill_id, e)))?;
 
-    let stats = state.evaluator.get_stats(&skill_id).ok();
+    let stats = state.evaluator.get_stats(&skill_id).await.ok();
 
     let detail = crate::models::SkillDetail {
         metadata: (&skill).into(),
@@ -1220,14 +1342,78 @@ pub async fn delete_skill_handler(
 
 pub async fn get_skill_stats_handler(
     State(state): State<ApiState>,
+    AgentContext { subject: _, .. }: AgentContext,
     Path(skill_id): Path<String>,
 ) -> Result<impl IntoResponse, ApiError> {
+    // 先确认 skill 存在
+    state
+        .registry
+        .get_skill(&skill_id)
+        .await
+        .map_err(|_| ApiError::NotFound(format!("Skill {} not found", skill_id)))?;
+
+    // 获取统计；如果没有评价数据则返回默认值
     let stats = state
         .evaluator
         .get_stats(&skill_id)
-        .map_err(|_| ApiError::NotFound(format!("Skill {} not found or has no stats", skill_id)))?;
+        .await
+        .unwrap_or_else(|_| crate::models::evaluation::SkillStats {
+            skill_id: skill_id.clone(),
+            success_rate: 0.0,
+            avg_duration_ms: 0,
+            total_evaluations: 0,
+            unique_agents: 0,
+            confidence: 0.0,
+            tags: vec![],
+            local_version: None,
+            latest_version: "1.0.0".to_string(),
+            upgrade_available: false,
+        });
 
     Ok((StatusCode::OK, Json(stats)))
+}
+
+/// GET /api/v1/skills/:id/files — 列出 Skill 包中的所有文件
+pub async fn list_skill_files_handler(
+    State(state): State<ApiState>,
+    AgentContext { subject: _, .. }: AgentContext,
+    Path(skill_id): Path<String>,
+) -> Result<impl IntoResponse, ApiError> {
+    let skill = state
+        .registry
+        .get_skill(&skill_id)
+        .await
+        .map_err(|e| ApiError::NotFound(format!("Skill {} not found: {}", skill_id, e)))?;
+
+    let files = state
+        .skill_git
+        .list_files_at_version(&skill.name, &skill.version)
+        .unwrap_or_default();
+
+    Ok((StatusCode::OK, Json(serde_json::json!({ "files": files }))))
+}
+
+/// GET /api/v1/skills/:id/files/*path — 获取 Skill 包中某个文件的内容
+pub async fn get_skill_file_handler(
+    State(state): State<ApiState>,
+    AgentContext { subject: _, .. }: AgentContext,
+    axum::extract::Path((skill_id, file_path)): axum::extract::Path<(String, String)>,
+) -> Result<impl IntoResponse, ApiError> {
+    let skill = state
+        .registry
+        .get_skill(&skill_id)
+        .await
+        .map_err(|e| ApiError::NotFound(format!("Skill {} not found: {}", skill_id, e)))?;
+
+    let content = state
+        .skill_git
+        .get_file_at_version(&skill.name, &skill.version, &file_path)
+        .map_err(|e| ApiError::NotFound(format!("File '{}' not found: {}", file_path, e)))?;
+
+    Ok((
+        StatusCode::OK,
+        Json(serde_json::json!({ "path": file_path, "content": content })),
+    ))
 }
 
 pub async fn create_evaluation_handler(
@@ -1338,6 +1524,76 @@ pub async fn get_token_handler(
     Ok((StatusCode::OK, Json(response)))
 }
 
+/// 列出当前用户注册的所有 Agent
+pub async fn list_my_agents_handler(
+    State(state): State<ApiState>,
+    agent_context: AgentContext,
+) -> Result<impl IntoResponse, ApiError> {
+    let identity_id = agent_context.require_identity()?;
+
+    let agents = state
+        .agent_repo
+        .list_by_identity(identity_id)
+        .await
+        .map_err(|e| ApiError::InternalError(format!("Agent listing error: {}", e)))?;
+
+    let items: Vec<crate::api::models::AgentListItem> = agents
+        .into_iter()
+        .map(|a| crate::api::models::AgentListItem {
+            agent_id: a.agent_id,
+            agent_name: a.agent_name,
+            agent_description: a.agent_description,
+            status: a.status,
+            created_at: a.created_at.to_string().into(),
+            last_used_at: a.last_used_at.map(|t| t.to_string()),
+        })
+        .collect();
+
+    Ok((StatusCode::OK, Json(serde_json::json!({ "data": items }))))
+}
+
+/// 撤销一个 Agent Token
+pub async fn revoke_my_agent_handler(
+    State(state): State<ApiState>,
+    agent_context: AgentContext,
+    Path(agent_id_str): Path<String>,
+) -> Result<impl IntoResponse, ApiError> {
+    let identity_id = agent_context.require_identity()?;
+
+    let agent_id = uuid::Uuid::parse_str(&agent_id_str)
+        .map_err(|_| ApiError::BadRequest("Invalid agent ID format".to_string()))?;
+
+    // 查找 agent 并验证归属
+    let agent = state
+        .agent_repo
+        .find_by_uuid(agent_id)
+        .await
+        .map_err(|e| ApiError::InternalError(format!("Agent lookup error: {}", e)))?
+        .ok_or_else(|| ApiError::NotFound("Agent not found".to_string()))?;
+
+    if agent.identity_id != Some(identity_id) {
+        return Err(ApiError::Forbidden(
+            "You can only revoke your own agents".to_string(),
+        ));
+    }
+
+    state
+        .agent_repo
+        .revoke(agent_id)
+        .await
+        .map_err(|e| ApiError::InternalError(format!("Agent revoke error: {}", e)))?;
+
+    info!(
+        "Agent revoked: agent_id={}, identity_id={}",
+        agent_id, identity_id
+    );
+
+    Ok((
+        StatusCode::OK,
+        Json(serde_json::json!({ "message": "Agent revoked successfully" })),
+    ))
+}
+
 /// Admin login handler for human administrators
 pub async fn admin_login_handler(
     State(state): State<ApiState>,
@@ -1378,7 +1634,7 @@ pub async fn admin_login_handler(
         ));
     }
 
-    let token = crate::api::generate_token(&user.id.to_string(), &["admin"], &[])
+    let token = crate::api::jwt::generate_identity_token(user.id, &["admin"], &[])
         .map_err(|e| ApiError::Unauthorized(format!("{:?}", e)))?;
 
     tracing::info!("Admin login success for username: {}", body.username);
@@ -1424,7 +1680,7 @@ pub async fn user_login_handler(
         .map_err(|e| ApiError::Unauthorized(format!("Failed to get user: {}", e)))?
         .ok_or_else(|| ApiError::Unauthorized("User not found".to_string()))?;
 
-    let token = crate::api::generate_token(&user.id.to_string(), &["user"], &[])
+    let token = crate::api::jwt::generate_identity_token(user.id, &["user"], &[])
         .map_err(|e| ApiError::Unauthorized(format!("{:?}", e)))?;
 
     Ok((
@@ -1485,7 +1741,7 @@ pub async fn user_register_handler(
         .await
         .map_err(|e| ApiError::BadRequest(format!("Failed to create user: {}", e)))?;
 
-    let token = crate::api::generate_token(&user.id.to_string(), &["user"], &[])
+    let token = crate::api::jwt::generate_identity_token(user.id, &["user"], &[])
         .map_err(|e| ApiError::InternalError(format!("{:?}", e)))?;
 
     Ok((
@@ -1721,6 +1977,7 @@ pub async fn get_user_orgs_handler(
 
 pub async fn get_user_by_username_handler(
     State(state): State<ApiState>,
+    AgentContext { subject: _, .. }: AgentContext,
     Path(username): Path<String>,
 ) -> Result<impl IntoResponse, ApiError> {
     let user = state
@@ -1781,10 +2038,14 @@ pub async fn list_audit_logs_handler(
         .map(|log| crate::api::models::AuditLogResponse {
             id: log.id.to_string(),
             agent_id: log.agent_id,
+            identity_name: log.identity_name,
+            identity_type: log.identity_type,
             action: log.action,
             resource_type: log.resource_type,
             resource_id: log.resource_id,
             details: log.details,
+            ip_address: log.ip_address,
+            user_agent: log.user_agent,
             timestamp: log.timestamp.to_rfc3339(),
         })
         .collect();
@@ -1835,10 +2096,14 @@ pub async fn list_my_audit_logs_handler(
         .map(|log| crate::api::models::AuditLogResponse {
             id: log.id.to_string(),
             agent_id: log.agent_id,
+            identity_name: log.identity_name,
+            identity_type: log.identity_type,
             action: log.action,
             resource_type: log.resource_type,
             resource_id: log.resource_id,
             details: log.details,
+            ip_address: log.ip_address,
+            user_agent: log.user_agent,
             timestamp: log.timestamp.to_rfc3339(),
         })
         .collect();
@@ -2186,6 +2451,7 @@ pub async fn reject_org_skill_handler(
 
 pub async fn marketplace_handler(
     State(state): State<ApiState>,
+    AgentContext { subject: _, .. }: AgentContext,
     Query(query): Query<crate::api::models::MarketplaceQuery>,
 ) -> Result<impl IntoResponse, ApiError> {
     use crate::db::repositories::skill::SkillRepository;
@@ -2205,6 +2471,7 @@ pub async fn marketplace_handler(
 
 pub async fn install_skill_handler(
     State(state): State<ApiState>,
+    AgentContext { subject: _, .. }: AgentContext,
     Path(skill_id): Path<String>,
 ) -> Result<impl IntoResponse, ApiError> {
     use crate::db::repositories::skill::SkillRepository;
@@ -2234,6 +2501,7 @@ pub async fn install_skill_handler(
 
 pub async fn list_skill_groups_handler(
     State(state): State<ApiState>,
+    AgentContext { subject: _, .. }: AgentContext,
     Path(skill_id): Path<String>,
 ) -> Result<impl IntoResponse, ApiError> {
     use crate::db::repositories::group_skill::GroupSkillRepository;
@@ -2345,6 +2613,7 @@ use uuid::Uuid;
 
 pub async fn create_org_handler(
     State(state): State<ApiState>,
+    AgentContext { subject: _, .. }: AgentContext,
     Json(body): Json<crate::api::models::CreateOrgBody>,
 ) -> Result<impl IntoResponse, ApiError> {
     let org = state
@@ -2367,6 +2636,7 @@ pub async fn create_org_handler(
 
 pub async fn get_org_handler(
     State(state): State<ApiState>,
+    AgentContext { subject: _, .. }: AgentContext,
     Path(org_id): Path<Uuid>,
 ) -> Result<impl IntoResponse, ApiError> {
     let org = state
@@ -2380,6 +2650,7 @@ pub async fn get_org_handler(
 
 pub async fn list_orgs_handler(
     State(state): State<ApiState>,
+    AgentContext { subject: _, .. }: AgentContext,
     Query(query): Query<crate::api::models::ListOrgsQuery>,
 ) -> Result<impl IntoResponse, ApiError> {
     let limit = query.limit.unwrap_or(20).min(100);
@@ -2404,6 +2675,7 @@ pub async fn list_orgs_handler(
 
 pub async fn update_org_handler(
     State(state): State<ApiState>,
+    AgentContext { subject: _, .. }: AgentContext,
     Path(org_id): Path<Uuid>,
     Json(body): Json<crate::api::models::UpdateOrgBody>,
 ) -> Result<impl IntoResponse, ApiError> {
@@ -2418,6 +2690,7 @@ pub async fn update_org_handler(
 
 pub async fn delete_org_handler(
     State(state): State<ApiState>,
+    AgentContext { subject: _, .. }: AgentContext,
     Path(org_id): Path<Uuid>,
 ) -> Result<impl IntoResponse, ApiError> {
     state
@@ -2565,6 +2838,7 @@ pub async fn get_org_stats_handler(
 
 pub async fn get_org_by_slug_handler(
     State(state): State<ApiState>,
+    AgentContext { subject: _, .. }: AgentContext,
     Path(slug): Path<String>,
 ) -> Result<impl IntoResponse, ApiError> {
     use crate::db::repositories::organization::OrganizationRepository;
@@ -2753,6 +3027,7 @@ pub async fn invite_org_member_by_id_handler(
 
 pub async fn update_org_member_handler(
     State(state): State<ApiState>,
+    AgentContext { subject: _, .. }: AgentContext,
     Path((slug, username)): Path<(String, String)>,
     Json(body): Json<crate::api::models::UpdateOrgMemberBody>,
 ) -> Result<impl IntoResponse, ApiError> {
@@ -2791,6 +3066,7 @@ pub async fn update_org_member_handler(
 
 pub async fn remove_org_member_by_slug_handler(
     State(state): State<ApiState>,
+    AgentContext { subject: _, .. }: AgentContext,
     Path((slug, username)): Path<(String, String)>,
 ) -> Result<impl IntoResponse, ApiError> {
     use crate::db::repositories::org_membership::OrgMembershipRepository;
@@ -2827,6 +3103,7 @@ pub async fn remove_org_member_by_slug_handler(
 
 pub async fn update_org_member_by_id_handler(
     State(state): State<ApiState>,
+    AgentContext { subject: _, .. }: AgentContext,
     Path((org_id, username)): Path<(uuid::Uuid, String)>,
     Json(body): Json<crate::api::models::UpdateOrgMemberBody>,
 ) -> Result<impl IntoResponse, ApiError> {
@@ -2865,6 +3142,7 @@ pub async fn update_org_member_by_id_handler(
 
 pub async fn remove_org_member_by_id_handler(
     State(state): State<ApiState>,
+    AgentContext { subject: _, .. }: AgentContext,
     Path((org_id, username)): Path<(uuid::Uuid, String)>,
 ) -> Result<impl IntoResponse, ApiError> {
     use crate::db::repositories::org_membership::OrgMembershipRepository;
@@ -2901,6 +3179,7 @@ pub async fn remove_org_member_by_id_handler(
 
 pub async fn list_org_members_by_slug_handler(
     State(state): State<ApiState>,
+    AgentContext { subject: _, .. }: AgentContext,
     Path(slug): Path<String>,
 ) -> Result<impl IntoResponse, ApiError> {
     use crate::db::repositories::org_membership::OrgMembershipRepository;
@@ -2925,6 +3204,7 @@ pub async fn list_org_members_by_slug_handler(
 
 pub async fn list_org_members_by_id_handler(
     State(state): State<ApiState>,
+    AgentContext { subject: _, .. }: AgentContext,
     Path(org_id): Path<uuid::Uuid>,
 ) -> Result<impl IntoResponse, ApiError> {
     use crate::db::repositories::org_membership::OrgMembershipRepository;
@@ -2949,6 +3229,7 @@ pub async fn list_org_members_by_id_handler(
 
 pub async fn list_org_skills_handler(
     State(state): State<ApiState>,
+    AgentContext { subject: _, .. }: AgentContext,
     Path(slug): Path<String>,
 ) -> Result<impl IntoResponse, ApiError> {
     use crate::db::repositories::organization::OrganizationRepository;
@@ -2973,6 +3254,7 @@ pub async fn list_org_skills_handler(
 
 pub async fn list_org_reviews_handler(
     State(state): State<ApiState>,
+    AgentContext { subject: _, .. }: AgentContext,
     Path(slug): Path<String>,
 ) -> Result<impl IntoResponse, ApiError> {
     use crate::db::repositories::organization::OrganizationRepository;
@@ -3002,24 +3284,9 @@ pub async fn list_org_reviews_handler(
 
 /// Session handlers
 
-pub async fn create_session_handler(
-    State(state): State<ApiState>,
-    Json(body): Json<crate::api::models::CreateSessionBody>,
-) -> Result<impl IntoResponse, ApiError> {
-    let session = state
-        .session
-        .create_session(body.agent_id, body.org_id)
-        .await
-        .map_err(|e| ApiError::BadRequest(e.to_string()))?;
-
-    Ok((
-        StatusCode::CREATED,
-        Json(serde_json::to_value(session).unwrap()),
-    ))
-}
-
 pub async fn get_session_handler(
     State(state): State<ApiState>,
+    AgentContext { subject: _, .. }: AgentContext,
     Path(session_id): Path<Uuid>,
 ) -> Result<impl IntoResponse, ApiError> {
     let session = state
@@ -3029,7 +3296,10 @@ pub async fn get_session_handler(
         .map_err(|e| ApiError::InternalError(e.to_string()))?;
 
     match session {
-        Some(s) => Ok((StatusCode::OK, Json(serde_json::to_value(s).unwrap()))),
+        Some(s) => {
+            let enriched = enrich_session_with_meta(&state, s).await?;
+            Ok((StatusCode::OK, Json(serde_json::to_value(enriched).unwrap())))
+        }
         None => Err(ApiError::NotFound(format!(
             "Session {} not found",
             session_id
@@ -3039,6 +3309,7 @@ pub async fn get_session_handler(
 
 pub async fn list_sessions_handler(
     State(state): State<ApiState>,
+    AgentContext { subject: _, .. }: AgentContext,
     Query(query): Query<crate::api::models::ListSessionsQuery>,
 ) -> Result<impl IntoResponse, ApiError> {
     let limit = query.limit.unwrap_or(100);
@@ -3051,14 +3322,26 @@ pub async fn list_sessions_handler(
         .await
         .map_err(|e| ApiError::InternalError(e.to_string()))?;
 
+    // Enrich each session with identity & org names (concurrent lookups per session)
+    let enriched: Vec<crate::models::session::SessionWithMeta> =
+        futures_util::future::join_all(
+            sessions
+                .into_iter()
+                .map(|s| enrich_session_with_meta(&state, s)),
+        )
+        .await
+        .into_iter()
+        .collect::<Result<Vec<_>, _>>()?;
+
     Ok((
         StatusCode::OK,
-        Json(serde_json::json!({ "data": sessions })),
+        Json(serde_json::json!({ "data": enriched })),
     ))
 }
 
 pub async fn end_session_handler(
     State(state): State<ApiState>,
+    AgentContext { subject: _, .. }: AgentContext,
     Path(session_id): Path<Uuid>,
 ) -> Result<impl IntoResponse, ApiError> {
     state
@@ -3075,6 +3358,7 @@ pub async fn end_session_handler(
 
 pub async fn session_declare_handler(
     State(state): State<ApiState>,
+    AgentContext { subject: _, .. }: AgentContext,
     Path(session_id): Path<Uuid>,
     Json(body): Json<crate::api::models::SessionDeclareBody>,
 ) -> Result<impl IntoResponse, ApiError> {
@@ -3087,10 +3371,49 @@ pub async fn session_declare_handler(
     Ok((StatusCode::OK, Json(serde_json::to_value(router).unwrap())))
 }
 
+/// Enrich a repo-level Session with identity and org names for admin display.
+async fn enrich_session_with_meta(
+    state: &AppRouterState,
+    session: crate::db::repositories::session::Session,
+) -> Result<crate::models::session::SessionWithMeta, ApiError> {
+    let (identity_name, identity_display_name) = state
+        .identity
+        .get(session.identity_id)
+        .await
+        .ok()
+        .flatten()
+        .map(|id| (id.name.clone(), id.display_name.clone()))
+        .unwrap_or_else(|| (session.identity_id.to_string(), None));
+
+    let (org_name, tenant_name) = state
+        .organization
+        .get_org(session.org_id)
+        .await
+        .map(|org| (org.name, org.tenant_name))
+        .unwrap_or_else(|_| (session.org_id.to_string(), None));
+
+    Ok(crate::models::session::SessionWithMeta {
+        id: session.id,
+        identity_id: session.identity_id,
+        identity_name,
+        identity_display_name,
+        org_id: session.org_id,
+        org_name,
+        tenant_name,
+        status: session.status,
+        tool_router: session.tool_router,
+        capabilities: session.capabilities,
+        created_at: session.created_at,
+        last_active_at: session.last_active_at,
+        ended_at: session.ended_at,
+    })
+}
+
 /// Org Tool handlers
 
 pub async fn register_org_tool_handler(
     State(state): State<ApiState>,
+    AgentContext { subject: _, .. }: AgentContext,
     Json(body): Json<crate::api::models::RegisterOrgToolBody>,
 ) -> Result<impl IntoResponse, ApiError> {
     let tool = state
@@ -3114,6 +3437,7 @@ pub async fn register_org_tool_handler(
 
 pub async fn list_org_tools_handler(
     State(state): State<ApiState>,
+    AgentContext { subject: _, .. }: AgentContext,
     Path(id): Path<Uuid>,
     Query(query): Query<crate::api::models::ListOrgToolsQuery>,
 ) -> Result<impl IntoResponse, ApiError> {
@@ -3135,6 +3459,7 @@ pub async fn list_org_tools_handler(
 
 pub async fn list_all_org_tools_handler(
     State(state): State<ApiState>,
+    AgentContext { subject: _, .. }: AgentContext,
 ) -> Result<impl IntoResponse, ApiError> {
     let tools = state
         .org_tool
@@ -3147,6 +3472,7 @@ pub async fn list_all_org_tools_handler(
 
 pub async fn approve_org_tool_handler(
     State(state): State<ApiState>,
+    AgentContext { subject: _, .. }: AgentContext,
     Path(tool_id): Path<Uuid>,
 ) -> Result<impl IntoResponse, ApiError> {
     state
@@ -3165,6 +3491,7 @@ pub async fn approve_org_tool_handler(
 
 pub async fn list_group_members_handler(
     State(state): State<ApiState>,
+    AgentContext { subject: _, .. }: AgentContext,
     Path(group_id): Path<Uuid>,
 ) -> Result<impl IntoResponse, ApiError> {
     use crate::db::repositories::group::GroupRepository;
@@ -3355,6 +3682,7 @@ pub async fn create_org_group_handler(
 
 pub async fn list_org_groups_handler(
     State(state): State<ApiState>,
+    AgentContext { subject: _, .. }: AgentContext,
     Path(slug): Path<String>,
 ) -> Result<impl IntoResponse, ApiError> {
     use crate::db::repositories::organization::OrganizationRepository;
@@ -3377,6 +3705,7 @@ pub async fn list_org_groups_handler(
 
 pub async fn get_org_group_handler(
     State(state): State<ApiState>,
+    AgentContext { subject: _, .. }: AgentContext,
     Path((slug, group_id)): Path<(String, Uuid)>,
 ) -> Result<impl IntoResponse, ApiError> {
     use crate::db::repositories::organization::OrganizationRepository;
@@ -3476,6 +3805,7 @@ pub async fn delete_org_group_handler(
 
 pub async fn list_org_group_members_handler(
     State(state): State<ApiState>,
+    AgentContext { subject: _, .. }: AgentContext,
     Path((slug, group_id)): Path<(String, Uuid)>,
 ) -> Result<impl IntoResponse, ApiError> {
     use crate::db::repositories::group::GroupRepository;
@@ -3606,6 +3936,7 @@ pub async fn remove_org_group_member_handler(
 
 pub async fn list_org_group_skills_handler(
     State(state): State<ApiState>,
+    AgentContext { subject: _, .. }: AgentContext,
     Path((slug, group_id)): Path<(String, Uuid)>,
 ) -> Result<impl IntoResponse, ApiError> {
     use crate::db::repositories::group_skill::GroupSkillRepository;
@@ -3723,6 +4054,7 @@ pub async fn remove_org_group_skill_handler(
 
 pub async fn reject_org_tool_handler(
     State(state): State<ApiState>,
+    AgentContext { subject: _, .. }: AgentContext,
     Path(tool_id): Path<Uuid>,
 ) -> Result<impl IntoResponse, ApiError> {
     state
@@ -3866,8 +4198,8 @@ pub async fn get_admin_status_handler(
 
     let data_dir = std::env::var("AION_HIVE_DATA_DIR").unwrap_or_else(|_| "./data".to_string());
 
-    let skills_dir =
-        std::env::var("AION_HIVE_SKILLS_DIR").unwrap_or_else(|_| "./skills".to_string());
+    let skills_dir = std::env::var("AION_HIVE_SKILLS_DIR")
+        .unwrap_or_else(|_| format!("{}/skills", data_dir));
 
     let response = crate::api::models::AdminStatusResponse {
         version: env!("CARGO_PKG_VERSION").to_string(),
@@ -3887,6 +4219,7 @@ pub async fn get_admin_status_handler(
 
 pub async fn list_group_default_permissions_handler(
     State(state): State<ApiState>,
+    AgentContext { subject: _, .. }: AgentContext,
 ) -> Result<impl IntoResponse, ApiError> {
     use crate::db::repositories::role_permission::RolePermissionRepository;
 
@@ -3918,6 +4251,7 @@ pub async fn list_group_default_permissions_handler(
 
 pub async fn list_group_permissions_handler(
     State(state): State<ApiState>,
+    AgentContext { subject: _, .. }: AgentContext,
     Path(group_id): Path<Uuid>,
 ) -> Result<impl IntoResponse, ApiError> {
     use crate::api::models::GroupPermissionInfo;
@@ -4188,6 +4522,7 @@ pub async fn delete_user_handler_admin(
 
 pub async fn list_evaluations_handler(
     State(state): State<ApiState>,
+    AgentContext { subject: _, .. }: AgentContext,
     Query(query): Query<crate::api::models::ListEvaluationsQuery>,
 ) -> Result<impl IntoResponse, ApiError> {
     let skill_id = match query.skill_id.as_deref() {
@@ -4202,6 +4537,7 @@ pub async fn list_evaluations_handler(
     let evals = state
         .evaluator
         .list_evaluations(skill_id)
+        .await
         .map_err(|e| ApiError::InternalError(e.to_string()))?;
 
     let data: Vec<crate::api::models::EvaluationItemResponse> = evals
@@ -4229,11 +4565,13 @@ pub async fn list_evaluations_handler(
 
 pub async fn get_evaluation_handler(
     State(state): State<ApiState>,
+    AgentContext { subject: _, .. }: AgentContext,
     Path(eval_id): Path<uuid::Uuid>,
 ) -> Result<impl IntoResponse, ApiError> {
     let eval = state
         .evaluator
         .get_evaluation(eval_id)
+        .await
         .map_err(|e| ApiError::InternalError(e.to_string()))?
         .ok_or_else(|| ApiError::NotFound(format!("Evaluation {} not found", eval_id)))?;
 
@@ -4259,6 +4597,7 @@ pub async fn delete_evaluation_handler(
     state
         .evaluator
         .delete_evaluation(eval_id)
+        .await
         .map_err(|e| ApiError::InternalError(e.to_string()))?;
 
     state
@@ -4468,9 +4807,181 @@ pub async fn upload_skill_handler(
     Ok((StatusCode::CREATED, Json(response)))
 }
 
+// --- Skill Upload Preview & Confirm Handlers ---
+
+/// POST /api/v1/skills/upload/preview — 上传 ZIP 仅解压预览，不提交
+pub async fn upload_skill_preview_handler(
+    State(state): State<ApiState>,
+    AgentContext { subject: _, .. }: AgentContext,
+    mut multipart: axum::extract::Multipart,
+) -> Result<impl IntoResponse, ApiError> {
+    let mut zip_data: Option<Vec<u8>> = None;
+
+    while let Ok(Some(field)) = multipart.next_field().await {
+        let name = field.name().unwrap_or("").to_string();
+        if name == "file" {
+            let data = field
+                .bytes()
+                .await
+                .map_err(|e| ApiError::BadRequest(format!("Failed to read file: {}", e)))?;
+            zip_data = Some(data.to_vec());
+        }
+    }
+
+    let zip_data = zip_data
+        .ok_or_else(|| ApiError::BadRequest("ZIP file is required in 'file' field".to_string()))?;
+
+    let preview = state
+        .skill_git
+        .preview_upload(&zip_data)
+        .map_err(|e| ApiError::BadRequest(e.to_string()))?;
+
+    let response = crate::api::models::SkillUploadPreviewResponse {
+        preview_id: preview.preview_id,
+        metadata: crate::api::models::PreviewMetadataResponse {
+            name: preview.metadata.name,
+            description: preview.metadata.description,
+            version: preview.metadata.version.unwrap_or_default(),
+            tags: preview.metadata.tags,
+            dependencies: preview.metadata.dependencies,
+            compatibility: preview.metadata.compatibility,
+        },
+        files: preview
+            .files
+            .into_iter()
+            .map(|f| crate::api::models::PreviewFileResponse {
+                path: f.path,
+                size: f.size,
+            })
+            .collect(),
+        total_files: preview.total_files,
+        total_size: preview.total_size,
+    };
+
+    Ok((StatusCode::OK, Json(response)))
+}
+
+/// GET /api/v1/skills/upload/preview/:preview_id/files/*path — 获取预览中文件内容
+pub async fn get_preview_file_handler(
+    State(state): State<ApiState>,
+    AgentContext { subject: _, .. }: AgentContext,
+    axum::extract::Path((preview_id,)): axum::extract::Path<(String,)>,
+    req: axum::http::Request<axum::body::Body>,
+) -> Result<impl IntoResponse, ApiError> {
+    // Parse file_path from the URL path after /files/
+    let uri_path = req.uri().path().to_string();
+    let file_marker = "/files/";
+    let file_path = match uri_path.find(file_marker) {
+        Some(pos) => {
+            let raw = &uri_path[pos + file_marker.len()..];
+            percent_encoding::percent_decode_str(raw)
+                .decode_utf8()
+                .map_err(|e| ApiError::BadRequest(format!("Invalid file path encoding: {}", e)))?
+                .to_string()
+        }
+        None => {
+            return Err(ApiError::BadRequest(
+                "File path not found in URL".to_string(),
+            ));
+        }
+    };
+
+    if file_path.is_empty() {
+        return Err(ApiError::BadRequest("File path is required".to_string()));
+    }
+
+    let (content, content_type, size) = state
+        .skill_git
+        .get_preview_file(&preview_id, &file_path)
+        .map_err(|e| match e {
+        crate::models::error::AppError::FileNotFound(msg) => ApiError::NotFound(msg),
+        _ => ApiError::BadRequest(e.to_string()),
+    })?;
+
+    let is_binary = content_type == "application/octet-stream";
+    let text_content = if is_binary {
+        format!("[Binary file: {} bytes, not displayable as text]", size)
+    } else {
+        String::from_utf8(content)
+            .unwrap_or_else(|_| format!("[Cannot decode file as UTF-8: {} bytes]", size))
+    };
+
+    let response = crate::api::models::PreviewFileContentResponse {
+        path: file_path,
+        content: text_content,
+        size,
+        is_binary,
+        content_type,
+    };
+
+    Ok((StatusCode::OK, Json(response)))
+}
+
+/// POST /api/v1/skills/upload/preview/:preview_id/confirm — 确认上传，提交 Git + DB
+pub async fn confirm_skill_upload_handler(
+    State(state): State<ApiState>,
+    AgentContext { subject, .. }: AgentContext,
+    axum::extract::Path((preview_id,)): axum::extract::Path<(String,)>,
+    Json(body): Json<crate::api::models::ConfirmUploadBody>,
+) -> Result<impl IntoResponse, ApiError> {
+    let owner_type = body.owner_type.unwrap_or_else(|| "user".to_string());
+    let author_identity_id = body.author_identity_id;
+    let owner_id = body.owner_id;
+
+    let upload_result = state
+        .skill_git
+        .confirm_upload_from_preview(
+            &preview_id,
+            &subject,
+            author_identity_id,
+            &owner_type,
+            owner_id,
+            &state.registry,
+            &state.search,
+            &state.skill_repo,
+            &state.version_repo,
+        )
+        .await
+        .map_err(|e| ApiError::BadRequest(e.to_string()))?;
+
+    // Audit log
+    state
+        .audit_repo
+        .create(crate::db::repositories::audit::NewAuditLog {
+            agent_id: Some(subject.clone()),
+            action: "skill_uploaded".to_string(),
+            resource_type: "skill".to_string(),
+            resource_id: Some(upload_result.skill_id.clone()),
+            details: serde_json::json!({
+                "skill_name": upload_result.skill_name,
+                "version": upload_result.version,
+                "git_commit": upload_result.git_commit,
+                "git_tag": upload_result.git_tag,
+                "is_new_skill": upload_result.is_new_skill,
+            }),
+        })
+        .await
+        .map_err(|e| ApiError::InternalError(e.to_string()))?;
+
+    let response = crate::api::models::SkillUploadResponse {
+        skill_id: upload_result.skill_id,
+        skill_name: upload_result.skill_name,
+        version: upload_result.version,
+        git_commit: upload_result.git_commit,
+        git_tag: upload_result.git_tag,
+        git_repo_name: upload_result.git_repo_name,
+        is_new_skill: upload_result.is_new_skill,
+        files: upload_result.files,
+        message: "Skill uploaded successfully".to_string(),
+    };
+
+    Ok((StatusCode::CREATED, Json(response)))
+}
+
 /// GET /api/v1/skills/:name/versions — list versions for a skill by name
 pub async fn list_skill_versions_handler(
     State(state): State<ApiState>,
+    AgentContext { subject: _, .. }: AgentContext,
     Path(skill_name): Path<String>,
     Query(query): Query<crate::api::models::ListVersionsQuery>,
 ) -> Result<impl IntoResponse, ApiError> {
@@ -4512,6 +5023,7 @@ pub async fn list_skill_versions_handler(
 /// GET /api/v1/skills/:name/versions/diff — diff between two versions
 pub async fn get_skill_version_diff_handler(
     State(state): State<ApiState>,
+    AgentContext { subject: _, .. }: AgentContext,
     Path(skill_name): Path<String>,
     Query(query): Query<crate::api::models::VersionDiffQuery>,
 ) -> Result<impl IntoResponse, ApiError> {
@@ -4534,6 +5046,7 @@ pub async fn get_skill_version_diff_handler(
 /// GET /api/v1/skills/:name/tags — list git tags for a skill
 pub async fn list_skill_git_tags_handler(
     State(state): State<ApiState>,
+    AgentContext { subject: _, .. }: AgentContext,
     Path(skill_name): Path<String>,
 ) -> Result<impl IntoResponse, ApiError> {
     let tags = state
@@ -4555,6 +5068,7 @@ pub async fn list_skill_git_tags_handler(
 /// POST /api/v1/skills/:name/sync — 从 GitLab 拉取最新更新
 pub async fn sync_skill_from_gitlab_handler(
     State(state): State<ApiState>,
+    AgentContext { subject: _, .. }: AgentContext,
     Path(skill_name): Path<String>,
 ) -> Result<impl IntoResponse, ApiError> {
     state
@@ -4592,6 +5106,7 @@ pub async fn sync_skill_from_gitlab_handler(
 /// POST /api/v1/skills/:name/clone — 从 GitLab 克隆 skill 仓库到本地
 pub async fn clone_skill_from_gitlab_handler(
     State(state): State<ApiState>,
+    AgentContext { subject: _, .. }: AgentContext,
     Path(skill_name): Path<String>,
 ) -> Result<impl IntoResponse, ApiError> {
     let repo_path = state
@@ -4627,11 +5142,12 @@ pub async fn clone_skill_from_gitlab_handler(
 /// GET /api/v1/skills/:name/remote — 查看 skill 关联的 GitLab 信息
 pub async fn get_skill_remote_info_handler(
     State(state): State<ApiState>,
+    AgentContext { subject: _, .. }: AgentContext,
     Path(skill_name): Path<String>,
 ) -> Result<impl IntoResponse, ApiError> {
     let repo_name = format!("skill-{}", skill_name);
-    let repo_path = state.skill_git.repos_dir.join(format!("{}.git", repo_name));
-    let local_repo_exists = repo_path.exists();
+    let repo_path = state.skill_git.repo_path(&skill_name);
+    let local_repo_exists = repo_path.join(".git").exists();
 
     let remote_url = state.skill_git.remote_config.remote_url(&repo_name);
 
@@ -4654,6 +5170,7 @@ pub async fn get_skill_remote_info_handler(
 /// GET /api/v1/admin/skills/gitlab-sync — 批量同步已配置 remote 的 skills
 pub async fn sync_all_skills_from_gitlab_handler(
     State(state): State<ApiState>,
+    AgentContext { subject: _, .. }: AgentContext,
     Query(body): Query<crate::api::models::SkillSyncBody>,
 ) -> Result<impl IntoResponse, ApiError> {
     let skill_names = if let Some(names) = body.skill_names {
@@ -4750,7 +5267,7 @@ pub async fn gitlab_webhook_handler(
 
     // 仅对 push/tag_push events 做同步
     if event_type == "Push Hook" || event_type == "Tag Push Hook" {
-        match crate::services::SkillGitService::fetch_from_gitlab(&_state.skill_git, skill_name) {
+        match _state.skill_git.fetch_from_gitlab(skill_name) {
             Ok(()) => info!("Webhook sync successful for {}", skill_name),
             Err(e) => warn!("Webhook sync failed for {}: {}", skill_name, e),
         }

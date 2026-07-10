@@ -8,7 +8,8 @@ use tracing::info;
 
 use crate::db::repositories::skill::{NewSkill as DbNewSkill, SkillRepository};
 use crate::models::error::AppError;
-use crate::models::skill::{NewSkill, Skill, SkillMetadata, SkillUpdate};
+use crate::services::skill_git::copy_dir_recursive;
+use crate::models::skill::{InstallResult, NewSkill, Skill, SkillMetadata, SkillUpdate};
 use crate::schemas::validation::{
     validate_description, validate_skill_content, validate_skill_name, validate_tags,
     validate_version,
@@ -127,9 +128,46 @@ impl RegistryService {
             review_comment: db_skill.review_comment,
         };
         search.add_skill(&skill)?;
+
+        // 写入 SKILL.md 到 skills_dir，确保 get_skill_files 能从磁盘读取
+        // （atomic_write 内部已包含 ensure_dir）
+        let skill_md_path = self.skill_dir(&skill.name).join("SKILL.md");
+        self.storage.atomic_write(&skill_md_path, &skill.content)?;
+
         info!("Created skill: {}", skill.id);
 
         Ok(skill)
+    }
+
+    /// 将外部目录的所有文件同步到 skills_dir/{name}/
+    /// 用于 ZIP/Git 上传场景：git-repos/ 有完整文件，需要拷贝到 skills/ 供 install 读取
+    pub fn sync_skill_files_from(
+        &self,
+        skill_name: &str,
+        source_dir: &std::path::Path,
+    ) -> Result<(), AppError> {
+        let target_dir = self.skill_dir(skill_name);
+
+        // 先删除旧文件（如果有），确保与 Git 仓库完全一致
+        if target_dir.exists() {
+            std::fs::remove_dir_all(&target_dir).map_err(|e| {
+                AppError::InternalError(format!(
+                    "Failed to clean existing skill dir {}: {}",
+                    target_dir.display(),
+                    e
+                ))
+            })?;
+        }
+        copy_dir_recursive(source_dir, &target_dir).map_err(|e| {
+            AppError::InternalError(format!(
+                "Failed to copy files from {} to {}: {}",
+                source_dir.display(),
+                target_dir.display(),
+                e
+            ))
+        })?;
+
+        Ok(())
     }
 
     /// 更新 Skill
@@ -167,14 +205,26 @@ impl RegistryService {
     ) -> Result<Skill, AppError> {
         let index = self.load_index()?;
 
-        // 查找 skill
-        let skill_meta = index
-            .skills
-            .iter()
-            .find(|s| s.id == skill_id)
-            .ok_or_else(|| AppError::SkillNotFound(skill_id.to_string()))?
-            .clone();
+        // 查找 skill — 先尝试文件索引（兼容旧数据），再尝试数据库
+        let skill_meta = index.skills.iter().find(|s| s.id == skill_id).cloned();
 
+        if let Some(skill_meta) = skill_meta {
+            self.update_skill_file_index(skill_meta, skill_id, update, search)
+                .await
+        } else {
+            self.update_skill_db_fallback(skill_id, update, search)
+                .await
+        }
+    }
+
+    /// 文件索引路径的更新（兼容旧数据）
+    async fn update_skill_file_index(
+        &self,
+        skill_meta: SkillMetadata,
+        skill_id: &str,
+        update: SkillUpdate,
+        search: &SearchService,
+    ) -> Result<Skill, AppError> {
         let skill_md_path = self.skill_md_path(&skill_meta.name);
 
         // 读取现有内容
@@ -215,9 +265,44 @@ impl RegistryService {
         // 更新搜索索引
         search.update_skill(&skill)?;
 
-        info!("Updated skill: {}", skill_id);
+        info!("Updated skill: {} (file index)", skill_id);
 
         Ok(skill)
+    }
+
+    /// DB 回退：当文件索引中没有该skill时直接更新数据库。
+    async fn update_skill_db_fallback(
+        &self,
+        skill_id: &str,
+        update: SkillUpdate,
+        search: &SearchService,
+    ) -> Result<Skill, AppError> {
+        // 确认数据库中存在
+        self.skill_repo
+            .find_by_id(skill_id)
+            .await
+            .map_err(|e| AppError::InternalError(e.to_string()))?
+            .ok_or_else(|| AppError::SkillNotFound(skill_id.to_string()))?;
+
+        // 通过 DB repo 更新字段
+        self.skill_repo
+            .update(
+                skill_id,
+                update.description.as_deref(),
+                update.content.as_deref(),
+                update.tags.clone(),
+            )
+            .await
+            .map_err(|e| AppError::InternalError(format!("Failed to update skill: {}", e)))?;
+
+        // 重新从数据库读取完整信息并重建搜索索引
+        let updated = self.get_skill(skill_id).await?;
+        if let Err(e) = search.update_skill(&updated) {
+            tracing::warn!("Failed to update search index for {}: {}", skill_id, e);
+        }
+
+        info!("Updated skill: {} (DB fallback)", skill_id);
+        Ok(updated)
     }
 
     /// 删除 Skill
@@ -266,9 +351,122 @@ impl RegistryService {
         Ok(skill)
     }
 
+    /// 获取 Skill 全部文件内容，供 install 使用
+    /// 优先从磁盘读取；磁盘没有 SKILL.md 时从 DB content 兜底，content 也为空时从 metadata 生成
+    pub async fn get_skill_files(&self, skill_id: &str) -> Result<InstallResult, AppError> {
+        // 从 DB 获取元数据（包含 content 字段）
+        let skill = self.get_skill(skill_id).await?;
+
+        // 从磁盘递归读取 skill 目录下的所有文件
+        let mut files: Vec<crate::models::skill::SkillFile> = Vec::new();
+        let skill_dir = self.skill_dir(&skill.name);
+
+        if skill_dir.exists() {
+            self.collect_skill_files(&skill_dir, "", &mut files)?;
+        } else {
+            // 回退：尝试从 git-repos/skill-{name}/ 同步文件
+            if let Some(data_dir) = self.registry_dir.parent() {
+                let git_repo_dir = data_dir.join("git-repos").join(format!("skill-{}", skill.name));
+                if git_repo_dir.exists() {
+                    if let Ok(()) = self.sync_skill_files_from(&skill.name, &git_repo_dir) {
+                        if skill_dir.exists() {
+                            self.collect_skill_files(&skill_dir, "", &mut files)?;
+                        }
+                    }
+                }
+            }
+        }
+
+        // 确保 SKILL.md 一定存在：磁盘有就用磁盘的，否则 content 优先，最后从 metadata 生成
+        let has_skill_md = files.iter().any(|f| f.path == "SKILL.md");
+        if !has_skill_md {
+            let content = if !skill.content.is_empty() {
+                skill.content.clone()
+            } else {
+                // content 也是空的 → 用 description/name/tags 生成最小 SKILL.md
+                let mut md = String::new();
+                md.push_str(&format!("# {}\n\n", skill.name));
+                md.push_str(&format!("{}\n\n", skill.description));
+                md.push_str("## Version\n\n");
+                md.push_str(&format!("Version: {}\n", skill.version));
+                if !skill.tags.is_empty() {
+                    md.push_str(&format!("Tags: {}\n", skill.tags.join(", ")));
+                }
+                md
+            };
+            files.push(crate::models::skill::SkillFile {
+                path: "SKILL.md".to_string(),
+                content,
+            });
+        }
+
+        Ok(InstallResult {
+            success: true,
+            skill_id: skill.id.clone(),
+            name: skill.name.clone(),
+            version: skill.version.clone(),
+            description: skill.description.clone(),
+            author_agent_id: skill.author_agent_id.clone(),
+            author_identity_id: skill.author_identity_id,
+            owner_type: skill.owner_type.clone(),
+            owner_id: skill.owner_id,
+            created: skill.created,
+            updated: skill.updated,
+            install_count: skill.install_count,
+            tags: skill.tags.clone(),
+            git_url: skill.git_url.clone(),
+            dependencies: skill.dependencies.clone(),
+            tools: skill.tools.clone(),
+            files,
+        })
+    }
+
+    /// 递归收集 skill 目录下的所有文件（包括 SKILL.md）
+    fn collect_skill_files(
+        &self,
+        dir: &std::path::Path,
+        prefix: &str,
+        files: &mut Vec<crate::models::skill::SkillFile>,
+    ) -> Result<(), AppError> {
+        for entry in std::fs::read_dir(dir).map_err(|e| {
+            AppError::RegistryReadFailed(format!("Failed to read dir {}: {}", dir.display(), e))
+        })? {
+            let entry = entry.map_err(|e| {
+                AppError::RegistryReadFailed(format!("Failed to read entry: {}", e))
+            })?;
+            let path = entry.path();
+            let rel_path = if prefix.is_empty() {
+                entry.file_name().to_string_lossy().to_string()
+            } else {
+                format!("{}/{}", prefix, entry.file_name().to_string_lossy())
+            };
+
+            if path.is_dir() {
+                self.collect_skill_files(&path, &rel_path, files)?;
+            } else {
+                let content = self.storage.read_file(&path)?;
+                files.push(crate::models::skill::SkillFile {
+                    path: rel_path,
+                    content,
+                });
+            }
+        }
+        Ok(())
+    }
+
     /// 列出所有 Skills
     pub async fn list_skills(&self) -> Result<Vec<SkillMetadata>, AppError> {
-        let db_skills = self.skill_repo.list(1000, 0).await?;
+        self.list_skills_sorted(1000, 0, "created").await
+    }
+
+    /// 列出 Skills，支持分页和排序
+    pub async fn list_skills_sorted(
+        &self,
+        limit: i64,
+        offset: i64,
+        sort_by: &str,
+    ) -> Result<Vec<SkillMetadata>, AppError> {
+        let db_skills = self.skill_repo.list_sorted(limit, offset, sort_by).await?;
         Ok(db_skills
             .into_iter()
             .map(|m| SkillMetadata {
@@ -304,6 +502,48 @@ impl RegistryService {
     pub async fn count(&self) -> Result<u32, AppError> {
         let count = self.skill_repo.count().await?;
         Ok(count as u32)
+    }
+
+    /// 递增 Skill 安装计数（每次 pull 时调用）
+    pub async fn increment_install_count(&self, skill_id: &str) -> Result<(), AppError> {
+        self.skill_repo
+            .increment_install_count(skill_id)
+            .await
+            .map_err(|e| AppError::InternalError(e.to_string()))
+    }
+
+    /// 列出同名 Skill 的所有版本
+    pub async fn list_versions(&self, name: &str) -> Result<Vec<SkillMetadata>, AppError> {
+        let db_skills = self.skill_repo.list_by_name(name).await?;
+        Ok(db_skills
+            .into_iter()
+            .map(|m| SkillMetadata {
+                id: m.id,
+                name: m.name,
+                description: m.description,
+                version: m.version,
+                author_agent_id: m.author_agent_id,
+                author_identity_id: m.author_identity_id,
+                owner_type: m.owner_type,
+                owner_id: m.owner_id,
+                tags: m.tags,
+                created: m.created_at,
+                updated: m.updated_at,
+                install_count: m.install_count as u32,
+                status: m.status,
+                git_url: m.git_url,
+                visibility: match m.visibility.as_str() {
+                    "private" => crate::models::skill_policy::Visibility::Private,
+                    "shared" => crate::models::skill_policy::Visibility::Shared,
+                    "marketplace" => crate::models::skill_policy::Visibility::Marketplace,
+                    _ => crate::models::skill_policy::Visibility::OrgVisible,
+                },
+                review_status: m.review_status,
+                reviewed_by: m.reviewed_by,
+                reviewed_at: m.reviewed_at,
+                review_comment: m.review_comment,
+            })
+            .collect())
     }
 
     /// 提取 skill 名称
@@ -520,3 +760,4 @@ dependencies: [{}]
         Ok(count)
     }
 }
+

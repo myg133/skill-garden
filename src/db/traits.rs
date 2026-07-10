@@ -1,18 +1,9 @@
 //! Repository traits for dependency injection
 
 use crate::db::error::DbResult;
-use crate::db::repositories::agent::{Agent, NewAgent};
 use crate::db::repositories::audit::{AuditLog, NewAuditLog};
 use crate::db::repositories::evaluation::{Evaluation, NewEvaluation, SkillStats};
 use crate::db::repositories::skill::{NewSkill, Skill, SkillMetadata};
-
-#[allow(async_fn_in_trait)]
-pub trait AgentRepositoryTrait: Send + Sync {
-    async fn create(&self, new_agent: NewAgent) -> DbResult<Agent>;
-    async fn find_by_id(&self, agent_id: &str) -> DbResult<Option<Agent>>;
-    async fn verify_secret(&self, agent_id: &str, secret: &str) -> DbResult<bool>;
-    async fn update_roles(&self, agent_id: &str, roles: Vec<String>) -> DbResult<()>;
-}
 
 #[allow(async_fn_in_trait)]
 pub trait SkillRepositoryTrait: Send + Sync {
@@ -42,22 +33,6 @@ pub trait EvaluationRepositoryTrait: Send + Sync {
 pub trait AuditRepositoryTrait: Send + Sync {
     async fn create(&self, new_log: NewAuditLog) -> DbResult<AuditLog>;
     async fn list_by_agent(&self, agent_id: &str, limit: i64) -> DbResult<Vec<AuditLog>>;
-}
-
-// blanket implementation for Box<T>
-impl<T: AgentRepositoryTrait + ?Sized> AgentRepositoryTrait for Box<T> {
-    async fn create(&self, new_agent: NewAgent) -> DbResult<Agent> {
-        (**self).create(new_agent).await
-    }
-    async fn find_by_id(&self, agent_id: &str) -> DbResult<Option<Agent>> {
-        (**self).find_by_id(agent_id).await
-    }
-    async fn verify_secret(&self, agent_id: &str, secret: &str) -> DbResult<bool> {
-        (**self).verify_secret(agent_id, secret).await
-    }
-    async fn update_roles(&self, agent_id: &str, roles: Vec<String>) -> DbResult<()> {
-        (**self).update_roles(agent_id, roles).await
-    }
 }
 
 impl<T: SkillRepositoryTrait + ?Sized> SkillRepositoryTrait for Box<T> {

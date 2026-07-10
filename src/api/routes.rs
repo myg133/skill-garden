@@ -13,10 +13,27 @@ pub fn create_api_router(state: ApiState) -> Router<ApiState> {
         .route("/api/v1/skills", get(list_skills_handler))
         .route("/api/v1/skills", post(create_skill_handler))
         .route("/api/v1/skills/upload", post(upload_skill_handler))
+        .route(
+            "/api/v1/skills/upload/preview",
+            post(upload_skill_preview_handler),
+        )
+        .route(
+            "/api/v1/skills/upload/preview/:preview_id/files/*path",
+            get(get_preview_file_handler),
+        )
+        .route(
+            "/api/v1/skills/upload/preview/:preview_id/confirm",
+            post(confirm_skill_upload_handler),
+        )
         .route("/api/v1/skills/:id", get(get_skill_handler))
         .route("/api/v1/skills/:id", put(update_skill_handler))
         .route("/api/v1/skills/:id", delete(delete_skill_handler))
         .route("/api/v1/skills/:id/stats", get(get_skill_stats_handler))
+        .route("/api/v1/skills/:id/files", get(list_skill_files_handler))
+        .route(
+            "/api/v1/skills/:id/files/*path",
+            get(get_skill_file_handler),
+        )
         .route(
             "/api/v1/skills/:id/submit-review",
             post(submit_review_skill_handler),
@@ -88,6 +105,9 @@ pub fn create_api_router(state: ApiState) -> Router<ApiState> {
         .route("/api/v1/api-keys", get(list_my_api_keys_handler))
         .route("/api/v1/api-keys", post(create_my_api_key_handler))
         .route("/api/v1/api-keys/:id", delete(revoke_my_api_key_handler))
+        // Agent routes (user-facing self-service)
+        .route("/api/v1/agents", get(list_my_agents_handler))
+        .route("/api/v1/agents/:agent_id", delete(revoke_my_agent_handler))
         // Org slug-based Group management (6.6)
         .route("/api/v1/orgs/:slug/groups", get(list_org_groups_handler))
         .route("/api/v1/orgs/:slug/groups", post(create_org_group_handler))
@@ -234,8 +254,7 @@ pub fn create_api_router(state: ApiState) -> Router<ApiState> {
             "/api/v1/admin/orgs/:org_id/stats",
             get(get_org_stats_handler),
         )
-        // Session routes
-        .route("/api/v1/sessions", post(create_session_handler))
+        // Session routes (read-only admin view; sessions auto-created by MCP)
         .route("/api/v1/sessions", get(list_sessions_handler))
         .route("/api/v1/sessions/:id", get(get_session_handler))
         .route("/api/v1/sessions/:id/end", post(end_session_handler))
@@ -255,7 +274,7 @@ pub fn create_api_router(state: ApiState) -> Router<ApiState> {
         )
         .route("/api/v1/org-tools/:id", delete(delete_org_tool_handler))
         .route("/api/v1/org-tools/:id", get(list_org_tools_handler))
-        // Sandbox routes
+        // Sandbox routes — admin
         .route("/api/v1/admin/sandboxes", get(list_sandboxes_handler))
         .route(
             "/api/v1/admin/sandboxes/health",
@@ -265,7 +284,15 @@ pub fn create_api_router(state: ApiState) -> Router<ApiState> {
             "/api/v1/admin/sandboxes/:key",
             delete(remove_sandbox_handler),
         )
+        // Sandbox routes — user-facing
+        .route("/api/v1/sandboxes", get(list_sandbox_status_handler))
+        .route("/api/v1/sandboxes/release", post(release_sandbox_handler))
+        // Tool execution
         .route("/api/v1/tools/execute", post(execute_tool_handler))
+        .route(
+            "/api/v1/tools/execute-platform",
+            post(execute_platform_tool_handler),
+        )
         // Git Proxy routes
         .route(
             "/api/v1/admin/git/:repo_id/branches",

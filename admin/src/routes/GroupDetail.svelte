@@ -1,4 +1,4 @@
-<script>
+﻿<script>
   import { onMount } from 'svelte';
   import { Link } from 'svelte-routing';
   import { api } from '../lib/api.js';
@@ -23,7 +23,6 @@
   let editMemberRole = '';
 
   let permissions = null;
-  let activeTab = 'members';
 
   const groupRoles = ['lead', 'member'];
 
@@ -178,15 +177,15 @@
       case 'team': return 'bg-blue-100 text-blue-700';
       case 'project': return 'bg-purple-100 text-purple-700';
       case 'department': return 'bg-emerald-100 text-emerald-700';
-      default: return 'bg-surface-100 text-surface-700';
+      default: return 'bg-gray-100 text-gray-700';
     }
   }
 
   function getRoleColor(role) {
     switch (role) {
       case 'lead': return 'bg-amber-100 text-amber-700';
-      case 'member': return 'bg-surface-100 text-surface-700';
-      default: return 'bg-surface-100 text-surface-700';
+      case 'member': return 'bg-gray-100 text-gray-700';
+      default: return 'bg-gray-100 text-gray-700';
     }
   }
 </script>
@@ -198,30 +197,32 @@
     <div class="bg-rose-50 border border-rose-100 text-rose-600 px-5 py-4 rounded-2xl text-sm font-medium">{error}</div>
   {:else if group}
     <div class="mb-6">
-      <Link to="/groups" class="text-brand-600 hover:text-brand-700 text-sm inline-flex items-center gap-1 font-semibold transition-colors">
+      <Link to="/groups" class="text-blue-600 hover:text-blue-700 text-sm inline-flex items-center gap-1 font-semibold transition-colors">
         <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 19l-7-7 7-7"/></svg>
         Back to Groups
       </Link>
     </div>
 
-    <div class="gradient-card-brand-light rounded-2xl border border-brand-200/60 shadow-card mb-6">
-      <div class="px-6 py-5 border-b border-brand-200/60">
+    <div class="bg-white rounded-2xl border border-gray-200 shadow-card mb-6">
+      <div class="px-6 py-5 border-b border-gray-200">
         <div class="flex items-center justify-between">
           {#if editing}
             <div class="flex gap-3 items-center flex-wrap">
+              <label for="group-name-input" class="sr-only">Group name</label>
               <input
-                id="edit-group-name"
+                id="group-name-input"
                 type="text"
                 bind:value={editForm.name}
                 placeholder="Group name"
-                class="text-xl font-bold text-surface-800 px-3 py-1.5 border border-surface-200 rounded-xl input-focus outline-none transition-all bg-white"
+                class="text-xl font-bold text-gray-800 px-3 py-1.5 border border-gray-200 rounded-xl input-focus outline-none transition-all bg-white"
               />
+              <label for="group-slug-input" class="sr-only">Group slug</label>
               <input
-                id="edit-group-slug"
+                id="group-slug-input"
                 type="text"
                 bind:value={editForm.slug}
                 placeholder="slug"
-                class="text-sm text-surface-600 px-3 py-1.5 border border-surface-200 rounded-xl input-focus outline-none transition-all bg-white"
+                class="text-sm text-gray-600 px-3 py-1.5 border border-gray-200 rounded-xl input-focus outline-none transition-all bg-white"
               />
               <button
                 on:click={handleUpdate}
@@ -242,9 +243,9 @@
                 {group.name[0]?.toUpperCase() || '?'}
               </div>
               <div>
-                <h1 class="text-[28px] font-extrabold text-surface-800 tracking-tight">{group.name}</h1>
+                <h1 class="text-[28px] font-extrabold text-gray-800 tracking-tight">{group.name}</h1>
                 <div class="flex items-center gap-2 mt-1">
-                  <p class="text-surface-400 text-xs font-mono">{group.slug}</p>
+                  <p class="text-gray-400 text-xs font-mono">{group.slug}</p>
                   <span class="px-2 py-0.5 rounded-full text-xs font-medium {getTypeColor(group.group_type)}">
                     {group.group_type}
                   </span>
@@ -267,37 +268,37 @@
             </div>
           {/if}
         </div>
-        <p class="text-surface-400 text-xs mt-1.5 font-mono">ID: {group.id}</p>
+        <p class="text-gray-400 text-xs mt-1.5 font-mono">ID: {group.id}</p>
         {#if group.organization_id}
-          <p class="text-surface-400 text-xs mt-0.5">Organization: {group.organization_id}</p>
+          <p class="text-gray-400 text-xs mt-0.5">Organization: {group.organization_id}</p>
         {/if}
       </div>
 
       {#if group.description}
-        <div class="px-6 py-4 border-b border-brand-200/60">
-          <p class="text-surface-600 text-sm">{group.description}</p>
+        <div class="px-6 py-4 border-b border-gray-200">
+          <p class="text-gray-600 text-sm">{group.description}</p>
         </div>
       {/if}
 
       <div class="px-6 py-5 grid grid-cols-3 gap-4">
-        <div class="bg-slate-50/80 rounded-xl p-4 border border-brand-200/40">
-          <p class="text-surface-400 text-[11px] uppercase tracking-wider font-semibold mb-1.5">Members</p>
-          <p class="text-surface-800 font-extrabold text-2xl">{members.length}</p>
+        <div class="bg-gray-50 rounded-xl p-4 border border-gray-200">
+          <p class="text-gray-400 text-[11px] uppercase tracking-wider font-semibold mb-1.5">Members</p>
+          <p class="text-gray-800 font-extrabold text-2xl">{members.length}</p>
         </div>
-        <div class="bg-slate-50/80 rounded-xl p-4 border border-brand-200/40">
-          <p class="text-surface-400 text-[11px] uppercase tracking-wider font-semibold mb-1.5">Type</p>
-          <p class="text-surface-800 font-semibold text-sm capitalize">{group.group_type}</p>
+        <div class="bg-gray-50 rounded-xl p-4 border border-gray-200">
+          <p class="text-gray-400 text-[11px] uppercase tracking-wider font-semibold mb-1.5">Type</p>
+          <p class="text-gray-800 font-semibold text-sm capitalize">{group.group_type}</p>
         </div>
-        <div class="bg-slate-50/80 rounded-xl p-4 border border-brand-200/40">
-          <p class="text-surface-400 text-[11px] uppercase tracking-wider font-semibold mb-1.5">Created</p>
-          <p class="text-surface-800 font-semibold text-sm">{new Date(group.created_at).toLocaleDateString()}</p>
+        <div class="bg-gray-50 rounded-xl p-4 border border-gray-200">
+          <p class="text-gray-400 text-[11px] uppercase tracking-wider font-semibold mb-1.5">Created</p>
+          <p class="text-gray-800 font-semibold text-sm">{new Date(group.created_at).toLocaleDateString()}</p>
         </div>
       </div>
     </div>
 
-    <div class="gradient-card-sky rounded-2xl border border-indigo-200/60 shadow-card">
-      <div class="px-6 py-4 border-b border-indigo-100/60 flex items-center justify-between">
-        <h2 class="font-semibold text-surface-800 text-sm">Group Members ({members.length})</h2>
+    <div class="bg-white rounded-2xl border border-gray-200 shadow-card">
+      <div class="px-6 py-4 border-b border-gray-100 flex items-center justify-between">
+        <h2 class="font-semibold text-gray-800 text-sm">Group Members ({members.length})</h2>
         <button
           on:click={() => { showAddMemberModal = true; addMemberForm = { agent_id: '', role: 'member' }; }}
           class="btn-primary px-4 py-2 rounded-xl font-semibold text-sm flex items-center gap-2"
@@ -308,39 +309,39 @@
       </div>
       <div class="overflow-x-auto">
         {#if members.length === 0}
-          <div class="px-6 py-16 text-center text-surface-400 text-sm font-medium">
+          <div class="px-6 py-16 text-center text-gray-400 text-sm font-medium">
             No members in this group yet. Add members and assign them roles.
           </div>
         {:else}
           <table class="w-full">
-            <thead class="bg-surface-50 border-b border-surface-100">
+            <thead class="bg-gray-50 border-b border-gray-100">
               <tr>
-                <th class="px-6 py-3 text-left text-xs font-semibold text-surface-500 uppercase tracking-wider">Identity</th>
-                <th class="px-6 py-3 text-left text-xs font-semibold text-surface-500 uppercase tracking-wider">Email</th>
-                <th class="px-6 py-3 text-left text-xs font-semibold text-surface-500 uppercase tracking-wider">Role</th>
-                <th class="px-6 py-3 text-left text-xs font-semibold text-surface-500 uppercase tracking-wider">Joined</th>
-                <th class="px-6 py-3 text-right text-xs font-semibold text-surface-500 uppercase tracking-wider">Actions</th>
+                <th class="px-6 py-3 text-left text-xs font-semibold text-gray-500 uppercase tracking-wider">Identity</th>
+                <th class="px-6 py-3 text-left text-xs font-semibold text-gray-500 uppercase tracking-wider">Email</th>
+                <th class="px-6 py-3 text-left text-xs font-semibold text-gray-500 uppercase tracking-wider">Role</th>
+                <th class="px-6 py-3 text-left text-xs font-semibold text-gray-500 uppercase tracking-wider">Joined</th>
+                <th class="px-6 py-3 text-right text-xs font-semibold text-gray-500 uppercase tracking-wider">Actions</th>
               </tr>
             </thead>
-            <tbody class="divide-y divide-surface-100">
+            <tbody class="divide-y divide-gray-100">
               {#each members as member (member.agent_id)}
-                <tr class="hover:bg-surface-50 transition-colors">
+                <tr class="hover:bg-gray-50 transition-colors">
                   <td class="px-6 py-4">
                     <div class="flex items-center gap-3">
-                      <div class="w-8 h-8 rounded-full bg-gradient-to-br from-indigo-500 to-purple-600 flex items-center justify-center text-white text-xs font-bold">
+                      <div class="w-8 h-8 rounded-full bg-blue-600 flex items-center justify-center text-white text-xs font-bold">
                         {(member.username || member.name || '?')[0]?.toUpperCase()}
                       </div>
                       <div>
-                        <p class="text-sm font-semibold text-surface-800">{member.username || member.name || 'Unknown'}</p>
-                        <p class="text-xs text-surface-400 font-mono">{member.agent_id ? member.agent_id.substring(0, 8) + '...' : ''}</p>
+                        <p class="text-sm font-semibold text-gray-800">{member.username || member.name || 'Unknown'}</p>
+                        <p class="text-xs text-gray-400 font-mono">{member.agent_id ? member.agent_id.substring(0, 8) + '...' : ''}</p>
                       </div>
                     </div>
                   </td>
                   <td class="px-6 py-4">
                     {#if member.email}
-                      <span class="text-xs text-surface-600 font-mono">{member.email}</span>
+                      <span class="text-xs text-gray-600 font-mono">{member.email}</span>
                     {:else}
-                      <span class="text-surface-400 text-xs">-</span>
+                      <span class="text-gray-400 text-xs">-</span>
                     {/if}
                   </td>
                   <td class="px-6 py-4">
@@ -349,7 +350,7 @@
                         <select
                           id="edit-member-role"
                           bind:value={editMemberRole}
-                          class="px-2 py-1 border border-surface-200 rounded-lg text-xs input-focus outline-none bg-white"
+                          class="px-2 py-1 border border-gray-200 rounded-lg text-xs input-focus outline-none bg-white"
                         >
                           {#each groupRoles as role}
                             <option value={role}>{role}</option>
@@ -363,7 +364,7 @@
                         </button>
                         <button
                           on:click={() => { editingMember = null; editMemberRole = ''; }}
-                          class="text-surface-400 hover:text-surface-600 text-xs"
+                          class="text-gray-400 hover:text-gray-600 text-xs"
                         >
                           Cancel
                         </button>
@@ -374,7 +375,7 @@
                       </span>
                     {/if}
                   </td>
-                  <td class="px-6 py-4 text-sm text-surface-500">
+                  <td class="px-6 py-4 text-sm text-gray-500">
                     {member.joined_at ? new Date(member.joined_at).toLocaleDateString() : '-'}
                   </td>
                   <td class="px-6 py-4 text-right">
@@ -382,7 +383,7 @@
                       {#if editingMember !== member.agent_id}
                         <button
                           on:click={() => { editingMember = member.agent_id; editMemberRole = member.role; }}
-                          class="p-2 rounded-lg text-surface-400 hover:text-brand-500 hover:bg-brand-50 transition-all"
+                          class="p-2 rounded-lg text-gray-400 hover:text-blue-500 hover:bg-blue-50 transition-all"
                           title="Edit role"
                         >
                           <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15.232 5.232l3.536 3.536m-2.036-5.036a2.5 2.5 0 113.536 3.536L6.5 21.036H3v-3.572L16.732 3.732z"/></svg>
@@ -390,7 +391,7 @@
                       {/if}
                       <button
                         on:click={() => handleRemoveMember(member)}
-                        class="p-2 rounded-lg text-surface-400 hover:text-red-500 hover:bg-red-50 transition-all"
+                        class="p-2 rounded-lg text-gray-400 hover:text-red-500 hover:bg-red-50 transition-all"
                         title="Remove"
                       >
                         <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16"/></svg>
@@ -405,27 +406,27 @@
       </div>
     </div>
 
-    <div class="gradient-card-purple rounded-2xl border border-purple-200/60 shadow-card mt-6">
+    <div class="bg-white rounded-2xl border border-gray-200 shadow-card mt-6">
       <div class="px-6 py-4 border-b border-purple-100/60">
-        <h2 class="font-semibold text-surface-800 text-sm">Group Permissions</h2>
-        <p class="text-surface-400 text-xs mt-1">Toggle permissions for each role. Overrides are highlighted.</p>
+        <h2 class="font-semibold text-gray-800 text-sm">Group Permissions</h2>
+        <p class="text-gray-400 text-xs mt-1">Toggle permissions for each role. Overrides are highlighted.</p>
       </div>
       {#if permissions}
         <div class="grid grid-cols-2 gap-0">
           <div class="border-r border-purple-100/60">
             <div class="px-6 py-3 bg-amber-50/50 border-b border-purple-100/60">
-              <h3 class="font-semibold text-surface-700 text-xs uppercase tracking-wider">Lead</h3>
+              <h3 class="font-semibold text-gray-700 text-xs uppercase tracking-wider">Lead</h3>
             </div>
             <div class="divide-y divide-purple-100/40">
               {#each permissions.lead || [] as perm (perm.permission_code)}
-                <div class="px-6 py-3 flex items-center justify-between hover:bg-surface-50/50 transition-colors">
+                <div class="px-6 py-3 flex items-center justify-between hover:bg-gray-50/50 transition-colors">
                   <div class="flex-1">
-                    <p class="text-sm font-medium text-surface-700">{getPermLabel(perm.permission_code)}</p>
-                    <p class="text-xs text-surface-400 font-mono">{perm.permission_code}</p>
+                    <p class="text-sm font-medium text-gray-700">{getPermLabel(perm.permission_code)}</p>
+                    <p class="text-xs text-gray-400 font-mono">{perm.permission_code}</p>
                   </div>
                   <button
                     on:click={() => handleTogglePermission('lead', perm.permission_code, perm.granted)}
-                    class="relative inline-flex h-6 w-11 items-center rounded-full transition-colors {perm.granted ? 'bg-emerald-500' : 'bg-surface-300'}"
+                    class="relative inline-flex h-6 w-11 items-center rounded-full transition-colors {perm.granted ? 'bg-emerald-500' : 'bg-gray-300'}"
                     title={perm.granted ? 'Click to revoke' : 'Click to grant'}
                   >
                     <span class="inline-block h-4 w-4 transform rounded-full bg-white transition-transform {perm.granted ? 'translate-x-6' : 'translate-x-1'} shadow-sm" />
@@ -435,19 +436,19 @@
             </div>
           </div>
           <div>
-            <div class="px-6 py-3 bg-surface-50/50 border-b border-purple-100/60">
-              <h3 class="font-semibold text-surface-700 text-xs uppercase tracking-wider">Member</h3>
+            <div class="px-6 py-3 bg-gray-50/50 border-b border-purple-100/60">
+              <h3 class="font-semibold text-gray-700 text-xs uppercase tracking-wider">Member</h3>
             </div>
             <div class="divide-y divide-purple-100/40">
               {#each permissions.member || [] as perm (perm.permission_code)}
-                <div class="px-6 py-3 flex items-center justify-between hover:bg-surface-50/50 transition-colors">
+                <div class="px-6 py-3 flex items-center justify-between hover:bg-gray-50/50 transition-colors">
                   <div class="flex-1">
-                    <p class="text-sm font-medium text-surface-700">{getPermLabel(perm.permission_code)}</p>
-                    <p class="text-xs text-surface-400 font-mono">{perm.permission_code}</p>
+                    <p class="text-sm font-medium text-gray-700">{getPermLabel(perm.permission_code)}</p>
+                    <p class="text-xs text-gray-400 font-mono">{perm.permission_code}</p>
                   </div>
                   <button
                     on:click={() => handleTogglePermission('member', perm.permission_code, perm.granted)}
-                    class="relative inline-flex h-6 w-11 items-center rounded-full transition-colors {perm.granted ? 'bg-emerald-500' : 'bg-surface-300'}"
+                    class="relative inline-flex h-6 w-11 items-center rounded-full transition-colors {perm.granted ? 'bg-emerald-500' : 'bg-gray-300'}"
                     title={perm.granted ? 'Click to revoke' : 'Click to grant'}
                   >
                     <span class="inline-block h-4 w-4 transform rounded-full bg-white transition-transform {perm.granted ? 'translate-x-6' : 'translate-x-1'} shadow-sm" />
@@ -458,7 +459,7 @@
           </div>
         </div>
       {:else}
-        <div class="px-6 py-16 text-center text-surface-400 text-sm font-medium">
+        <div class="px-6 py-16 text-center text-gray-400 text-sm font-medium">
           Loading permissions...
         </div>
       {/if}
@@ -467,27 +468,27 @@
 </div>
 
 {#if showAddMemberModal}
-<div class="fixed inset-0 bg-surface-900/50 backdrop-blur-sm flex items-center justify-center z-50 modal-overlay">
-  <div class="bg-sky-50 rounded-2xl p-6 w-full max-w-md shadow-elevated-lg border border-indigo-200 modal-content">
-    <h2 class="text-lg font-bold text-surface-800 mb-5">Add Member to Group</h2>
+<div class="fixed inset-0 bg-black/40 flex items-center justify-center z-50 modal-overlay">
+  <div class="bg-white rounded-2xl p-6 w-full max-w-md shadow-elevated-lg border border-gray-200 modal-content">
+    <h2 class="text-lg font-bold text-gray-800 mb-5">Add Member to Group</h2>
     <div class="space-y-4">
       <div>
-        <label for="add-member-id" class="block text-xs font-semibold text-surface-500 uppercase tracking-wider mb-2">Identity ID</label>
+        <label for="add-member-id" class="block text-xs font-semibold text-gray-500 uppercase tracking-wider mb-2">Identity ID</label>
         <input
           id="add-member-id"
           type="text"
           bind:value={addMemberForm.agent_id}
           placeholder="UUID of the identity"
-          class="w-full px-4 py-3 border border-surface-200 rounded-xl text-sm input-focus outline-none font-medium font-mono"
+          class="w-full px-4 py-3 border border-gray-200 rounded-xl text-sm input-focus outline-none font-medium font-mono"
         />
-        <p class="text-surface-400 text-xs mt-1">Enter the identity UUID to add to this group.</p>
+        <p class="text-gray-400 text-xs mt-1">Enter the identity UUID to add to this group.</p>
       </div>
       <div>
-        <label for="add-member-role" class="block text-xs font-semibold text-surface-500 uppercase tracking-wider mb-2">Role</label>
+        <label for="add-member-role" class="block text-xs font-semibold text-gray-500 uppercase tracking-wider mb-2">Role</label>
         <select
           id="add-member-role"
           bind:value={addMemberForm.role}
-          class="w-full px-4 py-3 border border-surface-200 rounded-xl text-sm input-focus outline-none font-medium bg-white"
+          class="w-full px-4 py-3 border border-gray-200 rounded-xl text-sm input-focus outline-none font-medium bg-white"
         >
           <option value="lead">lead — Full group management</option>
           <option value="member">member — Read & basic operations</option>
@@ -496,7 +497,7 @@
       <div class="flex gap-3 justify-end pt-1">
         <button
           on:click={() => { showAddMemberModal = false; addMemberForm = { agent_id: '', role: 'member' }; }}
-          class="px-4 py-2.5 text-surface-500 hover:text-surface-800 font-semibold text-sm transition-all rounded-lg hover:bg-surface-50"
+          class="px-4 py-2.5 text-gray-500 hover:text-gray-800 font-semibold text-sm transition-all rounded-lg hover:bg-gray-50"
         >
           Cancel
         </button>
