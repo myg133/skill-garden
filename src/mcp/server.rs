@@ -1116,7 +1116,7 @@ impl McpServer {
             ),
             Tool::new(
                 "skills.install",
-                "Install a skill locally. Returns metadata and ALL skill files from disk as files[] with path+content (includes SKILL.md, src/, tests/, assets/, etc). Increments install count.",
+                "Install a skill. Returns metadata + a signed download URL (tarball). The agent should download the tar.gz from download_url and extract it to the skills directory. URL expires in 300 seconds. File count and tarball size are included for progress tracking.",
                 Arc::new(serde_json::json!({
                     "type": "object",
                     "properties": {

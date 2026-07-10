@@ -47,6 +47,11 @@ impl RegistryService {
         self.skills_dir.join(name)
     }
 
+    /// 公开的 skill 目录路径（供 download handler 使用）
+    pub fn skill_dir_path(&self, name: &str) -> PathBuf {
+        self.skill_dir(name)
+    }
+
     /// 获取 SKILL.md 路径
     fn skill_md_path(&self, name: &str) -> PathBuf {
         self.skill_dir(name).join("SKILL.md")
@@ -351,54 +356,44 @@ impl RegistryService {
         Ok(skill)
     }
 
-    /// 获取 Skill 全部文件内容，供 install 使用
-    /// 优先从磁盘读取；磁盘没有 SKILL.md 时从 DB content 兜底，content 也为空时从 metadata 生成
+    /// 获取 Skill 安装信息，返回下载链接而非文件内容
+    /// 计算文件统计（数量+总大小），生成签名下载 URL
     pub async fn get_skill_files(&self, skill_id: &str) -> Result<InstallResult, AppError> {
-        // 从 DB 获取元数据（包含 content 字段）
         let skill = self.get_skill(skill_id).await?;
-
-        // 从磁盘递归读取 skill 目录下的所有文件
-        let mut files: Vec<crate::models::skill::SkillFile> = Vec::new();
         let skill_dir = self.skill_dir(&skill.name);
 
-        if skill_dir.exists() {
-            self.collect_skill_files(&skill_dir, "", &mut files)?;
-        } else {
-            // 回退：尝试从 git-repos/skill-{name}/ 同步文件
+        // 确保文件可用：从 git-repos 同步（如果需要）
+        if !skill_dir.exists() {
             if let Some(data_dir) = self.registry_dir.parent() {
                 let git_repo_dir = data_dir.join("git-repos").join(format!("skill-{}", skill.name));
                 if git_repo_dir.exists() {
-                    if let Ok(()) = self.sync_skill_files_from(&skill.name, &git_repo_dir) {
-                        if skill_dir.exists() {
-                            self.collect_skill_files(&skill_dir, "", &mut files)?;
-                        }
-                    }
+                    self.sync_skill_files_from(&skill.name, &git_repo_dir)?;
                 }
             }
         }
 
-        // 确保 SKILL.md 一定存在：磁盘有就用磁盘的，否则 content 优先，最后从 metadata 生成
-        let has_skill_md = files.iter().any(|f| f.path == "SKILL.md");
-        if !has_skill_md {
-            let content = if !skill.content.is_empty() {
-                skill.content.clone()
-            } else {
-                // content 也是空的 → 用 description/name/tags 生成最小 SKILL.md
-                let mut md = String::new();
-                md.push_str(&format!("# {}\n\n", skill.name));
-                md.push_str(&format!("{}\n\n", skill.description));
-                md.push_str("## Version\n\n");
-                md.push_str(&format!("Version: {}\n", skill.version));
-                if !skill.tags.is_empty() {
-                    md.push_str(&format!("Tags: {}\n", skill.tags.join(", ")));
-                }
-                md
-            };
-            files.push(crate::models::skill::SkillFile {
-                path: "SKILL.md".to_string(),
-                content,
-            });
-        }
+        // 统计文件数量和总大小
+        let (file_count, tarball_size) = if skill_dir.exists() {
+            self.count_skill_files(&skill_dir)?
+        } else {
+            // 文件不存在但有 content：计为 1 个文件（将从 metadata 生成 SKILL.md）
+            let fallback_size = skill.content.len() as u64;
+            (1, fallback_size)
+        };
+
+        // 生成下载 token（5分钟有效）
+        let expires_in: u64 = 300;
+        let expires_at = chrono::Utc::now().timestamp() as u64 + expires_in;
+        let token = Self::generate_download_token(&skill.name, &skill.version, expires_at);
+
+        // 构建下载 URL
+        let download_url = Self::build_download_url(&skill.name, &skill.version, &token, expires_at);
+
+        // 生成安装指引
+        let install_hint = format!(
+            "Download the tarball and extract to your skills directory. Example:\n  mkdir -p skills/{} && curl -sL \"{}\" | tar -xzf - -C skills/{}",
+            skill.name, download_url, skill.name
+        );
 
         Ok(InstallResult {
             success: true,
@@ -417,17 +412,19 @@ impl RegistryService {
             git_url: skill.git_url.clone(),
             dependencies: skill.dependencies.clone(),
             tools: skill.tools.clone(),
-            files,
+            download_url: Some(download_url),
+            expires_in,
+            install_hint,
+            file_count,
+            tarball_size,
         })
     }
 
-    /// 递归收集 skill 目录下的所有文件（包括 SKILL.md）
-    fn collect_skill_files(
-        &self,
-        dir: &std::path::Path,
-        prefix: &str,
-        files: &mut Vec<crate::models::skill::SkillFile>,
-    ) -> Result<(), AppError> {
+    /// 递归统计 skill 目录文件数量和总大小
+    fn count_skill_files(&self, dir: &std::path::Path) -> Result<(usize, u64), AppError> {
+        let mut count = 0usize;
+        let mut total_size = 0u64;
+
         for entry in std::fs::read_dir(dir).map_err(|e| {
             AppError::RegistryReadFailed(format!("Failed to read dir {}: {}", dir.display(), e))
         })? {
@@ -435,23 +432,60 @@ impl RegistryService {
                 AppError::RegistryReadFailed(format!("Failed to read entry: {}", e))
             })?;
             let path = entry.path();
-            let rel_path = if prefix.is_empty() {
-                entry.file_name().to_string_lossy().to_string()
-            } else {
-                format!("{}/{}", prefix, entry.file_name().to_string_lossy())
-            };
-
             if path.is_dir() {
-                self.collect_skill_files(&path, &rel_path, files)?;
+                let (sub_count, sub_size) = self.count_skill_files(&path)?;
+                count += sub_count;
+                total_size += sub_size;
             } else {
-                let content = self.storage.read_file(&path)?;
-                files.push(crate::models::skill::SkillFile {
-                    path: rel_path,
-                    content,
-                });
+                let metadata = std::fs::metadata(&path).map_err(|e| {
+                    AppError::RegistryReadFailed(format!("Failed to read metadata: {}", e))
+                })?;
+                count += 1;
+                total_size += metadata.len();
             }
         }
-        Ok(())
+
+        // 兜底：至少有 1 个 SKILL.md
+        Ok((count.max(1), total_size.max(1)))
+    }
+
+    /// 生成下载 token：HMAC-SHA256(skill_name|version|expires)
+    fn generate_download_token(name: &str, version: &str, expires: u64) -> String {
+        use hmac::{Hmac, Mac};
+        use sha2::Sha256;
+
+        let secret = std::env::var("AION_HIVE_DOWNLOAD_SECRET")
+            .or_else(|_| std::env::var("AION_HIVE_JWT_SECRET"))
+            .unwrap_or_else(|_| "aion-hive-default-download-secret".to_string());
+
+        let payload = format!("{}|{}|{}", name, version, expires);
+        let mut mac = Hmac::<Sha256>::new_from_slice(secret.as_bytes())
+            .expect("HMAC can take key of any size");
+        mac.update(payload.as_bytes());
+        hex::encode(mac.finalize().into_bytes())
+    }
+
+    /// 构建下载 URL
+    fn build_download_url(name: &str, version: &str, token: &str, expires: u64) -> String {
+        let base = std::env::var("AION_HIVE_PUBLIC_URL")
+            .unwrap_or_else(|_| format!(
+                "http://localhost:{}",
+                std::env::var("AION_HIVE_HTTP_PORT").unwrap_or_else(|_| "8080".to_string())
+            ))
+            .trim_end_matches('/')
+            .to_string();
+
+        format!(
+            "{}/api/v1/skills/{}/download/{}?token={}&expires={}",
+            base, name, version, token, expires
+        )
+    }
+
+    /// ** 内部方法：保留给 tarball 生成使用 **
+    /// 验证下载 token 是否有效
+    pub fn verify_download_token(name: &str, version: &str, token: &str, expires: u64) -> bool {
+        let expected = Self::generate_download_token(name, version, expires);
+        expected == token
     }
 
     /// 列出所有 Skills

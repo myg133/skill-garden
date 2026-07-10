@@ -2499,6 +2499,88 @@ pub async fn install_skill_handler(
     ))
 }
 
+/// GET /api/v1/skills/:name/download/:version?token=...&expires=...
+/// 返回 skill 目录的 tar.gz 包，token 由 skills.install 生成，5 分钟有效
+pub async fn download_skill_handler(
+    State(state): State<ApiState>,
+    Path((name, version)): Path<(String, String)>,
+    Query(query): Query<DownloadSkillQuery>,
+) -> Result<impl IntoResponse, ApiError> {
+    // 1. 防止路径遍历
+    if name.contains("..") || name.contains('/') || name.contains('\\') {
+        return Err(ApiError::BadRequest("Invalid skill name".to_string()));
+    }
+
+    // 2. 验证 token
+    let expires: u64 = query.expires.parse().map_err(|_| {
+        ApiError::BadRequest("Invalid expires parameter".to_string())
+    })?;
+
+    let now = chrono::Utc::now().timestamp() as u64;
+    if now > expires {
+        return Err(ApiError::Unauthorized("Download token expired".to_string()));
+    }
+
+    if !crate::services::RegistryService::verify_download_token(
+        &name, &version, &query.token, expires,
+    ) {
+        return Err(ApiError::Unauthorized("Invalid download token".to_string()));
+    }
+
+    // 3. 找到 skill 目录
+    let skill_dir = state.registry.skill_dir_path(&name);
+    if !skill_dir.exists() || !skill_dir.is_dir() {
+        return Err(ApiError::NotFound(format!("Skill '{}' not found on disk", name)));
+    }
+
+    // 4. 在 blocking 线程池中生成 tar.gz
+    let tarball = tokio::task::spawn_blocking(move || -> Result<Vec<u8>, String> {
+        let mut buf = Vec::new();
+        let encoder =
+            flate2::write::GzEncoder::new(&mut buf, flate2::Compression::default());
+        let mut tar_builder = tar::Builder::new(encoder);
+
+        tar_builder
+            .append_dir_all(".", &skill_dir)
+            .map_err(|e| format!("Failed to build tarball: {}", e))?;
+
+        let encoder = tar_builder
+            .into_inner()
+            .map_err(|e| format!("Failed to finalize tar: {}", e))?;
+        encoder
+            .finish()
+            .map_err(|e| format!("Failed to compress: {}", e))?;
+
+        Ok(buf)
+    })
+    .await
+    .map_err(|e| ApiError::InternalError(format!("Tarball generation failed: {}", e)))?
+    .map_err(|e| ApiError::InternalError(e))?;
+
+    let filename = format!("{}-{}.tar.gz", name, version);
+
+    // 5. 返回文件流
+    let response = axum::response::Response::builder()
+        .status(StatusCode::OK)
+        .header("Content-Type", "application/gzip")
+        .header(
+            "Content-Disposition",
+            format!("attachment; filename=\"{}\"", filename),
+        )
+        .header("Content-Length", tarball.len().to_string())
+        .body(axum::body::Body::from(tarball))
+        .map_err(|e| ApiError::InternalError(format!("Failed to build response: {}", e)))?;
+
+    Ok(response)
+}
+
+/// 下载参数
+#[derive(serde::Deserialize)]
+pub struct DownloadSkillQuery {
+    pub token: String,
+    pub expires: String,
+}
+
 pub async fn list_skill_groups_handler(
     State(state): State<ApiState>,
     AgentContext { subject: _, .. }: AgentContext,

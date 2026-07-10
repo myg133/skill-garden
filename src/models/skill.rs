@@ -197,7 +197,8 @@ impl From<Skill> for SkillDetail {
     }
 }
 
-/// 安装结果 — 包含 Skill 元数据 + 全部磁盘文件（供客户端完整重建）
+/// 安装结果 — 包含 Skill 元数据 + 下载链接（tarball）
+/// Agent 通过 download_url 一次性下载 tar.gz，解压到 skill 目录即可
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct InstallResult {
     pub success: bool,
@@ -224,17 +225,21 @@ pub struct InstallResult {
     /// 引用的工具
     #[serde(default)]
     pub tools: Vec<String>,
-    /// Skill 全部文件（相对路径 + 内容），包括 SKILL.md、src/、tests/、assets/ 等
-    /// 所有内容均从磁盘实际文件读取，非数据库
+    /// tarball 下载链接（含签名 token，TTL 300秒）
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub download_url: Option<String>,
+    /// URL 有效期（秒）
     #[serde(default)]
-    pub files: Vec<SkillFile>,
-}
-
-/// 附加文件条目
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct SkillFile {
-    pub path: String,
-    pub content: String,
+    pub expires_in: u64,
+    /// 安装指引（人类可读）
+    #[serde(default)]
+    pub install_hint: String,
+    /// 文件总数
+    #[serde(default)]
+    pub file_count: usize,
+    /// tarball 大小（字节）
+    #[serde(default)]
+    pub tarball_size: u64,
 }
 
 /// Skill 更新参数
@@ -385,18 +390,19 @@ mod tests {
             git_url: None,
             dependencies: vec![],
             tools: vec![],
-            files: vec![
-                SkillFile { path: "SKILL.md".to_string(), content: "# Skill\n...".to_string() },
-                SkillFile { path: "src/main.py".to_string(), content: "print('hello')".to_string() },
-            ],
+            download_url: Some("http://localhost:8080/api/v1/skills/browse/download/1.0.0?token=xxx&expires=12345".to_string()),
+            expires_in: 300,
+            install_hint: "Download the tarball and extract to your skills directory".to_string(),
+            file_count: 2,
+            tarball_size: 1234,
         };
         let json = serde_json::to_string(&result).unwrap();
         let parsed: InstallResult = serde_json::from_str(&json).unwrap();
         assert!(parsed.success);
         assert_eq!(parsed.skill_id, "skill-browse-1.0.0");
-        assert_eq!(parsed.files.len(), 2);
-        assert_eq!(parsed.files[0].path, "SKILL.md");
-        assert_eq!(parsed.files[1].path, "src/main.py");
+        assert_eq!(parsed.file_count, 2);
+        assert_eq!(parsed.expires_in, 300);
+        assert!(parsed.download_url.is_some());
     }
 }
 

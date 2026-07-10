@@ -297,7 +297,7 @@
           </div>
           <span class="text-gray-500 text-[11px] font-semibold uppercase tracking-wider">Installs</span>
         </div>
-        <p class="text-[28px] font-extrabold text-blue-600 stat-number">{stats?.install_count || 0}</p>
+        <p class="text-[28px] font-extrabold text-blue-600 stat-number">{skill?.install_count || 0}</p>
       </div>
 
       <div class="bg-white rounded-2xl border border-gray-200 p-5 card">
@@ -309,7 +309,7 @@
           </div>
           <span class="text-gray-500 text-[11px] font-semibold uppercase tracking-wider">Evaluations</span>
         </div>
-        <p class="text-[28px] font-extrabold text-purple-600 stat-number">{stats?.evaluation_count || 0}</p>
+        <p class="text-[28px] font-extrabold text-purple-600 stat-number">{stats?.total_evaluations || 0}</p>
       </div>
 
       <div class="bg-white rounded-2xl border border-gray-200 p-5 card">

@@ -61,6 +61,11 @@ bcrypt = "0.15"
 # Cryptographic hashing for API keys and agent tokens
 sha2 = "0.10"
 hex = "0.4"
+hmac = "0.12"
+
+# Tarball generation for skill downloads
+flate2 = "1.0"
+tar = "0.4"
 
 # HTTP Client (for webhook forwarding)
 reqwest = { version = "0.12", features = ["json"] }

@@ -54,6 +54,11 @@ pub fn create_api_router(state: ApiState) -> Router<ApiState> {
             delete(remove_skill_from_group_handler),
         )
         .route("/api/v1/skills/:id/install", post(install_skill_handler))
+        // Skill tarball download (token-protected, generated from data/skills/)
+        .route(
+            "/api/v1/skills/:name/download/:version",
+            get(download_skill_handler),
+        )
         // Skill version management
         .route(
             "/api/v1/skills/:name/versions",
