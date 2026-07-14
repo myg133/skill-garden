@@ -1,19 +1,14 @@
 ﻿<script>
-  import { onMount } from 'svelte';
-  import { navigate } from 'svelte-routing';
+  import { navigate, useLocation } from 'svelte-routing';
   import { auth, selectedNav } from '../stores/auth.js';
   import Icon from './Icon.svelte';
 
   const STORAGE_KEY = 'nav_collapsed';
   const SIDEBAR_KEY = 'sidebar_collapsed';
+  const location = useLocation();
 
-  // Sync selectedNav from actual URL on mount (handles refresh / direct URL)
-  onMount(() => {
-    const path = window.location.pathname;
-    if (path && path !== '/') {
-      $selectedNav = path;
-    }
-  });
+  // 同步路由变化到 selectedNav，确保导航栏高亮与当前页面一致
+  $: $selectedNav = $location.pathname;
 
   function handleNavigate(href) {
     $selectedNav = href;

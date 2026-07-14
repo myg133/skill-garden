@@ -12,7 +12,7 @@
     if (node.type === 'dir') {
       collapsed = !collapsed;
     } else {
-      selectFile(node.path);
+      selectFile(node.path, node.originalPath);
     }
   }
 

@@ -121,7 +121,7 @@ impl McpServer {
         api_key: &ApiKeyService,
         identity: &IdentityService,
         api_key_raw: &str,
-    ) -> Result<(AgentContext, Uuid), String> {
+    ) -> Result<(AgentContext, Option<Uuid>), String> {
         // 1. Validate API key
         let key_record = api_key
             .validate(api_key_raw)
@@ -136,7 +136,7 @@ impl McpServer {
             })?;
 
         tracing::debug!(
-            "API key validated: id={}, org_id={}, identity_id={}",
+            "API key validated: id={}, org_id={:?}, identity_id={}",
             key_record.id,
             key_record.organization_id,
             key_record.identity_id
@@ -174,13 +174,14 @@ impl McpServer {
         let _ = api_key.mark_used(key_record.id).await;
 
         // 5. Build AgentContext (no agent registration, no JWT, no session yet)
-        // tracing::info!(
-        //     "MCP auth SUCCESS via API key: identity={} (id={})",
-        //     identity_name,
-        //     identity_id
-        // );
         Ok((
-            agent_context_from_identity(identity_id, &identity_name, None, Some(org_id)),
+            agent_context_from_identity(
+                identity_id,
+                &identity_name,
+                None,
+                org_id,
+                Some(key_record.id),
+            ),
             org_id,
         ))
     }
@@ -230,27 +231,29 @@ impl McpServer {
                     Ok((mut ctx, org_id)) => {
                         // Auto-create or reuse session for this identity
                         if let Some(identity_id) = ctx.identity_id {
-                            match self
-                                .session
-                                .find_or_create_session(identity_id, org_id)
-                                .await
-                            {
-                                Ok(session) => {
-                                    ctx.session_id = Some(session.id);
-                                    // Touch last_active_at so idle cleanup doesn't end this session
-                                    let _ = self.session.touch_session(session.id).await;
-                                    tracing::debug!(
-                                        "Session {} bound to identity {}",
-                                        session.id,
-                                        identity_id
-                                    );
-                                }
-                                Err(e) => {
-                                    tracing::warn!(
-                                        "Failed to create session for identity {}: {}",
-                                        identity_id,
-                                        e
-                                    );
+                            if let Some(org_id) = org_id {
+                                match self
+                                    .session
+                                    .find_or_create_session(identity_id, org_id)
+                                    .await
+                                {
+                                    Ok(session) => {
+                                        ctx.session_id = Some(session.id);
+                                        // Touch last_active_at so idle cleanup doesn't end this session
+                                        let _ = self.session.touch_session(session.id).await;
+                                        tracing::debug!(
+                                            "Session {} bound to identity {}",
+                                            session.id,
+                                            identity_id
+                                        );
+                                    }
+                                    Err(e) => {
+                                        tracing::warn!(
+                                            "Failed to create session for identity {}: {}",
+                                            identity_id,
+                                            e
+                                        );
+                                    }
                                 }
                             }
                         }
@@ -444,11 +447,11 @@ impl McpServer {
 
                 match self.search.search(&query, tags.as_deref(), limit) {
                     Ok(results) => {
-                        // Filter out rejected skills (Tantivy index doesn't store review_status)
+                        // Filter out rejected skills (Tantivy index doesn't store status)
                         let mut filtered = Vec::new();
                         for r in results {
                             if let Ok(skill) = self.registry.get_skill(&r.skill_id).await {
-                                if skill.review_status != "rejected" {
+                                if skill.status != "rejected" {
                                     filtered.push(r);
                                 }
                             }
@@ -570,6 +573,7 @@ impl McpServer {
                             tools,
                             owner_type: "user".to_string(),
                             owner_id,
+                            author_identity_id: None,
                         };
                         match self
                             .registry
@@ -641,25 +645,35 @@ impl McpServer {
             "skills.install" => {
                 let skill_id = args.get("skill_id").and_then(|v| v.as_str());
 
+                // Extract identity info from agent context for download audit
+                let identity_id = agent_ctx.and_then(|c| c.identity_id);
+                let api_key_id = agent_ctx.and_then(|c| c.api_key_id);
+
                 match skill_id {
-                    Some(id) => {
-                        match self.registry.get_skill_files(id).await {
-                            Ok(result) => {
-                                // 递增安装计数
-                                if let Err(e) = self.registry.increment_install_count(id).await {
-                                    tracing::warn!(
-                                        "Failed to increment install count for {}: {}",
-                                        id,
-                                        e
-                                    );
+                    Some(id) => match (identity_id, api_key_id) {
+                        (Some(identity), Some(api_key)) => {
+                            match self.registry.get_skill_files(id, identity, api_key).await {
+                                Ok(result) => {
+                                    // 递增安装计数
+                                    if let Err(e) = self.registry.increment_install_count(id).await
+                                    {
+                                        tracing::warn!(
+                                            "Failed to increment install count for {}: {}",
+                                            id,
+                                            e
+                                        );
+                                    }
+                                    Self::json_success(
+                                        serde_json::to_value(result).unwrap_or_default(),
+                                    )
                                 }
-                                Self::json_success(
-                                    serde_json::to_value(result).unwrap_or_default(),
-                                )
+                                Err(e) => Self::json_error(format!("Install failed: {}", e)),
                             }
-                            Err(e) => Self::json_error(format!("Install failed: {}", e)),
                         }
-                    }
+                        _ => Self::json_error(
+                            "Authentication required: valid API key with identity".to_string(),
+                        ),
+                    },
                     None => Self::json_error("skill_id is required".to_string()),
                 }
             }
@@ -870,13 +884,11 @@ impl McpServer {
                                     })
                                 })
                                 .collect();
-                            Self::json_success(
-                                serde_json::json!({
-                                    "org_id": oid.to_string(),
-                                    "tools": tools_json,
-                                    "total": tools_json.len()
-                                }),
-                            )
+                            Self::json_success(serde_json::json!({
+                                "org_id": oid.to_string(),
+                                "tools": tools_json,
+                                "total": tools_json.len()
+                            }))
                         }
                         Err(e) => Self::json_error(format!("List tools failed: {}", e)),
                     },
@@ -890,9 +902,7 @@ impl McpServer {
             "tools.execute" => {
                 let tool_id = args.get("tool_id").and_then(|v| v.as_str());
                 // org_id from args first, then fall back to auth context
-                let org_id_from_auth = agent_ctx
-                    .and_then(|c| c.org_id)
-                    .map(|id| id.to_string());
+                let org_id_from_auth = agent_ctx.and_then(|c| c.org_id).map(|id| id.to_string());
                 let org_id = args
                     .get("org_id")
                     .and_then(|v| v.as_str())

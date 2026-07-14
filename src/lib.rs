@@ -83,6 +83,7 @@ pub struct AppState {
     pub system_role_assignment: services::admin::SystemRoleAssignmentService,
     pub role_permission: services::admin::RolePermissionService,
     pub permission: services::PermissionService,
+    pub download_token_repo: db::repositories::DownloadTokenRepository,
     pub data_dir: PathBuf,
     pub skills_dir: PathBuf,
 }
@@ -111,10 +112,12 @@ impl AppState {
         let session_context_repo = db::repositories::SessionContextRepository::new(pool.clone());
 
         // Create services
+        let download_token_repo = db::repositories::DownloadTokenRepository::new(pool.clone());
         let registry = services::RegistryService::new(
             skills_dir.clone(),
             data_dir.join("registry"),
             skill_repo.clone(),
+            download_token_repo.clone(),
         );
         let search = services::SearchService::new(&data_dir.join("search_index"))?;
         let evaluator = services::EvaluatorService::new(data_dir.clone(), eval_repo);
@@ -139,7 +142,7 @@ impl AppState {
         let audit_log_repo = db::repositories::AuditLogRepository::new(pool.clone());
 
         let tenant = services::admin::TenantService::new(tenant_repo);
-        let identity = services::admin::IdentityService::new(identity_repo);
+        let identity = services::admin::IdentityService::new(identity_repo.clone());
         let role = services::admin::RoleService::new(role_repo);
         let group = services::admin::GroupService::new(group_repo);
         let api_key = services::admin::ApiKeyService::new(api_key_repo);
@@ -163,6 +166,7 @@ impl AppState {
             role_permission_repo,
             group_perm_override_repo.clone(),
             group_repo_for_perm,
+            identity_repo.clone(),
         );
 
         Ok(Self {
@@ -186,6 +190,7 @@ impl AppState {
             system_role_assignment,
             role_permission,
             permission,
+            download_token_repo,
             data_dir,
             skills_dir,
         })

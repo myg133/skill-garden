@@ -8,7 +8,7 @@ use uuid::Uuid;
 pub struct ApiKey {
     pub id: Uuid,
     pub identity_id: Uuid,
-    pub organization_id: Uuid,
+    pub organization_id: Option<Uuid>,
     pub key_hash: String,
     pub key_prefix: String,
     pub name: Option<String>,
@@ -47,7 +47,7 @@ impl From<&str> for ApiKeyStatus {
 #[derive(Debug, Clone, Deserialize)]
 pub struct CreateApiKeyRequest {
     pub identity_id: Uuid,
-    pub organization_id: Uuid,
+    pub organization_id: Option<Uuid>,
     pub name: Option<String>,
     #[serde(default)]
     pub scopes: Vec<String>,
@@ -61,11 +61,25 @@ fn default_rate_limit() -> i32 {
     1000
 }
 
+/// 用户自服务创建 API Key 的请求（区别于管理员创建，identity_id 从认证上下文获取）
+#[derive(Debug, Clone, Deserialize)]
+pub struct UserCreateApiKeyRequest {
+    /// 组织 ID，可为空（个人用户不选组织时）
+    pub organization_id: Option<Uuid>,
+    pub name: Option<String>,
+    #[serde(default)]
+    pub scopes: Vec<String>,
+    #[serde(default = "default_rate_limit")]
+    pub rate_limit: i32,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub expires_at: Option<DateTime<Utc>>,
+}
+
 #[derive(Debug, Clone, Serialize)]
 pub struct ApiKeyResponse {
     pub id: Uuid,
     pub identity_id: Uuid,
-    pub organization_id: Uuid,
+    pub organization_id: Option<Uuid>,
     pub key: String,
     pub key_prefix: String,
     pub name: Option<String>,

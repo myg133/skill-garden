@@ -31,7 +31,9 @@ use tracing_subscriber::{layer::SubscriberExt, util::SubscriberInitExt};
 use uuid::Uuid;
 
 use aion_hive::api::create_api_router;
-use aion_hive::api::http_state::{AppRouterState, HttpState, SseSession, SseState, SSE_IDLE_TIMEOUT_SECS};
+use aion_hive::api::http_state::{
+    AppRouterState, HttpState, SseSession, SseState, SSE_IDLE_TIMEOUT_SECS,
+};
 use aion_hive::db::repositories::{
     AgentRepository, AuditLogRepository, AuditRepository, EvaluationRepository, SkillRepository,
     VersionRepository,
@@ -95,10 +97,13 @@ async fn sse_handler(State(state): State<Arc<AppRouterState>>) -> impl IntoRespo
 
     {
         let mut sessions = state.sse.sessions.write().await;
-        sessions.insert(session_id.clone(), SseSession {
-            tx: tx.clone(),
-            last_activity: Instant::now(),
-        });
+        sessions.insert(
+            session_id.clone(),
+            SseSession {
+                tx: tx.clone(),
+                last_activity: Instant::now(),
+            },
+        );
     }
 
     let message_endpoint = format!("/sse/{}", session_id);
@@ -271,6 +276,7 @@ async fn run_http_server(state: AppState, port: u16) -> Result<()> {
         skill_git,
         version_repo,
         skill_repo,
+        download_token_repo: state.download_token_repo.clone(),
         tenant: state.tenant.clone(),
         identity: state.identity.clone(),
         role: state.role.clone(),

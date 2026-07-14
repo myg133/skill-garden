@@ -18,6 +18,88 @@ use crate::models::{NewSkill, SkillUpdate};
 
 pub type ApiState = Arc<AppRouterState>;
 
+/// 辅助函数：从 Skill 模型中提取字段并执行权限校验
+async fn check_skill_perm(
+    state: &ApiState,
+    identity_id: Option<uuid::Uuid>,
+    skill: &crate::models::Skill,
+    action: crate::services::SkillAction,
+) -> Result<(), ApiError> {
+    let vis_str = match &skill.visibility {
+        crate::models::skill_policy::Visibility::Private => "private",
+        crate::models::skill_policy::Visibility::OrgVisible => "org_visible",
+        crate::models::skill_policy::Visibility::Marketplace => "marketplace",
+        crate::models::skill_policy::Visibility::Shared => "shared",
+    };
+    check_skill_perm_raw(
+        state,
+        identity_id,
+        &skill.owner_type,
+        skill.owner_id,
+        skill.author_identity_id,
+        &skill.status,
+        vis_str,
+        action,
+    )
+    .await
+}
+
+/// 辅助函数：使用 DB Skill 类型执行权限校验
+async fn check_skill_perm_db(
+    state: &ApiState,
+    identity_id: Option<uuid::Uuid>,
+    skill: &crate::db::repositories::skill::Skill,
+    action: crate::services::SkillAction,
+) -> Result<(), ApiError> {
+    check_skill_perm_raw(
+        state,
+        identity_id,
+        &skill.owner_type,
+        skill.owner_id,
+        skill.author_identity_id,
+        &skill.status,
+        &skill.visibility,
+        action,
+    )
+    .await
+}
+
+/// 辅助函数：使用原始字段值执行权限校验
+async fn check_skill_perm_raw(
+    state: &ApiState,
+    identity_id: Option<uuid::Uuid>,
+    owner_type: &str,
+    owner_id: Option<uuid::Uuid>,
+    author_identity_id: Option<uuid::Uuid>,
+    skill_status: &str,
+    visibility: &str,
+    action: crate::services::SkillAction,
+) -> Result<(), ApiError> {
+    let id_id = identity_id.ok_or_else(|| {
+        tracing::warn!(
+            "Permission check blocked: no identity_id in token (action={:?}, owner_type={})",
+            action,
+            owner_type
+        );
+        ApiError::Forbidden("身份信息缺失，请使用新版 API Key 重新认证".to_string())
+    })?;
+
+    state
+        .permission
+        .check_skill_permission(
+            id_id,
+            owner_type,
+            owner_id,
+            author_identity_id,
+            skill_status,
+            visibility,
+            action,
+        )
+        .await
+        .map_err(|e| ApiError::Forbidden(e))?;
+    Ok(())
+}
+
 pub async fn health_handler(State(state): State<ApiState>) -> Result<impl IntoResponse, ApiError> {
     let skills_count = state
         .registry
@@ -442,8 +524,21 @@ pub async fn create_my_api_key_handler(
     let identity_id = uuid::Uuid::parse_str(&subject)
         .map_err(|_| ApiError::BadRequest("Invalid subject".to_string()))?;
 
-    let request = crate::models::api_key::CreateApiKeyRequest {
-        identity_id,
+    // 验证：如果提供了 organization_id，必须是用户所属组织
+    if let Some(org_id) = body.organization_id {
+        let is_member = state
+            .permission
+            .is_org_member(identity_id, org_id)
+            .await
+            .map_err(|e| ApiError::InternalError(e.to_string()))?;
+        if !is_member {
+            return Err(ApiError::Forbidden(
+                "不能为不属于的组织创建 API Key".to_string(),
+            ));
+        }
+    }
+
+    let user_req = crate::models::api_key::UserCreateApiKeyRequest {
         organization_id: body.organization_id,
         name: body.name,
         scopes: body.scopes.unwrap_or_default(),
@@ -452,7 +547,7 @@ pub async fn create_my_api_key_handler(
     };
     let key = state
         .api_key
-        .create(request)
+        .create_user_api_key(identity_id, user_req)
         .await
         .map_err(|e| ApiError::BadRequest(e.to_string()))?;
     Ok((
@@ -1188,7 +1283,7 @@ pub async fn get_git_proxy_health_handler(
 
 pub async fn list_skills_handler(
     State(state): State<ApiState>,
-    AgentContext { subject: _, .. }: AgentContext,
+    AgentContext { identity_id, .. }: AgentContext,
     Query(query): Query<crate::api::models::ListSkillsQuery>,
 ) -> Result<impl IntoResponse, ApiError> {
     let page = query.page.unwrap_or(1).max(1);
@@ -1200,7 +1295,35 @@ pub async fn list_skills_handler(
         .await
         .map_err(|e| ApiError::InternalError(e.to_string()))?;
 
-    let mut filtered: Vec<_> = skills;
+    // RBAC 过滤：管理员看全部，普通用户看 marketplace + 自己的 Skill
+    let is_admin = if let Some(id_id) = identity_id {
+        state
+            .permission
+            .is_system_admin(id_id)
+            .await
+            .unwrap_or(false)
+    } else {
+        false
+    };
+
+    let mut filtered: Vec<_> = if is_admin {
+        skills
+    } else {
+        skills
+            .into_iter()
+            .filter(|s| {
+                let vis_str = match &s.visibility {
+                    crate::models::skill_policy::Visibility::Marketplace => true,
+                    _ => false,
+                };
+                // 用户自己的 Skill（owner_type="user" 且 owner_id 匹配）
+                let is_own = s.owner_type == "user"
+                    && identity_id.is_some()
+                    && (s.owner_id == identity_id || s.author_identity_id == identity_id);
+                vis_str || is_own
+            })
+            .collect()
+    };
 
     if let Some(ref tag) = query.tag {
         filtered.retain(|s| s.tags.iter().any(|t| t == tag));
@@ -1230,7 +1353,7 @@ pub async fn list_skills_handler(
 
 pub async fn get_skill_handler(
     State(state): State<ApiState>,
-    AgentContext { subject: _, .. }: AgentContext,
+    AgentContext { identity_id, .. }: AgentContext,
     Path(skill_id): Path<String>,
 ) -> Result<impl IntoResponse, ApiError> {
     let skill = state
@@ -1238,6 +1361,15 @@ pub async fn get_skill_handler(
         .get_skill(&skill_id)
         .await
         .map_err(|e| ApiError::NotFound(format!("Skill {} not found: {}", skill_id, e)))?;
+
+    // RBAC 权限校验：需要 Read 权限
+    check_skill_perm(
+        &state,
+        identity_id,
+        &skill,
+        crate::services::SkillAction::Read,
+    )
+    .await?;
 
     let stats = state.evaluator.get_stats(&skill_id).await.ok();
 
@@ -1251,7 +1383,11 @@ pub async fn get_skill_handler(
 
 pub async fn create_skill_handler(
     State(state): State<ApiState>,
-    AgentContext { subject, .. }: AgentContext,
+    AgentContext {
+        subject,
+        identity_id,
+        ..
+    }: AgentContext,
     Json(body): Json<crate::api::models::CreateSkillBody>,
 ) -> Result<impl IntoResponse, ApiError> {
     let visibility = body.visibility.as_ref().map(|v| match v.as_str() {
@@ -1262,6 +1398,10 @@ pub async fn create_skill_handler(
         _ => crate::models::skill_policy::Visibility::OrgVisible,
     });
 
+    // 个人用户创建 Skill 时，自动设置为本人所有
+    let owner_id = identity_id;
+    let owner_type = "user".to_string();
+
     let new_skill = NewSkill {
         name: body.name,
         description: body.description,
@@ -1271,8 +1411,9 @@ pub async fn create_skill_handler(
         git_url: body.git_url.clone(),
         visibility,
         tools: body.tools.clone(),
-        owner_type: "user".to_string(),
-        owner_id: None,
+        owner_type,
+        owner_id,
+        author_identity_id: identity_id,
     };
 
     let skill = state
@@ -1291,9 +1432,27 @@ pub async fn create_skill_handler(
 pub async fn update_skill_handler(
     State(state): State<ApiState>,
     Path(skill_id): Path<String>,
-    AgentContext { subject, .. }: AgentContext,
+    AgentContext {
+        subject,
+        identity_id,
+        ..
+    }: AgentContext,
     Json(body): Json<crate::api::models::UpdateSkillBody>,
 ) -> Result<impl IntoResponse, ApiError> {
+    // 权限校验
+    let skill = state
+        .registry
+        .get_skill(&skill_id)
+        .await
+        .map_err(|e| ApiError::NotFound(format!("Skill {} not found: {}", skill_id, e)))?;
+    check_skill_perm(
+        &state,
+        identity_id,
+        &skill,
+        crate::services::SkillAction::Update,
+    )
+    .await?;
+
     let visibility = body.visibility.as_ref().map(|v| match v.as_str() {
         "private" => crate::models::skill_policy::Visibility::Private,
         "org_visible" => crate::models::skill_policy::Visibility::OrgVisible,
@@ -1326,8 +1485,22 @@ pub async fn update_skill_handler(
 pub async fn delete_skill_handler(
     State(state): State<ApiState>,
     Path(skill_id): Path<String>,
-    AgentContext { .. }: AgentContext,
+    AgentContext { identity_id, .. }: AgentContext,
 ) -> Result<impl IntoResponse, ApiError> {
+    // 权限校验：只有所有者和管理员可以删除
+    let skill = state
+        .registry
+        .get_skill(&skill_id)
+        .await
+        .map_err(|e| ApiError::NotFound(format!("Skill {} not found: {}", skill_id, e)))?;
+    check_skill_perm(
+        &state,
+        identity_id,
+        &skill,
+        crate::services::SkillAction::Delete,
+    )
+    .await?;
+
     state
         .registry
         .delete_skill(&skill_id, &state.search)
@@ -1594,64 +1767,6 @@ pub async fn revoke_my_agent_handler(
     ))
 }
 
-/// Admin login handler for human administrators
-pub async fn admin_login_handler(
-    State(state): State<ApiState>,
-    Json(body): Json<crate::api::models::AdminLoginBody>,
-) -> Result<impl IntoResponse, ApiError> {
-    let rate_key = format!("admin_login:{}", body.username);
-    if !state.login_rate_limiter.check(&rate_key).await {
-        return Err(ApiError::TooManyRequests(
-            "Too many login attempts. Please try again later.".to_string(),
-        ));
-    }
-
-    tracing::debug!("Admin login attempt for username: {}", body.username);
-
-    let valid = state
-        .identity
-        .verify_password(&body.username, &body.password)
-        .await
-        .map_err(|e| {
-            tracing::error!("verify_password error: {}", e);
-            ApiError::Unauthorized(format!("Authentication error: {}", e))
-        })?;
-
-    if !valid {
-        return Err(ApiError::Unauthorized("Invalid credentials".to_string()));
-    }
-
-    let user = state
-        .identity
-        .get_by_username(&body.username)
-        .await
-        .map_err(|e| ApiError::Unauthorized(format!("Failed to get user: {}", e)))?
-        .ok_or_else(|| ApiError::Unauthorized("User not found".to_string()))?;
-
-    if !user.is_system_admin {
-        return Err(ApiError::Unauthorized(
-            "Not a system administrator".to_string(),
-        ));
-    }
-
-    let token = crate::api::jwt::generate_identity_token(user.id, &["admin"], &[])
-        .map_err(|e| ApiError::Unauthorized(format!("{:?}", e)))?;
-
-    tracing::info!("Admin login success for username: {}", body.username);
-
-    let response = crate::api::models::AdminLoginResponse {
-        token,
-        token_type: "Bearer".to_string(),
-        expires_in: 86400,
-        user: crate::api::models::AdminUserInfo {
-            id: user.id.to_string(),
-            username: user.username.unwrap_or_else(|| user.name.clone()),
-            display_name: user.display_name,
-        },
-    };
-    Ok((StatusCode::OK, Json(response)))
-}
-
 pub async fn user_login_handler(
     State(state): State<ApiState>,
     Json(body): Json<crate::api::models::UserLoginBody>,
@@ -1680,8 +1795,36 @@ pub async fn user_login_handler(
         .map_err(|e| ApiError::Unauthorized(format!("Failed to get user: {}", e)))?
         .ok_or_else(|| ApiError::Unauthorized("User not found".to_string()))?;
 
-    let token = crate::api::jwt::generate_identity_token(user.id, &["user"], &[])
+    let is_admin = user.is_system_admin;
+    let roles: &[&str] = if is_admin {
+        &["admin", "user"]
+    } else {
+        &["user"]
+    };
+    let token = crate::api::jwt::generate_identity_token(user.id, roles, &[])
         .map_err(|e| ApiError::Unauthorized(format!("{:?}", e)))?;
+
+    // 获取用户所在组织
+    let orgs = state
+        .permission
+        .get_user_orgs(user.id)
+        .await
+        .unwrap_or_default();
+    let organizations: Vec<crate::api::models::UserOrgInfo> = orgs
+        .into_iter()
+        .map(|o| crate::api::models::UserOrgInfo {
+            id: o.id,
+            name: o.name,
+            slug: o.slug,
+            role: o.role,
+        })
+        .collect();
+
+    tracing::info!(
+        "Login success for username: {} (admin={})",
+        body.username,
+        is_admin
+    );
 
     Ok((
         StatusCode::OK,
@@ -1696,6 +1839,8 @@ pub async fn user_login_handler(
                 email: user.email,
                 avatar_url: user.avatar_url,
                 identity_type: user.identity_type.to_string(),
+                is_admin: user.is_system_admin,
+                organizations,
                 created_at: user.created_at,
             },
         }),
@@ -1741,6 +1886,12 @@ pub async fn user_register_handler(
         .await
         .map_err(|e| ApiError::BadRequest(format!("Failed to create user: {}", e)))?;
 
+    // 为新注册用户赋予默认 skill_user 角色
+    let _ = state
+        .system_role_assignment
+        .assign(user.id, "skill_user", None)
+        .await;
+
     let token = crate::api::jwt::generate_identity_token(user.id, &["user"], &[])
         .map_err(|e| ApiError::InternalError(format!("{:?}", e)))?;
 
@@ -1757,6 +1908,8 @@ pub async fn user_register_handler(
                 email: user.email,
                 avatar_url: user.avatar_url,
                 identity_type: user.identity_type.to_string(),
+                is_admin: false,
+                organizations: vec![],
                 created_at: user.created_at,
             },
         }),
@@ -1871,6 +2024,21 @@ pub async fn get_user_me_handler(
         .map_err(|e| ApiError::NotFound(format!("User not found: {}", e)))?
         .ok_or_else(|| ApiError::NotFound("User not found".to_string()))?;
 
+    let orgs = state
+        .permission
+        .get_user_orgs(user.id)
+        .await
+        .unwrap_or_default();
+    let organizations: Vec<crate::api::models::UserOrgInfo> = orgs
+        .into_iter()
+        .map(|o| crate::api::models::UserOrgInfo {
+            id: o.id,
+            name: o.name,
+            slug: o.slug,
+            role: o.role,
+        })
+        .collect();
+
     Ok((
         StatusCode::OK,
         Json(crate::api::models::UserInfoResponse {
@@ -1884,6 +2052,8 @@ pub async fn get_user_me_handler(
             } else {
                 user.identity_type.to_string()
             },
+            is_admin: user.is_system_admin,
+            organizations,
             created_at: user.created_at,
         }),
     ))
@@ -1922,6 +2092,21 @@ pub async fn update_user_me_handler(
         .await
         .map_err(|e| ApiError::BadRequest(format!("Failed to update user: {}", e)))?;
 
+    let orgs = state
+        .permission
+        .get_user_orgs(user.id)
+        .await
+        .unwrap_or_default();
+    let organizations: Vec<crate::api::models::UserOrgInfo> = orgs
+        .into_iter()
+        .map(|o| crate::api::models::UserOrgInfo {
+            id: o.id,
+            name: o.name,
+            slug: o.slug,
+            role: o.role,
+        })
+        .collect();
+
     Ok((
         StatusCode::OK,
         Json(crate::api::models::UserInfoResponse {
@@ -1931,6 +2116,8 @@ pub async fn update_user_me_handler(
             email: user.email,
             avatar_url: user.avatar_url,
             identity_type: user.identity_type.to_string(),
+            is_admin: user.is_system_admin,
+            organizations,
             created_at: user.created_at,
         }),
     ))
@@ -1938,41 +2125,48 @@ pub async fn update_user_me_handler(
 
 pub async fn get_user_orgs_handler(
     State(state): State<ApiState>,
-    AgentContext { subject, .. }: AgentContext,
+    AgentContext { identity_id, .. }: AgentContext,
 ) -> Result<impl IntoResponse, ApiError> {
-    use crate::db::repositories::org_membership::OrgMembershipRepository;
-    use crate::db::repositories::organization::OrganizationRepository;
-    let identity_id = uuid::Uuid::parse_str(&subject)
-        .map_err(|_| ApiError::BadRequest("Invalid subject in token".to_string()))?;
+    let identity_id =
+        identity_id.ok_or_else(|| ApiError::Unauthorized("Identity required".to_string()))?;
 
-    let pool = state.agent_repo.pool().clone();
-    let org_membership_repo = OrgMembershipRepository::new(pool.clone());
-    let org_repo = OrganizationRepository::new(pool);
-
-    let orgs = org_membership_repo
-        .list_user_organizations(identity_id)
+    let orgs = state
+        .permission
+        .get_user_orgs(identity_id)
         .await
         .map_err(|e| ApiError::BadRequest(format!("Failed to list orgs: {}", e)))?;
 
-    let mut result = Vec::new();
-    for (org_id, role) in &orgs {
-        let org = org_repo
-            .find_by_id(*org_id)
-            .await
-            .map_err(|e| ApiError::BadRequest(format!("Failed to fetch org: {}", e)))?;
-
-        result.push(crate::api::models::UserOrgResponse {
-            id: *org_id,
-            name: org
-                .as_ref()
-                .map(|o| o.name.clone())
-                .unwrap_or_else(|| "Unknown".to_string()),
-            slug: org.and_then(|o| o.slug),
-            role: role.clone(),
-        });
-    }
+    let result: Vec<crate::api::models::UserOrgResponse> = orgs
+        .into_iter()
+        .map(|o| crate::api::models::UserOrgResponse {
+            id: o.id,
+            name: o.name,
+            slug: o.slug,
+            role: o.role,
+        })
+        .collect();
 
     Ok((StatusCode::OK, Json(result)))
+}
+
+pub async fn list_my_skills_handler(
+    State(state): State<ApiState>,
+    AgentContext { identity_id, .. }: AgentContext,
+    Query(_query): Query<crate::api::models::ListSkillsQuery>,
+) -> Result<impl IntoResponse, ApiError> {
+    let identity_id =
+        identity_id.ok_or_else(|| ApiError::Unauthorized("Identity required".to_string()))?;
+
+    use crate::db::repositories::skill::SkillRepository;
+    let pool = state.agent_repo.pool().clone();
+    let skill_repo = SkillRepository::new(pool);
+
+    let skills = skill_repo
+        .list_by_owner(identity_id)
+        .await
+        .map_err(|e| ApiError::BadRequest(format!("Failed to list my skills: {}", e)))?;
+
+    Ok((StatusCode::OK, Json(skills)))
 }
 
 pub async fn get_user_by_username_handler(
@@ -1987,6 +2181,21 @@ pub async fn get_user_by_username_handler(
         .map_err(|e| ApiError::NotFound(format!("User not found: {}", e)))?
         .ok_or_else(|| ApiError::NotFound(format!("User '{}' not found", username)))?;
 
+    let orgs = state
+        .permission
+        .get_user_orgs(user.id)
+        .await
+        .unwrap_or_default();
+    let organizations: Vec<crate::api::models::UserOrgInfo> = orgs
+        .into_iter()
+        .map(|o| crate::api::models::UserOrgInfo {
+            id: o.id,
+            name: o.name,
+            slug: o.slug,
+            role: o.role,
+        })
+        .collect();
+
     Ok((
         StatusCode::OK,
         Json(crate::api::models::UserInfoResponse {
@@ -1996,6 +2205,8 @@ pub async fn get_user_by_username_handler(
             email: None,
             avatar_url: user.avatar_url,
             identity_type: user.identity_type.to_string(),
+            is_admin: user.is_system_admin,
+            organizations,
             created_at: user.created_at,
         }),
     ))
@@ -2119,142 +2330,38 @@ pub async fn list_my_audit_logs_handler(
     ))
 }
 
-pub async fn approve_skill_handler(
-    State(state): State<ApiState>,
-    Path(skill_id): Path<String>,
-    agent_context: AgentContext,
-) -> Result<impl IntoResponse, ApiError> {
-    agent_context.require_admin()?;
-
-    use crate::db::repositories::skill::SkillRepository;
-    let pool = state.agent_repo.pool().clone();
-    let skill_repo = SkillRepository::new(pool);
-
-    let skill = skill_repo
-        .find_by_id(&skill_id)
-        .await
-        .map_err(|e| ApiError::BadRequest(e.to_string()))?
-        .ok_or_else(|| ApiError::NotFound(format!("Skill {} not found", skill_id)))?;
-
-    let reviewer_id = Uuid::parse_str(&agent_context.subject).ok();
-
-    if let (Some(author_id), Some(reviewer_id_val)) = (skill.author_identity_id, reviewer_id) {
-        if author_id == reviewer_id_val {
-            return Err(ApiError::Forbidden(
-                "Cannot approve your own skill submission".to_string(),
-            ));
-        }
-    }
-
-    skill_repo
-        .update_status(&skill_id, "published")
-        .await
-        .map_err(|e| ApiError::BadRequest(format!("Failed to approve skill: {}", e)))?;
-
-    skill_repo
-        .update_review_status(&skill_id, "approved", reviewer_id, None)
-        .await
-        .map_err(|e| ApiError::BadRequest(format!("Failed to update review status: {}", e)))?;
-
-    state
-        .audit_repo
-        .create(crate::db::repositories::audit::NewAuditLog {
-            agent_id: Some(agent_context.subject.clone()),
-            action: "skill_reviewed".to_string(),
-            resource_type: "skill".to_string(),
-            resource_id: Some(skill_id.clone()),
-            details: serde_json::json!({"action": "approved"}),
-        })
-        .await
-        .map_err(|e| ApiError::InternalError(e.to_string()))?;
-
-    Ok((
-        StatusCode::OK,
-        Json(crate::api::models::SkillReviewResponse {
-            message: "Skill approved successfully".to_string(),
-            skill_id,
-        }),
-    ))
-}
-
-pub async fn reject_skill_handler(
-    State(state): State<ApiState>,
-    Path(skill_id): Path<String>,
-    agent_context: AgentContext,
-    Json(body): Json<crate::api::models::RejectSkillBody>,
-) -> Result<impl IntoResponse, ApiError> {
-    agent_context.require_admin()?;
-
-    use crate::db::repositories::skill::SkillRepository;
-    let pool = state.agent_repo.pool().clone();
-    let skill_repo = SkillRepository::new(pool);
-
-    let skill = skill_repo
-        .find_by_id(&skill_id)
-        .await
-        .map_err(|e| ApiError::BadRequest(e.to_string()))?
-        .ok_or_else(|| ApiError::NotFound(format!("Skill {} not found", skill_id)))?;
-
-    let reviewer_id = Uuid::parse_str(&agent_context.subject).ok();
-
-    if let (Some(author_id), Some(reviewer_id_val)) = (skill.author_identity_id, reviewer_id) {
-        if author_id == reviewer_id_val {
-            return Err(ApiError::Forbidden(
-                "Cannot reject your own skill submission".to_string(),
-            ));
-        }
-    }
-
-    skill_repo
-        .update_status(&skill_id, "rejected")
-        .await
-        .map_err(|e| ApiError::BadRequest(format!("Failed to reject skill: {}", e)))?;
-
-    skill_repo
-        .update_review_status(&skill_id, "rejected", reviewer_id, body.reason.as_deref())
-        .await
-        .map_err(|e| ApiError::BadRequest(format!("Failed to update review status: {}", e)))?;
-
-    state
-        .audit_repo
-        .create(crate::db::repositories::audit::NewAuditLog {
-            agent_id: Some(agent_context.subject.clone()),
-            action: "skill_reviewed".to_string(),
-            resource_type: "skill".to_string(),
-            resource_id: Some(skill_id.clone()),
-            details: serde_json::json!({"action": "rejected", "reason": body.reason}),
-        })
-        .await
-        .map_err(|e| ApiError::InternalError(e.to_string()))?;
-
-    Ok((
-        StatusCode::OK,
-        Json(crate::api::models::SkillReviewResponse {
-            message: "Skill rejected".to_string(),
-            skill_id,
-        }),
-    ))
-}
-
 pub async fn submit_review_skill_handler(
     State(state): State<ApiState>,
     Path(skill_id): Path<String>,
-    AgentContext { subject, .. }: AgentContext,
+    AgentContext {
+        subject,
+        identity_id,
+        ..
+    }: AgentContext,
     Json(body): Json<crate::api::models::SubmitSkillReviewBody>,
 ) -> Result<impl IntoResponse, ApiError> {
+    // RBAC 权限校验：需要 SubmitReview 权限
+    let skill = state
+        .registry
+        .get_skill(&skill_id)
+        .await
+        .map_err(|e| ApiError::NotFound(format!("Skill {} not found: {}", skill_id, e)))?;
+    check_skill_perm(
+        &state,
+        identity_id,
+        &skill,
+        crate::services::SkillAction::SubmitReview,
+    )
+    .await?;
+
     use crate::db::repositories::skill::SkillRepository;
     let pool = state.agent_repo.pool().clone();
     let skill_repo = SkillRepository::new(pool);
 
     skill_repo
-        .update_status(&skill_id, "in_review")
+        .update_status(&skill_id, "pending_review", None, body.comment.as_deref())
         .await
         .map_err(|e| ApiError::BadRequest(format!("Failed to submit skill for review: {}", e)))?;
-
-    skill_repo
-        .update_review_status(&skill_id, "pending", None, body.comment.as_deref())
-        .await
-        .map_err(|e| ApiError::BadRequest(format!("Failed to update review status: {}", e)))?;
 
     state
         .audit_repo
@@ -2280,7 +2387,11 @@ pub async fn submit_review_skill_handler(
 pub async fn publish_skill_handler(
     State(state): State<ApiState>,
     Path(skill_id): Path<String>,
-    AgentContext { subject, .. }: AgentContext,
+    AgentContext {
+        subject,
+        identity_id,
+        ..
+    }: AgentContext,
 ) -> Result<impl IntoResponse, ApiError> {
     use crate::db::repositories::skill::SkillRepository;
     let pool = state.agent_repo.pool().clone();
@@ -2292,14 +2403,23 @@ pub async fn publish_skill_handler(
         .map_err(|e| ApiError::BadRequest(e.to_string()))?
         .ok_or_else(|| ApiError::NotFound(format!("Skill {} not found", skill_id)))?;
 
-    if skill.review_status != "approved" {
+    // RBAC 权限校验：需要 Publish 权限
+    check_skill_perm_db(
+        &state,
+        identity_id,
+        &skill,
+        crate::services::SkillAction::Publish,
+    )
+    .await?;
+
+    if skill.status != "approved" {
         return Err(ApiError::BadRequest(
             "Skill must be approved before publishing".to_string(),
         ));
     }
 
     skill_repo
-        .update_status(&skill_id, "published")
+        .update_status(&skill_id, "published", None, None)
         .await
         .map_err(|e| ApiError::BadRequest(format!("Failed to publish skill: {}", e)))?;
 
@@ -2327,7 +2447,11 @@ pub async fn publish_skill_handler(
 pub async fn approve_org_skill_handler(
     State(state): State<ApiState>,
     Path(skill_id): Path<String>,
-    AgentContext { subject, .. }: AgentContext,
+    AgentContext {
+        subject,
+        identity_id,
+        ..
+    }: AgentContext,
 ) -> Result<impl IntoResponse, ApiError> {
     use crate::db::repositories::skill::SkillRepository;
     let pool = state.agent_repo.pool().clone();
@@ -2339,31 +2463,27 @@ pub async fn approve_org_skill_handler(
         .map_err(|e| ApiError::BadRequest(e.to_string()))?
         .ok_or_else(|| ApiError::NotFound(format!("Skill {} not found", skill_id)))?;
 
-    if skill.review_status != "pending" && skill.status != "in_review" {
+    // RBAC 权限校验：需要 Approve 权限（自动校验不能审核自己的 Skill）
+    check_skill_perm_db(
+        &state,
+        identity_id,
+        &skill,
+        crate::services::SkillAction::Approve,
+    )
+    .await?;
+
+    if skill.status != "pending_review" {
         return Err(ApiError::BadRequest(
             "Skill must be in pending_review status to approve".to_string(),
         ));
     }
 
-    let reviewer_id = Uuid::parse_str(&subject).ok();
-
-    if let (Some(author_id), Some(reviewer_id_val)) = (skill.author_identity_id, reviewer_id) {
-        if author_id == reviewer_id_val {
-            return Err(ApiError::Forbidden(
-                "Cannot approve your own skill submission".to_string(),
-            ));
-        }
-    }
+    let reviewer_id = identity_id;
 
     skill_repo
-        .update_status(&skill_id, "published")
+        .update_status(&skill_id, "approved", reviewer_id, None)
         .await
         .map_err(|e| ApiError::BadRequest(format!("Failed to approve skill: {}", e)))?;
-
-    skill_repo
-        .update_review_status(&skill_id, "approved", reviewer_id, None)
-        .await
-        .map_err(|e| ApiError::BadRequest(format!("Failed to update review status: {}", e)))?;
 
     state
         .audit_repo
@@ -2389,7 +2509,11 @@ pub async fn approve_org_skill_handler(
 pub async fn reject_org_skill_handler(
     State(state): State<ApiState>,
     Path(skill_id): Path<String>,
-    AgentContext { subject, .. }: AgentContext,
+    AgentContext {
+        subject,
+        identity_id,
+        ..
+    }: AgentContext,
     Json(body): Json<crate::api::models::RejectSkillBody>,
 ) -> Result<impl IntoResponse, ApiError> {
     use crate::db::repositories::skill::SkillRepository;
@@ -2402,31 +2526,27 @@ pub async fn reject_org_skill_handler(
         .map_err(|e| ApiError::BadRequest(e.to_string()))?
         .ok_or_else(|| ApiError::NotFound(format!("Skill {} not found", skill_id)))?;
 
-    if skill.review_status != "pending" && skill.status != "in_review" {
+    // RBAC 权限校验：需要 Reject 权限（自动校验不能审核自己的 Skill）
+    check_skill_perm_db(
+        &state,
+        identity_id,
+        &skill,
+        crate::services::SkillAction::Reject,
+    )
+    .await?;
+
+    if skill.status != "pending_review" {
         return Err(ApiError::BadRequest(
             "Skill must be in pending_review status to reject".to_string(),
         ));
     }
 
-    let reviewer_id = Uuid::parse_str(&subject).ok();
-
-    if let (Some(author_id), Some(reviewer_id_val)) = (skill.author_identity_id, reviewer_id) {
-        if author_id == reviewer_id_val {
-            return Err(ApiError::Forbidden(
-                "Cannot reject your own skill submission".to_string(),
-            ));
-        }
-    }
+    let reviewer_id = identity_id;
 
     skill_repo
-        .update_status(&skill_id, "rejected")
+        .update_status(&skill_id, "rejected", reviewer_id, body.reason.as_deref())
         .await
         .map_err(|e| ApiError::BadRequest(format!("Failed to reject skill: {}", e)))?;
-
-    skill_repo
-        .update_review_status(&skill_id, "rejected", reviewer_id, body.reason.as_deref())
-        .await
-        .map_err(|e| ApiError::BadRequest(format!("Failed to update review status: {}", e)))?;
 
     state
         .audit_repo
@@ -2471,7 +2591,7 @@ pub async fn marketplace_handler(
 
 pub async fn install_skill_handler(
     State(state): State<ApiState>,
-    AgentContext { subject: _, .. }: AgentContext,
+    AgentContext { identity_id, .. }: AgentContext,
     Path(skill_id): Path<String>,
 ) -> Result<impl IntoResponse, ApiError> {
     use crate::db::repositories::skill::SkillRepository;
@@ -2483,6 +2603,15 @@ pub async fn install_skill_handler(
         .await
         .map_err(|e| ApiError::BadRequest(e.to_string()))?
         .ok_or_else(|| ApiError::NotFound(format!("Skill {} not found", skill_id)))?;
+
+    // RBAC 权限校验：需要 Read 权限
+    check_skill_perm_db(
+        &state,
+        identity_id,
+        &skill,
+        crate::services::SkillAction::Read,
+    )
+    .await?;
 
     skill_repo
         .increment_install_count(&skill_id)
@@ -2499,8 +2628,9 @@ pub async fn install_skill_handler(
     ))
 }
 
-/// GET /api/v1/skills/:name/download/:version?token=...&expires=...
-/// 返回 skill 目录的 tar.gz 包，token 由 skills.install 生成，5 分钟有效
+/// GET /api/v1/skills/:name/download/:version?token=...
+/// 返回 skill 目录的 tar.gz 包
+/// token 为 DB 中的不透明 UUID，由 skills.install 生成，5 分钟有效
 pub async fn download_skill_handler(
     State(state): State<ApiState>,
     Path((name, version)): Path<(String, String)>,
@@ -2511,33 +2641,40 @@ pub async fn download_skill_handler(
         return Err(ApiError::BadRequest("Invalid skill name".to_string()));
     }
 
-    // 2. 验证 token
-    let expires: u64 = query.expires.parse().map_err(|_| {
-        ApiError::BadRequest("Invalid expires parameter".to_string())
-    })?;
+    // 2. 从数据库验证并消费下载凭证
+    let token_record = state
+        .download_token_repo
+        .validate_and_consume(&query.token, &name, &version)
+        .await
+        .map_err(|e| {
+            tracing::error!("Download token DB lookup failed: {}", e);
+            ApiError::InternalError("Download verification failed".to_string())
+        })?
+        .ok_or_else(|| {
+            ApiError::Unauthorized("Invalid, expired, or already used download token".to_string())
+        })?;
 
-    let now = chrono::Utc::now().timestamp() as u64;
-    if now > expires {
-        return Err(ApiError::Unauthorized("Download token expired".to_string()));
-    }
-
-    if !crate::services::RegistryService::verify_download_token(
-        &name, &version, &query.token, expires,
-    ) {
-        return Err(ApiError::Unauthorized("Invalid download token".to_string()));
-    }
+    tracing::info!(
+        "Skill download: skill={}/v{}, identity={}, api_key={}",
+        name,
+        version,
+        token_record.identity_id,
+        token_record.api_key_id
+    );
 
     // 3. 找到 skill 目录
     let skill_dir = state.registry.skill_dir_path(&name);
     if !skill_dir.exists() || !skill_dir.is_dir() {
-        return Err(ApiError::NotFound(format!("Skill '{}' not found on disk", name)));
+        return Err(ApiError::NotFound(format!(
+            "Skill '{}' not found on disk",
+            name
+        )));
     }
 
     // 4. 在 blocking 线程池中生成 tar.gz
     let tarball = tokio::task::spawn_blocking(move || -> Result<Vec<u8>, String> {
         let mut buf = Vec::new();
-        let encoder =
-            flate2::write::GzEncoder::new(&mut buf, flate2::Compression::default());
+        let encoder = flate2::write::GzEncoder::new(&mut buf, flate2::Compression::default());
         let mut tar_builder = tar::Builder::new(encoder);
 
         tar_builder
@@ -2578,7 +2715,6 @@ pub async fn download_skill_handler(
 #[derive(serde::Deserialize)]
 pub struct DownloadSkillQuery {
     pub token: String,
-    pub expires: String,
 }
 
 pub async fn list_skill_groups_handler(
@@ -2994,6 +3130,7 @@ pub async fn create_org_skill_handler(
         tools: body.tools.clone(),
         owner_type,
         owner_id: Some(org.id),
+        author_identity_id: Some(identity_id),
     };
 
     let skill = state
@@ -3358,7 +3495,7 @@ pub async fn list_org_reviews_handler(
 
     let in_review: Vec<_> = skills
         .into_iter()
-        .filter(|s| s.review_status.as_str() == "pending" || s.status == "in_review")
+        .filter(|s| s.status == "pending_review")
         .collect();
 
     Ok((StatusCode::OK, Json(in_review)))
@@ -3380,7 +3517,10 @@ pub async fn get_session_handler(
     match session {
         Some(s) => {
             let enriched = enrich_session_with_meta(&state, s).await?;
-            Ok((StatusCode::OK, Json(serde_json::to_value(enriched).unwrap())))
+            Ok((
+                StatusCode::OK,
+                Json(serde_json::to_value(enriched).unwrap()),
+            ))
         }
         None => Err(ApiError::NotFound(format!(
             "Session {} not found",
@@ -3405,15 +3545,14 @@ pub async fn list_sessions_handler(
         .map_err(|e| ApiError::InternalError(e.to_string()))?;
 
     // Enrich each session with identity & org names (concurrent lookups per session)
-    let enriched: Vec<crate::models::session::SessionWithMeta> =
-        futures_util::future::join_all(
-            sessions
-                .into_iter()
-                .map(|s| enrich_session_with_meta(&state, s)),
-        )
-        .await
-        .into_iter()
-        .collect::<Result<Vec<_>, _>>()?;
+    let enriched: Vec<crate::models::session::SessionWithMeta> = futures_util::future::join_all(
+        sessions
+            .into_iter()
+            .map(|s| enrich_session_with_meta(&state, s)),
+    )
+    .await
+    .into_iter()
+    .collect::<Result<Vec<_>, _>>()?;
 
     Ok((
         StatusCode::OK,
@@ -4170,32 +4309,6 @@ pub async fn delete_org_tool_handler(
     ))
 }
 
-pub async fn get_admin_me_handler(
-    State(state): State<ApiState>,
-    agent_context: AgentContext,
-) -> Result<impl IntoResponse, ApiError> {
-    agent_context.require_admin()?;
-
-    let id = uuid::Uuid::parse_str(&agent_context.subject)
-        .map_err(|_| ApiError::BadRequest("Invalid subject in token".to_string()))?;
-
-    let user = state
-        .identity
-        .get(id)
-        .await
-        .map_err(|e| ApiError::InternalError(e.to_string()))?
-        .ok_or_else(|| ApiError::NotFound("User not found".to_string()))?;
-
-    let response = crate::api::models::AdminMeResponse {
-        id: user.id.to_string(),
-        username: user.username.unwrap_or_else(|| user.name.clone()),
-        display_name: user.display_name,
-        is_active: user.status == crate::models::identity::IdentityStatus::Active,
-    };
-
-    Ok((StatusCode::OK, Json(response)))
-}
-
 pub async fn get_admin_stats_handler(
     State(state): State<ApiState>,
     agent_context: AgentContext,
@@ -4280,8 +4393,8 @@ pub async fn get_admin_status_handler(
 
     let data_dir = std::env::var("AION_HIVE_DATA_DIR").unwrap_or_else(|_| "./data".to_string());
 
-    let skills_dir = std::env::var("AION_HIVE_SKILLS_DIR")
-        .unwrap_or_else(|_| format!("{}/skills", data_dir));
+    let skills_dir =
+        std::env::var("AION_HIVE_SKILLS_DIR").unwrap_or_else(|_| format!("{}/skills", data_dir));
 
     let response = crate::api::models::AdminStatusResponse {
         version: env!("CARGO_PKG_VERSION").to_string(),
@@ -5002,13 +5115,18 @@ pub async fn get_preview_file_handler(
 /// POST /api/v1/skills/upload/preview/:preview_id/confirm — 确认上传，提交 Git + DB
 pub async fn confirm_skill_upload_handler(
     State(state): State<ApiState>,
-    AgentContext { subject, .. }: AgentContext,
+    AgentContext {
+        subject,
+        identity_id,
+        ..
+    }: AgentContext,
     axum::extract::Path((preview_id,)): axum::extract::Path<(String,)>,
     Json(body): Json<crate::api::models::ConfirmUploadBody>,
 ) -> Result<impl IntoResponse, ApiError> {
     let owner_type = body.owner_type.unwrap_or_else(|| "user".to_string());
-    let author_identity_id = body.author_identity_id;
-    let owner_id = body.owner_id;
+    // 前端可能不传 author_identity_id 和 owner_id，从 JWT token 中自动补全
+    let author_identity_id = body.author_identity_id.or(identity_id);
+    let owner_id = body.owner_id.or(identity_id);
 
     let upload_result = state
         .skill_git

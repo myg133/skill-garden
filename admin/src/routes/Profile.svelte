@@ -37,7 +37,7 @@
     try {
       userOrgs = await api.getUserOrgs();
     } catch (e) {
-      console.error('Failed to load user orgs:', e);
+      addToast('组织列表加载失败，请刷新重试', 'warning');
     }
   }
 

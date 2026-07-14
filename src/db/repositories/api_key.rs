@@ -82,7 +82,7 @@ impl ApiKeyRepository {
             r#"
             SELECT id, identity_id, organization_id, key_hash, key_prefix, name, scopes, rate_limit, status, expires_at, created_at, last_used_at
             FROM api_keys
-            WHERE identity_id = $1
+            WHERE identity_id = $1 AND status != 'revoked'
             ORDER BY created_at DESC
             "#,
         )
@@ -158,7 +158,7 @@ impl ApiKeyRepository {
 struct ApiKeyRow {
     id: Uuid,
     identity_id: Uuid,
-    organization_id: Uuid,
+    organization_id: Option<Uuid>,
     key_hash: String,
     key_prefix: String,
     name: Option<String>,

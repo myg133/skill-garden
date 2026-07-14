@@ -50,49 +50,72 @@
   async function loadFileList() {
     try {
       const res = await api.getSkillFiles(id);
-      const files = (res.files || []).sort((a, b) => {
-        if (a === 'SKILL.md' || a.endsWith('/SKILL.md')) return -1;
-        if (b === 'SKILL.md' || b.endsWith('/SKILL.md')) return 1;
-        const aDir = a.includes('/');
-        const bDir = b.includes('/');
+      const rawFiles = res.files || [];
+      // 后端偶尔会返回带转义引号的路径，先归一化，保留原始路径用于获取文件内容
+      const normalized = rawFiles.map(f => ({
+        original: f,
+        display: normalizeFilePath(f)
+      }));
+      let files = normalized.map(n => ({
+        path: n.display,
+        originalPath: n.original,
+        size: 0
+      }));
+      files = files.sort((a, b) => {
+        if (a.path === 'SKILL.md' || a.path.endsWith('/SKILL.md')) return -1;
+        if (b.path === 'SKILL.md' || b.path.endsWith('/SKILL.md')) return 1;
+        const aDir = a.path.includes('/');
+        const bDir = b.path.includes('/');
         if (aDir !== bDir) return aDir ? -1 : 1;
-        return a.localeCompare(b);
+        return a.path.localeCompare(b.path);
       });
-      fileList = files.map(f => ({ path: f, size: 0 }));
+      fileList = files;
       fileListLoaded = true;
 
       // Auto-select SKILL.md
       const skillMd = fileList.find(f => f.path === 'SKILL.md' || f.path.endsWith('/SKILL.md'));
       if (skillMd) {
-        await selectFile(skillMd.path);
+        await selectFile(skillMd.path, skillMd.originalPath);
       }
     } catch (e) {
       // Fallback: show SKILL.md only
-      fileList = [{ path: 'SKILL.md', size: 0 }];
+      fileList = [{ path: 'SKILL.md', originalPath: 'SKILL.md', size: 0 }];
       fileListLoaded = true;
       selectedFilePath = 'SKILL.md';
       selectedFileContent = skill?.content || '';
     }
   }
 
-  async function selectFile(filePath) {
-    if (selectedFilePath === filePath && fileFetchCache[filePath]) {
-      selectedFileContent = fileFetchCache[filePath];
+  function normalizeFilePath(p) {
+    if (!p) return p;
+    let s = p.trim();
+    // 后端返回的路径有时被多余的双引号包裹，移除它们
+    if (s.length >= 2 && s.startsWith('"') && s.endsWith('"')) {
+      s = s.slice(1, -1);
+    }
+    return s;
+  }
+
+
+  async function selectFile(displayPath, originalPath) {
+    const fetchPath = originalPath || displayPath;
+    if (selectedFilePath === displayPath && fileFetchCache[fetchPath]) {
+      selectedFileContent = fileFetchCache[fetchPath];
       return;
     }
 
-    if (fileFetchCache[filePath]) {
-      selectedFilePath = filePath;
-      selectedFileContent = fileFetchCache[filePath];
+    if (fileFetchCache[fetchPath]) {
+      selectedFilePath = displayPath;
+      selectedFileContent = fileFetchCache[fetchPath];
       return;
     }
 
-    selectedFilePath = filePath;
+    selectedFilePath = displayPath;
     selectedFileLoading = true;
     try {
-      const res = await api.getSkillFile(id, filePath);
+      const res = await api.getSkillFile(id, fetchPath);
       selectedFileContent = res.content;
-      fileFetchCache[filePath] = res.content;
+      fileFetchCache[fetchPath] = res.content;
     } catch (e) {
       selectedFileContent = `Error loading file: ${e.message}`;
     } finally {
@@ -224,6 +247,7 @@
             name,
             type: 'file',
             path: f.path,
+            originalPath: f.originalPath,
             size: f.size,
           };
         } else {

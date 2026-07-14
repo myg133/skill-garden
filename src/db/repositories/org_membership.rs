@@ -142,6 +142,76 @@ impl OrgMembershipRepository {
 
         Ok(orgs.into_iter().map(|o| (o.id, o.role)).collect())
     }
+
+    /// 检查用户是否是指定组织的成员
+    pub async fn is_member(&self, identity_id: Uuid, org_id: Uuid) -> DbResult<bool> {
+        let result: (bool,) = sqlx::query_as(
+            "SELECT EXISTS(SELECT 1 FROM org_memberships WHERE identity_id = $1 AND organization_id = $2)",
+        )
+        .bind(identity_id)
+        .bind(org_id)
+        .fetch_one(&self.pool)
+        .await
+        .map_err(|e| DbError::QueryError(e.to_string()))?;
+        Ok(result.0)
+    }
+
+    /// 获取用户在组织中的角色名称
+    pub async fn get_role(&self, identity_id: Uuid, org_id: Uuid) -> DbResult<Option<String>> {
+        let result: Option<(String,)> = sqlx::query_as(
+            "SELECT role FROM org_memberships WHERE identity_id = $1 AND organization_id = $2",
+        )
+        .bind(identity_id)
+        .bind(org_id)
+        .fetch_optional(&self.pool)
+        .await
+        .map_err(|e| DbError::QueryError(e.to_string()))?;
+        Ok(result.map(|r| r.0))
+    }
+
+    /// 列出用户所在的所有组织（含完整信息，用于 API 响应）
+    pub async fn list_user_orgs_full(&self, identity_id: Uuid) -> DbResult<Vec<UserOrgInfo>> {
+        let orgs = sqlx::query_as::<_, UserOrgInfoRow>(
+            r#"
+            SELECT o.id, o.name, o.slug, om.role
+            FROM org_memberships om
+            JOIN organizations o ON o.id = om.organization_id
+            WHERE om.identity_id = $1
+            ORDER BY o.name
+            "#,
+        )
+        .bind(identity_id)
+        .fetch_all(&self.pool)
+        .await
+        .map_err(|e| DbError::QueryError(e.to_string()))?;
+
+        Ok(orgs
+            .into_iter()
+            .map(|o| UserOrgInfo {
+                id: o.id,
+                name: o.name,
+                slug: o.slug,
+                role: o.role,
+            })
+            .collect())
+    }
+}
+
+/// 用户所在组织信息
+#[derive(Debug, Clone, serde::Serialize)]
+pub struct UserOrgInfo {
+    pub id: Uuid,
+    pub name: String,
+    pub slug: Option<String>,
+    pub role: String,
+}
+
+#[derive(sqlx::FromRow)]
+struct UserOrgInfoRow {
+    id: Uuid,
+    name: String,
+    slug: Option<String>,
+    role: String,
 }
 
 #[derive(sqlx::FromRow)]

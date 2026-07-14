@@ -1,5 +1,82 @@
 const API_BASE = '/api/v1';
 
+// ---------------------------------------------------------------------------
+// ApiError — 结构化错误，前端组件可根据 code/status 做差异化展示
+// ---------------------------------------------------------------------------
+export class ApiError extends Error {
+  /**
+   * @param {number} status    HTTP 状态码
+   * @param {string} code      后端返回的错误码（可选）
+   * @param {string} message   面向用户的友好消息
+   */
+  constructor(status, code, message) {
+    super(message);
+    this.name = 'ApiError';
+    this.status = status;
+    this.code = code || '';
+  }
+}
+
+// ---------------------------------------------------------------------------
+// 错误消息映射 — 将后端技术消息翻译为中文用户友好消息
+// ---------------------------------------------------------------------------
+const ERROR_MESSAGES = {
+  // 通用
+  unauthorized: '会话已过期，请重新登录',
+  forbidden: '您没有执行此操作的权限',
+  not_found: '请求的资源不存在',
+  validation_error: '输入参数不合法',
+  // Skill 权限
+  skill_not_found: 'Skill 不存在或已被删除',
+  permission_denied: '权限不足，请联系管理员',
+  // 身份相关
+  identity_not_found: '身份信息不存在',
+  identity_id_missing: '身份信息缺失，请使用新版 API Key 重新认证',
+  // API Key
+  api_key_not_found: 'API Key 不存在',
+  api_key_already_revoked: 'API Key 已被撤销',
+  // 组织
+  org_not_found: '组织不存在',
+  not_org_member: '您不是该组织的成员',
+  // Token
+  token_expired: '凭证已过期，请重新登录',
+  token_invalid: '凭证无效',
+};
+
+/**
+ * 尝试匹配错误消息中的关键词，返回中文友好翻译
+ */
+function humanize(status, rawMessage) {
+  if (!rawMessage) {
+    // 根据 HTTP 状态码返回通用描述
+    const defaults = {
+      400: '请求参数有误',
+      403: '您没有执行此操作的权限',
+      404: '请求的资源不存在',
+      409: '操作冲突，请检查后重试',
+      429: '请求太频繁，请稍后再试',
+      500: '服务器内部错误，请稍后重试',
+      502: '网关错误，请稍后重试',
+      503: '服务暂时不可用，请稍后重试',
+    };
+    return defaults[status] || `请求失败 (HTTP ${status})`;
+  }
+
+  // 按关键词匹配
+  const lower = rawMessage.toLowerCase();
+  for (const [key, msg] of Object.entries(ERROR_MESSAGES)) {
+    if (lower.includes(key.replace(/_/g, ' ')) || lower.includes(key)) {
+      return msg;
+    }
+  }
+
+  // 没有匹配到，返回原始消息（可能是后端已经返回的合理中文消息）
+  return rawMessage;
+}
+
+// ---------------------------------------------------------------------------
+// 请求核心
+// ---------------------------------------------------------------------------
 async function request(path, options = {}) {
   const token = localStorage.getItem('admin_token');
   const headers = {
@@ -10,20 +87,28 @@ async function request(path, options = {}) {
 
   const res = await fetch(`${API_BASE}${path}`, { ...options, headers });
 
-  // Token expired or unauthorized — clear token and redirect to login
+  // Token expired or unauthorized — save current path, clear token, redirect to login
   if (res.status === 401) {
     localStorage.removeItem('admin_token');
-    // Use dynamic import to avoid circular dependency
+    // 保存当前页面路径，登录成功后回跳
+    const currentPath = window.location.pathname + window.location.search;
+    if (currentPath !== '/login') {
+      localStorage.setItem('login_redirect', currentPath);
+    }
     try {
       const { navigate } = await import('svelte-routing');
       navigate('/login', { replace: true });
     } catch {}
-    throw new Error('Session expired. Please log in again.');
+    throw new ApiError(401, 'unauthorized', '会话已过期，请重新登录');
   }
 
   if (!res.ok) {
-    const err = await res.json().catch(() => ({ message: 'Request failed' }));
-    throw new Error(err.message || `HTTP ${res.status}`);
+    const err = await res.json().catch(() => ({}));
+    throw new ApiError(
+      res.status,
+      err.code || '',
+      humanize(res.status, err.message)
+    );
   }
 
   return res.json();
@@ -38,8 +123,12 @@ async function requestNoAuth(path, options = {}) {
   const res = await fetch(`${API_BASE}${path}`, { ...options, headers });
 
   if (!res.ok) {
-    const err = await res.json().catch(() => ({ message: 'Request failed' }));
-    throw new Error(err.message || `HTTP ${res.status}`);
+    const err = await res.json().catch(() => ({}));
+    throw new ApiError(
+      res.status,
+      err.code || '',
+      humanize(res.status, err.message)
+    );
   }
 
   return res.json();
@@ -56,18 +145,36 @@ async function requestUpload(path, formData) {
     body: formData,
   });
 
+  // Token expired during upload — same redirect logic as request()
+  if (res.status === 401) {
+    localStorage.removeItem('admin_token');
+    const currentPath = window.location.pathname + window.location.search;
+    if (currentPath !== '/login') {
+      localStorage.setItem('login_redirect', currentPath);
+    }
+    try {
+      const { navigate } = await import('svelte-routing');
+      navigate('/login', { replace: true });
+    } catch {}
+    throw new ApiError(401, 'unauthorized', '会话已过期，请重新登录');
+  }
+
   if (!res.ok) {
-    const err = await res.json().catch(() => ({ message: 'Upload failed' }));
-    throw new Error(err.message || `HTTP ${res.status}`);
+    const err = await res.json().catch(() => ({}));
+    throw new ApiError(
+      res.status,
+      err.code || '',
+      humanize(res.status, err.message)
+    );
   }
 
   return res.json();
 }
 
 export const api = {
-  // Admin Auth
+  // Auth (统一登录 — 含 admin/user 角色)
   adminLogin(username, password) {
-    return requestNoAuth('/admin/login', {
+    return requestNoAuth('/auth/login', {
       method: 'POST',
       body: JSON.stringify({ username, password })
     });
@@ -259,6 +366,24 @@ export const api = {
     return request(`/skills${qs ? `?${qs}` : ''}`);
   },
 
+  // My Skills (user-facing — only current user's skills)
+  listMySkills() {
+    return request('/my-skills');
+  },
+
+  // Submit skill for review
+  submitSkillForReview(id, comment) {
+    return request(`/skills/${id}/submit-review`, {
+      method: 'POST',
+      body: JSON.stringify({ comment: comment || null })
+    });
+  },
+
+  // Publish approved skill
+  publishSkill(id) {
+    return request(`/skills/${id}/publish`, { method: 'POST' });
+  },
+
   getSkill(id) {
     return request(`/skills/${id}`);
   },
@@ -308,11 +433,11 @@ export const api = {
   },
 
   approveSkill(id) {
-    return request(`/admin/skills/${id}/approve`, { method: 'POST' });
+    return request(`/skills/${id}/approve`, { method: 'POST' });
   },
 
   rejectSkill(id, reason) {
-    return request(`/admin/skills/${id}/reject`, {
+    return request(`/skills/${id}/reject`, {
       method: 'POST',
       body: JSON.stringify({ reason })
     });

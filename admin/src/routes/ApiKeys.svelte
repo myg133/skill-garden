@@ -38,7 +38,7 @@
       const res = await api.listIdentities({ limit: 100 });
       identities = res.data || [];
     } catch (e) {
-      console.error('Failed to load identities:', e);
+      addToast('身份列表加载失败', 'warning');
     }
   }
 
@@ -47,7 +47,7 @@
       const res = await api.listOrganizations({ limit: 100 });
       organizations = res.data || [];
     } catch (e) {
-      console.error('Failed to load organizations:', e);
+      addToast('组织列表加载失败', 'warning');
     }
   }
 

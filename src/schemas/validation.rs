@@ -162,6 +162,18 @@ pub fn validate_description(desc: &str) -> Result<(), AppError> {
     Ok(())
 }
 
+/// 规范化描述文本：将换行符替换为空格，合并多个连续空格
+///
+/// 上传 SKILL.md 时某些描述会包含换行，保存到数据库时合并为一行。
+pub fn normalize_description(desc: &str) -> String {
+    desc.replace("\r\n", " ")
+        .replace('\n', " ")
+        .replace('\r', " ")
+        .split_whitespace()
+        .collect::<Vec<&str>>()
+        .join(" ")
+}
+
 /// 验证评价输入
 pub fn validate_evaluation_input(skill_id: &str, duration_ms: u64) -> Result<(), AppError> {
     if skill_id.is_empty() {

@@ -6,7 +6,7 @@ use tokio::sync::RwLock;
 
 use crate::db::repositories::{
     group_permission_override::GroupPermissionOverrideRepository, AgentRepository, AuditRepository,
-    SkillRepository, VersionRepository,
+    DownloadTokenRepository, SkillRepository, VersionRepository,
 };
 use crate::mcp::McpServer;
 use crate::services::admin::{
@@ -86,6 +86,7 @@ pub struct AppRouterState {
     pub skill_git: SkillGitService,
     pub version_repo: VersionRepository,
     pub skill_repo: SkillRepository,
+    pub download_token_repo: DownloadTokenRepository,
     // Admin services
     pub tenant: TenantService,
     pub identity: IdentityService,

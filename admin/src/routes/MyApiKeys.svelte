@@ -22,10 +22,10 @@
 
   async function loadOrganizations() {
     try {
-      const res = await api.listOrganizations({ limit: 100 });
-      organizations = res.data || [];
+      organizations = await api.getUserOrgs().catch(() => []);
+      organizations = Array.isArray(organizations) ? organizations : [];
     } catch (e) {
-      // silently ignore org load failures
+      organizations = [];
     }
   }
 
@@ -43,20 +43,25 @@
   }
 
   async function handleCreate() {
-    if (!newKeyForm.name.trim() || !newKeyForm.organization_id) return;
+    if (!newKeyForm.name.trim()) return;
+    if (organizations.length > 0 && !newKeyForm.organization_id) return;
     creating = true;
     newlyCreatedKey = '';
     try {
-      const payload = { organization_id: newKeyForm.organization_id, name: newKeyForm.name };
+      const payload = { name: newKeyForm.name };
+      if (newKeyForm.organization_id) {
+        payload.organization_id = newKeyForm.organization_id;
+      }
       if (newKeyForm.expires_in_days) {
         payload.expires_in_days = parseInt(newKeyForm.expires_in_days);
       }
       const res = await api.createMyApiKey(payload);
       newlyCreatedKey = res.key || res.api_key || '';
       newKeyForm = { organization_id: '', name: '', expires_in_days: null };
-      showCreateModal = false;
+      // 不关闭弹窗，让用户看到 key 并手动复制
       if (!newlyCreatedKey) {
         addToast('API Key created', 'success');
+        showCreateModal = false;
       } else {
         addToast('API Key created — copy it now, it will not be shown again', 'success');
       }
@@ -218,6 +223,7 @@
       </div>
     {:else}
       <div class="space-y-4">
+        {#if organizations.length > 0}
         <div>
           <label for="myapikey-org" class="block text-xs font-semibold text-gray-500 uppercase tracking-wider mb-2">Organization</label>
           <select
@@ -231,6 +237,7 @@
             {/each}
           </select>
         </div>
+        {/if}
         <div>
           <label for="myapikey-name" class="block text-xs font-semibold text-gray-500 uppercase tracking-wider mb-2">Name</label>
           <input
@@ -261,7 +268,7 @@
           </button>
           <button
             on:click={handleCreate}
-            disabled={creating || !newKeyForm.name.trim() || !newKeyForm.organization_id}
+            disabled={creating || !newKeyForm.name.trim() || (organizations.length > 0 && !newKeyForm.organization_id)}
             class="btn-primary px-5 py-2.5 rounded-xl font-semibold text-sm disabled:opacity-50 disabled:cursor-not-allowed"
           >
             {creating ? 'Creating...' : 'Create'}

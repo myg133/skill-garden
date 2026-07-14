@@ -49,12 +49,12 @@ pub struct Skill {
     /// 可见性
     #[serde(default)]
     pub visibility: Visibility,
+    /// 生命周期状态: draft | pending_review | approved | rejected | published
+    #[serde(default = "default_status")]
+    pub status: String,
     /// Skill 引用的工具列表
     #[serde(default)]
     pub tools: Vec<String>,
-    /// 审核状态
-    #[serde(default = "default_review_status")]
-    pub review_status: String,
     /// 审核人 ID
     #[serde(skip_serializing_if = "Option::is_none")]
     pub reviewed_by: Option<Uuid>,
@@ -70,7 +70,7 @@ fn default_owner_type() -> String {
     "user".to_string()
 }
 
-fn default_review_status() -> String {
+fn default_status() -> String {
     "draft".to_string()
 }
 
@@ -105,8 +105,8 @@ impl Skill {
             install_count: 0,
             git_url: None,
             visibility: Visibility::OrgVisible,
+            status: "draft".to_string(),
             tools: Vec::new(),
-            review_status: "draft".to_string(),
             reviewed_by: None,
             reviewed_at: None,
             review_comment: None,
@@ -130,6 +130,8 @@ pub struct SkillMetadata {
     pub author_agent_id: String,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub author_identity_id: Option<Uuid>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub author_name: Option<String>,
     #[serde(default = "default_owner_type")]
     pub owner_type: String,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -142,8 +144,6 @@ pub struct SkillMetadata {
     pub git_url: Option<String>,
     #[serde(default)]
     pub visibility: Visibility,
-    #[serde(default = "default_review_status")]
-    pub review_status: String,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub reviewed_by: Option<Uuid>,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -162,15 +162,15 @@ impl From<&Skill> for SkillMetadata {
             version: skill.version.clone(),
             author_agent_id: skill.author_agent_id.clone(),
             author_identity_id: skill.author_identity_id,
+            author_name: None,
             owner_type: skill.owner_type.clone(),
             owner_id: skill.owner_id,
             created: skill.created,
             updated: skill.updated,
             install_count: skill.install_count,
-            status: skill.review_status.clone(),
+            status: skill.status.clone(),
             git_url: skill.git_url.clone(),
             visibility: skill.visibility.clone(),
-            review_status: skill.review_status.clone(),
             reviewed_by: skill.reviewed_by,
             reviewed_at: skill.reviewed_at,
             review_comment: skill.review_comment.clone(),
@@ -278,6 +278,8 @@ pub struct NewSkill {
     pub owner_type: String,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub owner_id: Option<Uuid>,
+    #[serde(default)]
+    pub author_identity_id: Option<Uuid>,
 }
 
 fn default_version() -> String {
@@ -390,7 +392,10 @@ mod tests {
             git_url: None,
             dependencies: vec![],
             tools: vec![],
-            download_url: Some("http://localhost:8080/api/v1/skills/browse/download/1.0.0?token=xxx&expires=12345".to_string()),
+            download_url: Some(
+                "http://localhost:8080/api/v1/skills/browse/download/1.0.0?token=xxx&expires=12345"
+                    .to_string(),
+            ),
             expires_in: 300,
             install_hint: "Download the tarball and extract to your skills directory".to_string(),
             file_count: 2,

@@ -65,7 +65,7 @@
       const res = await api.listOrganizations({ limit: 100 });
       organizations = res.data || [];
     } catch (e) {
-      console.error('Failed to load organizations:', e);
+      addToast('组织列表加载失败', 'warning');
     }
   }
 
@@ -74,7 +74,7 @@
       defaultPermissions = await api.listGroupDefaultPermissions();
       resetPermissionToggles();
     } catch (e) {
-      console.error('Failed to load default permissions:', e);
+      addToast('权限列表加载失败', 'warning');
     }
   }
 

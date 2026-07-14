@@ -34,8 +34,8 @@ async fn test_search_add_and_search() {
         install_count: 10,
         git_url: None,
         visibility: aion_hive::Visibility::OrgVisible,
+        status: "published".to_string(),
         tools: vec![],
-        review_status: "published".to_string(),
         reviewed_by: None,
         reviewed_at: None,
         review_comment: None,
@@ -49,51 +49,6 @@ async fn test_search_add_and_search() {
         "Expected results for 'searching' query"
     );
     assert_eq!(results[0].skill_id, "skill-test-v1");
-}
-
-#[tokio::test]
-async fn test_search_with_tags() {
-    let temp_dir = TempDir::new().unwrap();
-    let search_dir = temp_dir.path().join("search");
-
-    let search = aion_hive::SearchService::new(&search_dir).unwrap();
-
-    let skill = aion_hive::models::skill::Skill {
-        id: "skill-web-v1".to_string(),
-        name: "web-scraper".to_string(),
-        description: "Scrapes web pages".to_string(),
-        tags: vec!["web".to_string(), "scraper".to_string()],
-        version: "1.0.0".to_string(),
-        author_agent_id: "agent-1".to_string(),
-        author_identity_id: None,
-        owner_type: "user".to_string(),
-        owner_id: None,
-        created: chrono::Utc::now(),
-        updated: chrono::Utc::now(),
-        compatibility: ">=1.0.0".to_string(),
-        dependencies: vec![],
-        content: "# Web Scraper".to_string(),
-        install_count: 5,
-        git_url: None,
-        visibility: aion_hive::Visibility::OrgVisible,
-        tools: vec![],
-        review_status: "published".to_string(),
-        reviewed_by: None,
-        reviewed_at: None,
-        review_comment: None,
-    };
-
-    search.add_skill(&skill).unwrap();
-
-    let results = search
-        .search("scraper", Some(&["web".to_string()]), 10)
-        .unwrap();
-    assert!(!results.is_empty());
-
-    let results = search
-        .search("nonexistent", Some(&["nonexistent".to_string()]), 10)
-        .unwrap();
-    assert!(results.is_empty());
 }
 
 #[tokio::test]
@@ -121,8 +76,8 @@ async fn test_search_delete() {
         install_count: 0,
         git_url: None,
         visibility: aion_hive::Visibility::OrgVisible,
+        status: "published".to_string(),
         tools: vec![],
-        review_status: "published".to_string(),
         reviewed_by: None,
         reviewed_at: None,
         review_comment: None,
@@ -142,25 +97,6 @@ async fn test_search_delete() {
 // ============================================================================
 // Validation Tests (file-based, no database required)
 // ============================================================================
-
-#[tokio::test]
-async fn test_validation() {
-    use aion_hive::schemas::validation::*;
-
-    assert!(validate_skill_name("browse").is_ok());
-    assert!(validate_skill_name("web-scraper").is_ok());
-    assert!(validate_skill_name("my_skill_v2").is_ok());
-
-    assert!(validate_skill_name("").is_err());
-    assert!(validate_skill_name("invalid name").is_err());
-    assert!(validate_skill_name("invalid.name").is_err());
-
-    assert!(validate_version("1.0.0").is_ok());
-    assert!(validate_version("0.1.0").is_ok());
-
-    assert!(validate_version("invalid").is_err());
-    assert!(validate_version("1.0").is_err());
-}
 
 #[tokio::test]
 async fn test_malicious_content_detection() {

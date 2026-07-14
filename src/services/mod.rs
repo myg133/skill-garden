@@ -21,7 +21,7 @@ pub use evaluator::*;
 pub use git_proxy::*;
 pub use org_tool::*;
 pub use organization::*;
-pub use permission::PermissionService;
+pub use permission::{PermissionService, SkillAction};
 pub use registry::*;
 pub use sandbox::*;
 pub use search::*;

@@ -101,6 +101,8 @@ pub fn create_api_router(state: ApiState) -> Router<ApiState> {
         .route("/api/v1/users/me", get(get_user_me_handler))
         .route("/api/v1/users/me", put(update_user_me_handler))
         .route("/api/v1/users/me/orgs", get(get_user_orgs_handler))
+        // My skills (user-facing)
+        .route("/api/v1/my-skills", get(list_my_skills_handler))
         .route(
             "/api/v1/users/me/audit-logs",
             get(list_my_audit_logs_handler),
@@ -155,18 +157,8 @@ pub fn create_api_router(state: ApiState) -> Router<ApiState> {
             delete(remove_org_group_skill_handler),
         )
         // Admin routes (under /api/v1/admin)
-        .route("/api/v1/admin/login", post(admin_login_handler))
-        .route("/api/v1/admin/me", get(get_admin_me_handler))
         .route("/api/v1/admin/stats", get(get_admin_stats_handler))
         .route("/api/v1/admin/audit-logs", get(list_audit_logs_handler))
-        .route(
-            "/api/v1/admin/skills/:id/approve",
-            post(approve_skill_handler),
-        )
-        .route(
-            "/api/v1/admin/skills/:id/reject",
-            post(reject_skill_handler),
-        )
         .route("/api/v1/admin/status", get(get_admin_status_handler))
         // v0.4 multi-tenant routes
         .route("/api/v1/organizations", post(create_org_handler))

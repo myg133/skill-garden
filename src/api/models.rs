@@ -247,7 +247,18 @@ pub struct UserInfoResponse {
     pub email: Option<String>,
     pub avatar_url: Option<String>,
     pub identity_type: String,
+    pub is_admin: bool,
+    pub organizations: Vec<UserOrgInfo>,
     pub created_at: chrono::DateTime<chrono::Utc>,
+}
+
+/// 用户所属组织简要信息（登录响应用）
+#[derive(Debug, Serialize, Clone)]
+pub struct UserOrgInfo {
+    pub id: uuid::Uuid,
+    pub name: String,
+    pub slug: Option<String>,
+    pub role: String,
 }
 
 #[derive(Debug, Deserialize)]
@@ -388,37 +399,6 @@ pub struct GroupMemberInfo {
     pub username: Option<String>,
     pub role: String,
     pub joined_at: chrono::DateTime<chrono::Utc>,
-}
-
-/// Admin user login models
-
-#[derive(Debug, Deserialize)]
-pub struct AdminLoginBody {
-    pub username: String,
-    pub password: String,
-}
-
-#[derive(Debug, Serialize)]
-pub struct AdminLoginResponse {
-    pub token: String,
-    pub token_type: String,
-    pub expires_in: u64,
-    pub user: AdminUserInfo,
-}
-
-#[derive(Debug, Serialize)]
-pub struct AdminUserInfo {
-    pub id: String,
-    pub username: String,
-    pub display_name: Option<String>,
-}
-
-#[derive(Debug, Serialize)]
-pub struct AdminMeResponse {
-    pub id: String,
-    pub username: String,
-    pub display_name: Option<String>,
-    pub is_active: bool,
 }
 
 #[derive(Debug, Serialize)]
@@ -713,7 +693,7 @@ pub struct ListGroupsQuery {
 #[derive(Debug, Deserialize)]
 pub struct CreateApiKeyBody {
     pub identity_id: Uuid,
-    pub organization_id: Uuid,
+    pub organization_id: Option<Uuid>,
     pub name: Option<String>,
     pub scopes: Option<Vec<String>>,
     pub rate_limit: Option<i32>,
@@ -723,7 +703,7 @@ pub struct CreateApiKeyBody {
 /// User-facing API key creation (identity_id derived from auth context)
 #[derive(Debug, Deserialize)]
 pub struct CreateMyApiKeyBody {
-    pub organization_id: Uuid,
+    pub organization_id: Option<Uuid>,
     pub name: Option<String>,
     pub scopes: Option<Vec<String>>,
     pub rate_limit: Option<i32>,
@@ -734,6 +714,18 @@ impl From<CreateApiKeyBody> for crate::models::api_key::CreateApiKeyRequest {
     fn from(body: CreateApiKeyBody) -> Self {
         crate::models::api_key::CreateApiKeyRequest {
             identity_id: body.identity_id,
+            organization_id: body.organization_id,
+            name: body.name,
+            scopes: body.scopes.unwrap_or_default(),
+            rate_limit: body.rate_limit.unwrap_or(1000),
+            expires_at: body.expires_at,
+        }
+    }
+}
+
+impl From<CreateMyApiKeyBody> for crate::models::api_key::UserCreateApiKeyRequest {
+    fn from(body: CreateMyApiKeyBody) -> Self {
+        crate::models::api_key::UserCreateApiKeyRequest {
             organization_id: body.organization_id,
             name: body.name,
             scopes: body.scopes.unwrap_or_default(),

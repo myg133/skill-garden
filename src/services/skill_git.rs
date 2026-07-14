@@ -18,6 +18,7 @@ use crate::db::repositories::skill::SkillRepository;
 use crate::db::repositories::version::{NewSkillVersion, VersionRepository};
 use crate::models::error::AppError;
 use crate::models::skill::NewSkill;
+use crate::schemas::validation::normalize_description;
 use crate::services::search::SearchService;
 use crate::services::RegistryService;
 
@@ -254,6 +255,7 @@ impl SkillGitService {
             tools: None,
             owner_type: owner_type.to_string(),
             owner_id,
+            author_identity_id: None,
         };
 
         let skill = tokio::runtime::Handle::current().block_on(async {
@@ -266,7 +268,11 @@ impl SkillGitService {
         registry.sync_skill_files_from(&metadata.name, &repo_dir)?;
 
         tokio::runtime::Handle::current()
-            .block_on(async { skill_repo.update_status(&skill.id, "pending_review").await })
+            .block_on(async {
+                skill_repo
+                    .update_status(&skill.id, "pending_review", None, None)
+                    .await
+            })
             .map_err(|e| AppError::InternalError(format!("Failed to update status: {}", e)))?;
 
         // 9. 清理临时解压目录
@@ -494,6 +500,7 @@ impl SkillGitService {
             tools: None,
             owner_type: owner_type.to_string(),
             owner_id,
+            author_identity_id,
         };
 
         let skill = registry
@@ -1027,7 +1034,7 @@ impl SkillGitService {
 
         let output = Command::new("git")
             .current_dir(&repo_dir)
-            .args(["ls-tree", "-r", "--name-only", &tag])
+            .args(["ls-tree", "-r", "--name-only", "-z", &tag])
             .output()
             .map_err(|e| AppError::InternalError(format!("git ls-tree failed: {}", e)))?;
 
@@ -1039,9 +1046,11 @@ impl SkillGitService {
             )));
         }
 
-        Ok(String::from_utf8_lossy(&output.stdout)
-            .lines()
-            .map(|s| s.to_string())
+        // -z 输出以 null 分隔，不转义中文等非 ASCII 路径
+        Ok(output
+            .stdout
+            .split(|&b| b == 0)
+            .map(|chunk| String::from_utf8_lossy(chunk).to_string())
             .filter(|s| !s.is_empty())
             .collect())
     }
@@ -1289,7 +1298,7 @@ pub fn parse_skill_md_frontmatter(content: &str) -> Result<ParsedSkillMetadata, 
 fn apply_scalar_value(meta: &mut ParsedSkillMetadata, key: &str, value: &str) {
     match key {
         "name" => meta.name = value.to_string(),
-        "description" => meta.description = value.to_string(),
+        "description" => meta.description = normalize_description(value),
         "version" => meta.version = Some(value.to_string()),
         "compatibility" => meta.compatibility = value.to_string(),
         _ => {}

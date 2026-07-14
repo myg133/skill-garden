@@ -1,8 +1,9 @@
 ﻿<script>
-  import { Router, Route, navigate } from 'svelte-routing';
+  import { Router, Route } from 'svelte-routing';
   import { fade } from 'svelte/transition';
-  import { isAuthenticated } from './stores/auth.js';
+  import { isAuthenticated, isAdmin } from './stores/auth.js';
   import Nav from './components/Nav.svelte';
+  import UserNav from './components/UserNav.svelte';
   import Toast from './components/Toast.svelte';
   import Review from './routes/Review.svelte';
   import SkillDetail from './routes/SkillDetail.svelte';
@@ -25,6 +26,8 @@
   import Profile from './routes/Profile.svelte';
   import MyApiKeys from './routes/MyApiKeys.svelte';
   import Sandbox from './routes/Sandbox.svelte';
+  import UserDashboard from './routes/UserDashboard.svelte';
+  import MySubmissions from './routes/MySubmissions.svelte';
 
   export let url = '';
 
@@ -38,7 +41,8 @@
       <Route path="/register" component={Register} />
       <Route path="*" component={Login} />
     </div>
-  {:else}
+  {:else if $isAdmin}
+    <!-- ========== Admin Layout ========== -->
     <div class="flex h-screen overflow-hidden bg-gray-50">
       <Nav />
       <div class="flex-1 overflow-y-auto relative">
@@ -63,6 +67,26 @@
           <Route path="/profile" component={Profile} />
           <Route path="/my-api-keys" component={MyApiKeys} />
           <Route path="/sandboxes" component={Sandbox} />
+        </main>
+      </div>
+      <Toast />
+    </div>
+  {:else}
+    <!-- ========== User Layout ========== -->
+    <div class="flex h-screen overflow-hidden bg-gray-50">
+      <UserNav />
+      <div class="flex-1 overflow-y-auto relative">
+        <main class="relative fade-in" in:fade={{ duration: 150 }} out:fade={{ duration: 100 }}>
+          <Route path="/" component={UserDashboard} />
+          <Route path="/user" component={UserDashboard} />
+          <Route path="/user/skills/:id" let:params>
+            <SkillDetail id={params.id} />
+          </Route>
+          <Route path="/user/skills" component={Skills} />
+          <Route path="/user/submissions" component={MySubmissions} />
+          <Route path="/profile" component={Profile} />
+          <Route path="/my-api-keys" component={MyApiKeys} />
+          <Route path="*" component={UserDashboard} />
         </main>
       </div>
       <Toast />

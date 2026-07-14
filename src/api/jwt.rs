@@ -4,13 +4,28 @@ use axum::{async_trait, extract::FromRequestParts, http::request::Parts};
 use chrono::{Duration, Utc};
 use jsonwebtoken::{decode, encode, DecodingKey, EncodingKey, Header, Validation};
 use serde::{Deserialize, Serialize};
+use std::sync::OnceLock;
 use uuid::Uuid;
 
 use super::error::ApiError;
 
-fn get_jwt_secret() -> String {
-    std::env::var("AION_HIVE_JWT_SECRET")
-        .unwrap_or_else(|_| "aion_hive_secret_key_change_in_production".to_string())
+static JWT_SECRET: OnceLock<String> = OnceLock::new();
+
+fn get_jwt_secret() -> &'static str {
+    JWT_SECRET.get_or_init(|| {
+        match std::env::var("AION_HIVE_JWT_SECRET") {
+            Ok(secret) if !secret.is_empty() => secret,
+            _ => {
+                // 生产环境未设置密钥时使用随机密钥 + 告警日志
+                // 注意：随机密钥意味着服务重启后所有旧 token 失效
+                let fallback = format!("auto_generated_{}", Uuid::new_v4());
+                tracing::error!(
+                    "AION_HIVE_JWT_SECRET 未设置！已生成随机密钥。生产环境请务必通过环境变量配置固定密钥，否则每次重启后所有 JWT token 将失效。"
+                );
+                fallback
+            }
+        }
+    })
 }
 
 fn get_jwt_expiry_hours() -> i64 {
@@ -71,6 +86,8 @@ pub struct AgentContext {
     pub session_id: Option<Uuid>,
     /// API key 关联的组织 UUID（API key 认证时自动填充）
     pub org_id: Option<Uuid>,
+    /// 本次请求使用的 API key UUID（用于审计追踪）
+    pub api_key_id: Option<Uuid>,
     /// 认证来源
     pub auth_source: AuthSource,
     /// Agent 名称
@@ -89,6 +106,7 @@ impl AgentContext {
             agent_id: None,
             session_id: None,
             org_id: None,
+            api_key_id: None,
             auth_source: AuthSource::LegacyAgent,
             agent_name: None,
         }
@@ -115,6 +133,7 @@ impl AgentContext {
             agent_id,
             session_id: None,
             org_id: None,
+            api_key_id: None,
             auth_source: claims.auth_source,
             agent_name: claims.agent_name,
         }
@@ -266,6 +285,7 @@ pub fn agent_context_from_identity(
     identity_name: &str,
     session_id: Option<Uuid>,
     org_id: Option<Uuid>,
+    api_key_id: Option<Uuid>,
 ) -> AgentContext {
     AgentContext {
         subject: identity_id.to_string(),
@@ -275,6 +295,7 @@ pub fn agent_context_from_identity(
         agent_id: None,
         session_id,
         org_id,
+        api_key_id,
         auth_source: AuthSource::RegisteredAgent,
         agent_name: Some(identity_name.to_string()),
     }

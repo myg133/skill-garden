@@ -18,9 +18,21 @@
     error = '';
     try {
       const res = await api.adminLogin(username, password);
-      auth.login(res.token, res.user?.username || username);
-      $selectedNav = '/stats';
-      navigate('/stats', { replace: true });
+      const is_admin_user = res.user?.is_admin || false;
+      auth.login(res.token, res.user?.username || username, is_admin_user);
+      // 检查是否有保存的回跳路径（token 过期后登录回原页面）
+      const redirectPath = localStorage.getItem('login_redirect');
+      if (redirectPath) {
+        localStorage.removeItem('login_redirect');
+        $selectedNav = redirectPath;
+        navigate(redirectPath, { replace: true });
+      } else if (is_admin_user) {
+        $selectedNav = '/stats';
+        navigate('/stats', { replace: true });
+      } else {
+        $selectedNav = '/user';
+        navigate('/user', { replace: true });
+      }
     } catch (e) {
       error = e.message || 'Login failed';
     } finally {

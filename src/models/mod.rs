@@ -1,6 +1,7 @@
 //! 数据模型模块
 
 pub mod api_key;
+pub mod download_token;
 pub mod error;
 pub mod evaluation;
 pub mod group;
@@ -21,6 +22,7 @@ pub mod system_role_assignment;
 pub mod tenant;
 
 pub use api_key::*;
+pub use download_token::*;
 pub use error::*;
 pub use evaluation::*;
 pub use group::*;

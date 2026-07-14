@@ -3,6 +3,9 @@
   import { Link } from 'svelte-routing';
   import { api } from '../lib/api.js';
   import { addToast } from '../stores/app.js';
+  import { isAdmin } from '../stores/auth.js';
+
+  $: skillLinkBase = $isAdmin ? '/skills' : '/user/skills';
   import Badge from '../components/Badge.svelte';
   import EmptyState from '../components/EmptyState.svelte';
   import LoadingSpinner from '../components/LoadingSpinner.svelte';
@@ -422,7 +425,7 @@
           {#each sortedSkills as skill (skill.id)}
             <tr class="table-row hover:bg-gray-50">
               <td class="px-6 py-4">
-                <Link to="/skills/{skill.id}" class="text-blue-600 hover:text-blue-700 font-semibold text-sm transition-colors">
+                <Link to="{skillLinkBase}/{skill.id}" class="text-blue-600 hover:text-blue-700 font-semibold text-sm transition-colors">
                   {skill.name}
                 </Link>
                 {#if skill.description}
@@ -448,7 +451,7 @@
               <td class="px-6 py-4">
                 <span class="text-gray-500 text-xs capitalize">{skill.visibility || 'org_visible'}</span>
               </td>
-              <td class="px-6 py-4 text-gray-500 text-xs font-mono">{skill.author_agent_id || 'N/A'}</td>
+              <td class="px-6 py-4 text-gray-500 text-xs">{skill.author_name || skill.author_agent_id || 'N/A'}</td>
               <td class="px-6 py-4">
                 <span class="text-gray-600 text-sm font-semibold">{skill.install_count || 0}</span>
               </td>

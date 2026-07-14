@@ -2,12 +2,14 @@ import { writable, derived } from 'svelte/store';
 
 const TOKEN_KEY = 'admin_token';
 const USERNAME_KEY = 'admin_username';
+const IS_ADMIN_KEY = 'admin_is_admin';
 const NAV_KEY = 'admin_selected_nav';
 
 function createAuthStore() {
   const { subscribe, set, update } = writable({
     token: localStorage.getItem(TOKEN_KEY) || null,
     username: localStorage.getItem(USERNAME_KEY) || null,
+    is_admin: localStorage.getItem(IS_ADMIN_KEY) === 'true',
     loading: false,
     error: null,
   });
@@ -15,17 +17,19 @@ function createAuthStore() {
   return {
     subscribe,
 
-    login(token, username) {
+    login(token, username, is_admin = false) {
       localStorage.setItem(TOKEN_KEY, token);
       localStorage.setItem(USERNAME_KEY, username);
-      set({ token, username, loading: false, error: null });
+      localStorage.setItem(IS_ADMIN_KEY, String(is_admin));
+      set({ token, username, is_admin, loading: false, error: null });
     },
 
     logout() {
       localStorage.removeItem(TOKEN_KEY);
       localStorage.removeItem(USERNAME_KEY);
+      localStorage.removeItem(IS_ADMIN_KEY);
       localStorage.removeItem(NAV_KEY);
-      set({ token: null, username: null, loading: false, error: null });
+      set({ token: null, username: null, is_admin: false, loading: false, error: null });
     },
 
     setLoading(loading) {
@@ -45,6 +49,7 @@ function createAuthStore() {
 export const auth = createAuthStore();
 
 export const isAuthenticated = derived(auth, $auth => !!$auth.token);
+export const isAdmin = derived(auth, $auth => $auth.is_admin);
 
 export const selectedNav = writable(localStorage.getItem(NAV_KEY) || '/');
 

@@ -6,14 +6,15 @@ use anyhow::Result;
 use chrono::Utc;
 use tracing::info;
 
+use crate::db::repositories::download_token::DownloadTokenRepository;
 use crate::db::repositories::skill::{NewSkill as DbNewSkill, SkillRepository};
 use crate::models::error::AppError;
-use crate::services::skill_git::copy_dir_recursive;
 use crate::models::skill::{InstallResult, NewSkill, Skill, SkillMetadata, SkillUpdate};
 use crate::schemas::validation::{
-    validate_description, validate_skill_content, validate_skill_name, validate_tags,
-    validate_version,
+    normalize_description, validate_description, validate_skill_content, validate_skill_name,
+    validate_tags, validate_version,
 };
+use crate::services::skill_git::copy_dir_recursive;
 use crate::services::storage::{get_skill_lock, StorageService};
 use crate::services::SearchService;
 
@@ -24,16 +25,23 @@ pub struct RegistryService {
     registry_dir: PathBuf,
     storage: StorageService,
     skill_repo: SkillRepository,
+    download_token_repo: DownloadTokenRepository,
 }
 
 impl RegistryService {
-    pub fn new(skills_dir: PathBuf, registry_dir: PathBuf, skill_repo: SkillRepository) -> Self {
+    pub fn new(
+        skills_dir: PathBuf,
+        registry_dir: PathBuf,
+        skill_repo: SkillRepository,
+        download_token_repo: DownloadTokenRepository,
+    ) -> Self {
         let storage = StorageService::new(registry_dir.clone());
         Self {
             skills_dir,
             registry_dir,
             storage,
             skill_repo,
+            download_token_repo,
         }
     }
 
@@ -84,14 +92,17 @@ impl RegistryService {
         validate_version(&new_skill.version)?;
         validate_skill_content(&new_skill.content, &new_skill.name)?;
 
+        // 当 owner_type 为 "user" 且未指定 owner_id 时，默认 owner_id = author_identity_id
+        let effective_owner_id = new_skill.owner_id.or(new_skill.author_identity_id);
+
         let new_skill_db = DbNewSkill {
             name: new_skill.name.clone(),
-            description: new_skill.description.clone(),
+            description: normalize_description(&new_skill.description),
             version: new_skill.version.clone(),
             author_agent_id: author_agent_id.to_string(),
-            author_identity_id: None,
+            author_identity_id: new_skill.author_identity_id,
             owner_type: new_skill.owner_type.clone(),
-            owner_id: new_skill.owner_id,
+            owner_id: effective_owner_id,
             compatibility: ">=1.0.0".to_string(),
             content: new_skill.content.clone(),
             tags: new_skill.tags.clone(),
@@ -127,7 +138,7 @@ impl RegistryService {
             git_url: db_skill.git_url,
             visibility: crate::models::skill_policy::Visibility::OrgVisible,
             tools: db_skill.tools,
-            review_status: db_skill.review_status,
+            status: db_skill.status,
             reviewed_by: db_skill.reviewed_by,
             reviewed_at: db_skill.reviewed_at,
             review_comment: db_skill.review_comment,
@@ -252,6 +263,9 @@ impl RegistryService {
         if let Some(content) = update.content {
             skill.content = content;
         }
+        if let Some(vis) = update.visibility.clone() {
+            skill.visibility = vis;
+        }
         skill.updated = Utc::now();
 
         // 写入文件
@@ -264,6 +278,7 @@ impl RegistryService {
             index.skills[idx].description = skill.description.clone();
             index.skills[idx].tags = skill.tags.clone();
             index.skills[idx].updated = skill.updated;
+            index.skills[idx].visibility = skill.visibility.clone();
         }
         self.save_index(&index)?;
 
@@ -290,12 +305,19 @@ impl RegistryService {
             .ok_or_else(|| AppError::SkillNotFound(skill_id.to_string()))?;
 
         // 通过 DB repo 更新字段
+        let visibility_str = update.visibility.as_ref().map(|v| match v {
+            crate::models::skill_policy::Visibility::Private => "private",
+            crate::models::skill_policy::Visibility::OrgVisible => "org_visible",
+            crate::models::skill_policy::Visibility::Marketplace => "marketplace",
+            crate::models::skill_policy::Visibility::Shared => "shared",
+        });
         self.skill_repo
             .update(
                 skill_id,
                 update.description.as_deref(),
                 update.content.as_deref(),
                 update.tags.clone(),
+                visibility_str.as_deref(),
             )
             .await
             .map_err(|e| AppError::InternalError(format!("Failed to update skill: {}", e)))?;
@@ -348,7 +370,7 @@ impl RegistryService {
             git_url: db_skill.git_url,
             visibility: crate::models::skill_policy::Visibility::OrgVisible,
             tools: db_skill.tools,
-            review_status: db_skill.review_status,
+            status: db_skill.status,
             reviewed_by: db_skill.reviewed_by,
             reviewed_at: db_skill.reviewed_at,
             review_comment: db_skill.review_comment,
@@ -357,15 +379,22 @@ impl RegistryService {
     }
 
     /// 获取 Skill 安装信息，返回下载链接而非文件内容
-    /// 计算文件统计（数量+总大小），生成签名下载 URL
-    pub async fn get_skill_files(&self, skill_id: &str) -> Result<InstallResult, AppError> {
+    /// 计算文件统计（数量+总大小），生成数据库下载凭证
+    pub async fn get_skill_files(
+        &self,
+        skill_id: &str,
+        identity_id: uuid::Uuid,
+        api_key_id: uuid::Uuid,
+    ) -> Result<InstallResult, AppError> {
         let skill = self.get_skill(skill_id).await?;
         let skill_dir = self.skill_dir(&skill.name);
 
         // 确保文件可用：从 git-repos 同步（如果需要）
         if !skill_dir.exists() {
             if let Some(data_dir) = self.registry_dir.parent() {
-                let git_repo_dir = data_dir.join("git-repos").join(format!("skill-{}", skill.name));
+                let git_repo_dir = data_dir
+                    .join("git-repos")
+                    .join(format!("skill-{}", skill.name));
                 if git_repo_dir.exists() {
                     self.sync_skill_files_from(&skill.name, &git_repo_dir)?;
                 }
@@ -381,13 +410,26 @@ impl RegistryService {
             (1, fallback_size)
         };
 
-        // 生成下载 token（5分钟有效）
+        // 在数据库中创建下载凭证（5分钟有效），URL 中只暴露随机 UUID
         let expires_in: u64 = 300;
-        let expires_at = chrono::Utc::now().timestamp() as u64 + expires_in;
-        let token = Self::generate_download_token(&skill.name, &skill.version, expires_at);
+        let token_record = self
+            .download_token_repo
+            .create(
+                &skill.name,
+                &skill.version,
+                identity_id,
+                api_key_id,
+                expires_in as i64,
+            )
+            .await
+            .map_err(|e| {
+                tracing::error!("Failed to create download token: {}", e);
+                AppError::InternalError("Failed to generate download token".to_string())
+            })?;
 
-        // 构建下载 URL
-        let download_url = Self::build_download_url(&skill.name, &skill.version, &token, expires_at);
+        // 构建下载 URL（只带 token，无身份信息泄露）
+        let download_url =
+            Self::build_download_url(&skill.name, &skill.version, &token_record.token);
 
         // 生成安装指引
         let install_hint = format!(
@@ -420,6 +462,24 @@ impl RegistryService {
         })
     }
 
+    /// 构建下载 URL（仅带不透明 token，不暴露身份信息）
+    fn build_download_url(name: &str, version: &str, token: &str) -> String {
+        let base = std::env::var("AION_HIVE_PUBLIC_URL")
+            .unwrap_or_else(|_| {
+                format!(
+                    "http://localhost:{}",
+                    std::env::var("AION_HIVE_HTTP_PORT").unwrap_or_else(|_| "8080".to_string())
+                )
+            })
+            .trim_end_matches('/')
+            .to_string();
+
+        format!(
+            "{}/api/v1/skills/{}/download/{}?token={}",
+            base, name, version, token
+        )
+    }
+
     /// 递归统计 skill 目录文件数量和总大小
     fn count_skill_files(&self, dir: &std::path::Path) -> Result<(usize, u64), AppError> {
         let mut count = 0usize;
@@ -449,45 +509,6 @@ impl RegistryService {
         Ok((count.max(1), total_size.max(1)))
     }
 
-    /// 生成下载 token：HMAC-SHA256(skill_name|version|expires)
-    fn generate_download_token(name: &str, version: &str, expires: u64) -> String {
-        use hmac::{Hmac, Mac};
-        use sha2::Sha256;
-
-        let secret = std::env::var("AION_HIVE_DOWNLOAD_SECRET")
-            .or_else(|_| std::env::var("AION_HIVE_JWT_SECRET"))
-            .unwrap_or_else(|_| "aion-hive-default-download-secret".to_string());
-
-        let payload = format!("{}|{}|{}", name, version, expires);
-        let mut mac = Hmac::<Sha256>::new_from_slice(secret.as_bytes())
-            .expect("HMAC can take key of any size");
-        mac.update(payload.as_bytes());
-        hex::encode(mac.finalize().into_bytes())
-    }
-
-    /// 构建下载 URL
-    fn build_download_url(name: &str, version: &str, token: &str, expires: u64) -> String {
-        let base = std::env::var("AION_HIVE_PUBLIC_URL")
-            .unwrap_or_else(|_| format!(
-                "http://localhost:{}",
-                std::env::var("AION_HIVE_HTTP_PORT").unwrap_or_else(|_| "8080".to_string())
-            ))
-            .trim_end_matches('/')
-            .to_string();
-
-        format!(
-            "{}/api/v1/skills/{}/download/{}?token={}&expires={}",
-            base, name, version, token, expires
-        )
-    }
-
-    /// ** 内部方法：保留给 tarball 生成使用 **
-    /// 验证下载 token 是否有效
-    pub fn verify_download_token(name: &str, version: &str, token: &str, expires: u64) -> bool {
-        let expected = Self::generate_download_token(name, version, expires);
-        expected == token
-    }
-
     /// 列出所有 Skills
     pub async fn list_skills(&self) -> Result<Vec<SkillMetadata>, AppError> {
         self.list_skills_sorted(1000, 0, "created").await
@@ -510,6 +531,7 @@ impl RegistryService {
                 version: m.version,
                 author_agent_id: m.author_agent_id,
                 author_identity_id: m.author_identity_id,
+                author_name: m.author_name,
                 owner_type: m.owner_type,
                 owner_id: m.owner_id,
                 tags: m.tags,
@@ -524,7 +546,6 @@ impl RegistryService {
                     "marketplace" => crate::models::skill_policy::Visibility::Marketplace,
                     _ => crate::models::skill_policy::Visibility::OrgVisible,
                 },
-                review_status: m.review_status,
                 reviewed_by: m.reviewed_by,
                 reviewed_at: m.reviewed_at,
                 review_comment: m.review_comment,
@@ -558,6 +579,7 @@ impl RegistryService {
                 version: m.version,
                 author_agent_id: m.author_agent_id,
                 author_identity_id: m.author_identity_id,
+                author_name: m.author_name,
                 owner_type: m.owner_type,
                 owner_id: m.owner_id,
                 tags: m.tags,
@@ -572,7 +594,6 @@ impl RegistryService {
                     "marketplace" => crate::models::skill_policy::Visibility::Marketplace,
                     _ => crate::models::skill_policy::Visibility::OrgVisible,
                 },
-                review_status: m.review_status,
                 reviewed_by: m.reviewed_by,
                 reviewed_at: m.reviewed_at,
                 review_comment: m.review_comment,
@@ -719,8 +740,8 @@ dependencies: [{}]
             install_count: meta.install_count,
             git_url: meta.git_url.clone(),
             visibility: meta.visibility.clone(),
+            status: meta.status.clone(),
             tools: Vec::new(),
-            review_status: meta.review_status.clone(),
             reviewed_by: meta.reviewed_by,
             reviewed_at: meta.reviewed_at,
             review_comment: meta.review_comment.clone(),
@@ -760,6 +781,7 @@ dependencies: [{}]
                                     version: "1.0.0".to_string(),
                                     author_agent_id: String::new(),
                                     author_identity_id: None,
+                                    author_name: None,
                                     owner_type: "user".to_string(),
                                     owner_id: None,
                                     created: Utc::now(),
@@ -768,7 +790,6 @@ dependencies: [{}]
                                     status: "published".to_string(),
                                     git_url: None,
                                     visibility: crate::models::skill_policy::Visibility::OrgVisible,
-                                    review_status: "published".to_string(),
                                     reviewed_by: None,
                                     reviewed_at: None,
                                     review_comment: None,
@@ -794,4 +815,3 @@ dependencies: [{}]
         Ok(count)
     }
 }
-

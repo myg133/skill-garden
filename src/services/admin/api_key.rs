@@ -1,7 +1,9 @@
 //! API Key Service
 
 use crate::db::repositories::ApiKeyRepository;
-use crate::models::api_key::{ApiKey, ApiKeyResponse, CreateApiKeyRequest};
+use crate::models::api_key::{
+    ApiKey, ApiKeyResponse, CreateApiKeyRequest, UserCreateApiKeyRequest,
+};
 use crate::models::error::AppError;
 use sha2::{Digest, Sha256};
 use uuid::Uuid;
@@ -32,6 +34,23 @@ impl ApiKeyService {
             .map_err(|e| AppError::InternalError(e.to_string()))?;
 
         Ok(ApiKeyResponse::from_api_key(api_key, key))
+    }
+
+    /// 用户自服务创建 API Key（identity_id 从认证上下文来，org 可选且需校验归属）
+    pub async fn create_user_api_key(
+        &self,
+        identity_id: Uuid,
+        req: UserCreateApiKeyRequest,
+    ) -> Result<ApiKeyResponse, AppError> {
+        let request = CreateApiKeyRequest {
+            identity_id,
+            organization_id: req.organization_id,
+            name: req.name,
+            scopes: req.scopes,
+            rate_limit: req.rate_limit,
+            expires_at: req.expires_at,
+        };
+        self.create(request).await
     }
 
     pub async fn get(&self, id: Uuid) -> Result<Option<ApiKey>, AppError> {

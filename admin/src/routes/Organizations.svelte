@@ -24,7 +24,9 @@
     try {
       const res = await api.listTenants({ limit: 100 });
       tenants = res.data || [];
-    } catch (_) { }
+    } catch (e) {
+      addToast('租户列表加载失败', 'warning');
+    }
   }
 
   async function loadOrganizations() {

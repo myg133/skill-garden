@@ -39,7 +39,7 @@
         selectedOrgId = organizations[0].id;
       }
     } catch (e) {
-      console.error('Failed to load organizations:', e);
+      addToast('组织列表加载失败', 'warning');
     }
   }
 

@@ -214,6 +214,18 @@ impl IdentityRepository {
                 .map_err(|e| DbError::QueryError(e.to_string()))?;
         Ok(result)
     }
+
+    /// 检查指定身份是否是系统管理员
+    pub async fn is_system_admin(&self, id: Uuid) -> DbResult<bool> {
+        let result: bool =
+            sqlx::query_scalar("SELECT is_system_admin FROM identities WHERE id = $1")
+                .bind(id)
+                .fetch_optional(&self.pool)
+                .await
+                .map_err(|e| DbError::QueryError(e.to_string()))?
+                .unwrap_or(false);
+        Ok(result)
+    }
 }
 
 #[derive(sqlx::FromRow)]

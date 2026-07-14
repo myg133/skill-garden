@@ -16,7 +16,7 @@
       addToast(`${skill.name} approved`, "success");
       navigate("/review", { replace: true });
     } catch (e) {
-      addToast(e.message);
+      addToast(e.message, 'error');
     } finally {
       loading = false;
     }
@@ -30,7 +30,7 @@
       addToast(`${skill.name} rejected`, "success");
       navigate("/review", { replace: true });
     } catch (e) {
-      addToast(e.message);
+      addToast(e.message, 'error');
     } finally {
       loading = false;
     }
