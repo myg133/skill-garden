@@ -5,6 +5,7 @@ use std::path::PathBuf;
 use anyhow::Result;
 use chrono::Utc;
 use tracing::info;
+use uuid::Uuid;
 
 use crate::db::repositories::download_token::DownloadTokenRepository;
 use crate::db::repositories::skill::{NewSkill as DbNewSkill, SkillRepository};
@@ -92,8 +93,9 @@ impl RegistryService {
         validate_version(&new_skill.version)?;
         validate_skill_content(&new_skill.content, &new_skill.name)?;
 
-        // 当 owner_type 为 "user" 且未指定 owner_id 时，默认 owner_id = author_identity_id
-        let effective_owner_id = new_skill.owner_id.or(new_skill.author_identity_id);
+        // owner_id 由上游 handler 按 owner_type 设置：
+        //   user → identity_id, organization → org_id
+        let effective_owner_id = new_skill.owner_id;
 
         let new_skill_db = DbNewSkill {
             name: new_skill.name.clone(),
@@ -557,6 +559,51 @@ impl RegistryService {
     pub async fn count(&self) -> Result<u32, AppError> {
         let count = self.skill_repo.count().await?;
         Ok(count as u32)
+    }
+
+    /// 根据可见性规则过滤 Skills 列表（供 MCP 和 REST API 共用）
+    ///
+    /// 规则（与 `permission::check_skill_permission` Read 一致）：
+    /// - `published + marketplace` → 所有人可见
+    /// - 个人所有者的 Skill → 所有者可见（任何状态）
+    /// - 组织所有者的 Skill → 同组织成员可见（任何状态）
+    /// - 无身份 → 仅 `published + marketplace`
+    pub fn filter_skills_visible_to(
+        skills: Vec<SkillMetadata>,
+        identity_id: Option<Uuid>,
+        member_org_ids: &[Uuid],
+    ) -> Vec<SkillMetadata> {
+        let Some(id_id) = identity_id else {
+            return skills
+                .into_iter()
+                .filter(|s| s.status == "published" && matches!(s.visibility, crate::models::skill_policy::Visibility::Marketplace))
+                .collect();
+        };
+
+        skills
+            .into_iter()
+            .filter(|s| {
+                // published + marketplace → 所有人可见
+                if s.status == "published" && matches!(s.visibility, crate::models::skill_policy::Visibility::Marketplace) {
+                    return true;
+                }
+                // 个人所有者的 Skill（任何状态）→ 所有者可见
+                if s.owner_type == "user"
+                    && (s.owner_id == Some(id_id) || s.author_identity_id == Some(id_id))
+                {
+                    return true;
+                }
+                // 组织 Skill → 同组织成员可见（任何状态）
+                if s.owner_type == "organization" {
+                    if let Some(org_id) = s.owner_id {
+                        if member_org_ids.contains(&org_id) {
+                            return true;
+                        }
+                    }
+                }
+                false
+            })
+            .collect()
     }
 
     /// 递增 Skill 安装计数（每次 pull 时调用）

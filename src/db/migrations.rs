@@ -110,6 +110,10 @@ const MIGRATIONS: &[(&str, &str)] = &[
         "026_rbac_and_download_tokens",
         include_str!("migrations/026_rbac_and_download_tokens.sql"),
     ),
+    (
+        "027_cli_and_review_enhancements",
+        include_str!("migrations/027_cli_and_review_enhancements.sql"),
+    ),
 ];
 
 fn split_sql_statements(sql: &str) -> Vec<&str> {

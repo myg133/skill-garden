@@ -248,6 +248,9 @@ async fn run_http_server(state: AppState, port: u16) -> Result<()> {
         sandbox,
         state.api_key.clone(),
         state.identity.clone(),
+        state.permission.clone(),
+        state.download_token_repo.clone(),
+        PathBuf::from("cli-dist"),
     );
     let mcp_server_arc = Arc::new(tokio::sync::RwLock::new(mcp_server));
 

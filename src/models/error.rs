@@ -183,7 +183,8 @@ impl From<serde_json::Error> for AppError {
     }
 }
 
-// 实现 From<tantivy::TantivyError>
+// 实现 From<tantivy::TantivyError> — 仅 server feature
+#[cfg(feature = "server")]
 impl From<tantivy::TantivyError> for AppError {
     fn from(err: tantivy::TantivyError) -> Self {
         AppError::InternalError(err.to_string())

@@ -50,6 +50,11 @@ pub struct CreateSkillBody {
     pub visibility: Option<String>,
     #[serde(default)]
     pub tools: Option<Vec<String>>,
+    /// 留空时自动推断：若当前用户有关联组织则为 "organization"，否则为 "user"
+    #[serde(default)]
+    pub owner_type: Option<String>,
+    /// 当 owner_type = "organization" 时，留空则使用当前用户关联的组织
+    pub organization_id: Option<uuid::Uuid>,
 }
 
 #[derive(Debug, Deserialize)]

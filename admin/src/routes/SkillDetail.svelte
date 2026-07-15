@@ -1,6 +1,7 @@
 ﻿<script>
   import { onMount } from 'svelte';
   import { api } from '../lib/api.js';
+  import { addToast } from '../stores/app.js';
   import Badge from '../components/Badge.svelte';
   import ReviewActions from '../components/ReviewActions.svelte';
   import LoadingSpinner from '../components/LoadingSpinner.svelte';
@@ -12,6 +13,7 @@
   let stats = null;
   let loading = true;
   let error = '';
+  let publishLoading = false;
 
   // Tag editing state
   let editingTags = false;
@@ -235,6 +237,19 @@
     }
   }
 
+  async function handlePublish() {
+    publishLoading = true;
+    try {
+      await api.publishSkill(id);
+      addToast(`${skill.name} published`, 'success');
+      skill.status = 'published';
+    } catch (e) {
+      addToast(e.message, 'error');
+    } finally {
+      publishLoading = false;
+    }
+  }
+
   function buildFileTree(files) {
     const root = { children: {} };
     for (const f of files) {
@@ -307,6 +322,18 @@
         </div>
         {#if skill.status === 'pending_review'}
           <ReviewActions {skill} />
+        {/if}
+        {#if skill.status === 'approved'}
+          <button
+            on:click={handlePublish}
+            disabled={publishLoading}
+            class="px-4 py-2 text-sm font-semibold bg-emerald-500 text-white rounded-xl hover:bg-emerald-600 disabled:opacity-50 transition-all duration-200 shadow-sm shadow-emerald-500/20 hover:shadow-md hover:shadow-emerald-500/30 active:scale-[0.97]"
+          >
+            {#if publishLoading}
+              <svg class="w-4 h-4 animate-spin mr-1 inline" fill="none" viewBox="0 0 24 24"><circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"/><path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z"/></svg>
+            {/if}
+            Publish to Marketplace
+          </button>
         {/if}
       </div>
     </div>

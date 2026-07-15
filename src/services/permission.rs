@@ -96,6 +96,15 @@ impl PermissionService {
             .map_err(|e| AppError::InternalError(e.to_string()))
     }
 
+    /// 获取用户所属的所有组织 ID 列表（仅 ID，用于可见性过滤）
+    pub async fn get_user_org_ids(&self, identity_id: Uuid) -> Result<Vec<Uuid>, AppError> {
+        self.org_membership_repo
+            .list_user_organizations(identity_id)
+            .await
+            .map(|orgs| orgs.into_iter().map(|(id, _)| id).collect())
+            .map_err(|e| AppError::InternalError(e.to_string()))
+    }
+
     /// 获取用户在组织中的角色
     pub async fn get_org_role(
         &self,

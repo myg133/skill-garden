@@ -59,6 +59,11 @@ pub fn create_api_router(state: ApiState) -> Router<ApiState> {
             "/api/v1/skills/:name/download/:version",
             get(download_skill_handler),
         )
+        // CLI binary download (token-protected, generated from cli-dist/)
+        .route(
+            "/api/v1/cli/download/:version/:target",
+            get(download_cli_handler),
+        )
         // Skill version management
         .route(
             "/api/v1/skills/:name/versions",

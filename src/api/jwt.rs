@@ -92,6 +92,9 @@ pub struct AgentContext {
     pub auth_source: AuthSource,
     /// Agent 名称
     pub agent_name: Option<String>,
+    /// 原始 API key 明文（仅 HTTP/SSE 模式下 API key 认证时填充，
+    /// 用于在 cli.setup 等场景生成 config.toml。stdio 模式下此字段为空。）
+    pub raw_api_key: Option<String>,
 }
 
 pub struct JwtAuth;
@@ -109,6 +112,7 @@ impl AgentContext {
             api_key_id: None,
             auth_source: AuthSource::LegacyAgent,
             agent_name: None,
+            raw_api_key: None,
         }
     }
 
@@ -136,6 +140,7 @@ impl AgentContext {
             api_key_id: None,
             auth_source: claims.auth_source,
             agent_name: claims.agent_name,
+            raw_api_key: None,
         }
     }
 
@@ -286,6 +291,7 @@ pub fn agent_context_from_identity(
     session_id: Option<Uuid>,
     org_id: Option<Uuid>,
     api_key_id: Option<Uuid>,
+    raw_api_key: Option<String>,
 ) -> AgentContext {
     AgentContext {
         subject: identity_id.to_string(),
@@ -298,6 +304,7 @@ pub fn agent_context_from_identity(
         api_key_id,
         auth_source: AuthSource::RegisteredAgent,
         agent_name: Some(identity_name.to_string()),
+        raw_api_key,
     }
 }
 

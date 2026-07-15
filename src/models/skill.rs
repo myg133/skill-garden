@@ -104,7 +104,7 @@ impl Skill {
             content,
             install_count: 0,
             git_url: None,
-            visibility: Visibility::OrgVisible,
+            visibility: Visibility::Private,
             status: "draft".to_string(),
             tools: Vec::new(),
             reviewed_by: None,
@@ -240,6 +240,23 @@ pub struct InstallResult {
     /// tarball 大小（字节）
     #[serde(default)]
     pub tarball_size: u64,
+}
+
+/// CLI 安装结果 — Agent 通过 download_url 下载 tar.gz 包自行安装
+/// tar.gz 内已包含：binary + config.toml + install 脚本 + SKILL.md
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct CliSetupResult {
+    pub success: bool,
+    pub version: String,
+    /// 构建目标：linux-x86_64, macos-aarch64, windows-x86_64
+    pub target: String,
+    /// tar.gz 下载链接（含 token，5 分钟有效），None 表示该平台未就绪
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub download_url: Option<String>,
+    /// 下载链接有效期（秒）
+    pub expires_in: u64,
+    /// 安装操作指引（下载 → 解压 → 安装 → 验证）
+    pub instructions: String,
 }
 
 /// Skill 更新参数

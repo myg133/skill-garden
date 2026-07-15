@@ -1312,15 +1312,17 @@ pub async fn list_skills_handler(
         skills
             .into_iter()
             .filter(|s| {
-                let vis_str = match &s.visibility {
-                    crate::models::skill_policy::Visibility::Marketplace => true,
-                    _ => false,
-                };
+                // 已发布的 marketplace Skill 对所有人可见
+                let is_marketplace_published = s.status == "published"
+                    && matches!(
+                        s.visibility,
+                        crate::models::skill_policy::Visibility::Marketplace
+                    );
                 // 用户自己的 Skill（owner_type="user" 且 owner_id 匹配）
                 let is_own = s.owner_type == "user"
                     && identity_id.is_some()
                     && (s.owner_id == identity_id || s.author_identity_id == identity_id);
-                vis_str || is_own
+                is_marketplace_published || is_own
             })
             .collect()
     };
@@ -1386,21 +1388,60 @@ pub async fn create_skill_handler(
     AgentContext {
         subject,
         identity_id,
+        org_id: agent_org_id,
         ..
     }: AgentContext,
     Json(body): Json<crate::api::models::CreateSkillBody>,
 ) -> Result<impl IntoResponse, ApiError> {
-    let visibility = body.visibility.as_ref().map(|v| match v.as_str() {
-        "private" => crate::models::skill_policy::Visibility::Private,
-        "org_visible" => crate::models::skill_policy::Visibility::OrgVisible,
-        "marketplace" => crate::models::skill_policy::Visibility::Marketplace,
-        "shared" => crate::models::skill_policy::Visibility::Shared,
-        _ => crate::models::skill_policy::Visibility::OrgVisible,
+    let identity_id = identity_id
+        .ok_or_else(|| ApiError::Unauthorized("identity_id required".to_string()))?;
+
+    // owner_type: body 显式指定 > 自动推断（agent_org_id 存在 → organization，否则 user）
+    let effective_owner_type = body.owner_type.as_deref().unwrap_or_else(|| {
+        if agent_org_id.is_some() { "organization" } else { "user" }
     });
 
-    // 个人用户创建 Skill 时，自动设置为本人所有
-    let owner_id = identity_id;
-    let owner_type = "user".to_string();
+    let (owner_type, owner_id, default_visibility) = if effective_owner_type == "organization" {
+        // organization_id: body 显式指定 > 调用者关联的组织
+        let org_id = body
+            .organization_id
+            .or(agent_org_id)
+            .ok_or_else(|| ApiError::BadRequest("organization_id is required when owner_type is organization".to_string()))?;
+
+        // 验证用户属于该组织
+        let is_member = state
+            .permission
+            .is_org_member(identity_id, org_id)
+            .await
+            .map_err(|e| ApiError::InternalError(e.to_string()))?;
+        if !is_member {
+            return Err(ApiError::Forbidden(
+                "你不能为不属于的组织创建 Skill".to_string(),
+            ));
+        }
+
+        (
+            "organization".to_string(),
+            Some(org_id),
+            crate::models::skill_policy::Visibility::OrgVisible,
+        )
+    } else {
+        // 个人用户创建 Skill 时，自动设置为本人所有
+        (
+            "user".to_string(),
+            Some(identity_id),
+            crate::models::skill_policy::Visibility::Private,
+        )
+    };
+
+    // 用户显式指定的 visibility 优先，否则使用按 owner_type 的默认值
+    let visibility = match body.visibility.as_deref() {
+        Some("private") => crate::models::skill_policy::Visibility::Private,
+        Some("org_visible") => crate::models::skill_policy::Visibility::OrgVisible,
+        Some("marketplace") => crate::models::skill_policy::Visibility::Marketplace,
+        Some("shared") => crate::models::skill_policy::Visibility::Shared,
+        _ => default_visibility,
+    };
 
     let new_skill = NewSkill {
         name: body.name,
@@ -1409,11 +1450,11 @@ pub async fn create_skill_handler(
         content: body.content,
         version: body.version.unwrap_or_else(|| "1.0.0".to_string()),
         git_url: body.git_url.clone(),
-        visibility,
+        visibility: Some(visibility),
         tools: body.tools.clone(),
         owner_type,
         owner_id,
-        author_identity_id: identity_id,
+        author_identity_id: Some(identity_id),
     };
 
     let skill = state
@@ -2423,6 +2464,12 @@ pub async fn publish_skill_handler(
         .await
         .map_err(|e| ApiError::BadRequest(format!("Failed to publish skill: {}", e)))?;
 
+    // 发布时自动将 visibility 设为 marketplace，使所有用户可见
+    skill_repo
+        .update(&skill_id, None, None, None, Some("marketplace"))
+        .await
+        .map_err(|e| ApiError::BadRequest(format!("Failed to set marketplace visibility: {}", e)))?;
+
     state
         .audit_repo
         .create(crate::db::repositories::audit::NewAuditLog {
@@ -2703,6 +2750,209 @@ pub async fn download_skill_handler(
         .header(
             "Content-Disposition",
             format!("attachment; filename=\"{}\"", filename),
+        )
+        .header("Content-Length", tarball.len().to_string())
+        .body(axum::body::Body::from(tarball))
+        .map_err(|e| ApiError::InternalError(format!("Failed to build response: {}", e)))?;
+
+    Ok(response)
+}
+
+/// GET /api/v1/cli/download/:version/:target?token=...
+/// 返回 CLI 的 tar.gz 包（含 binary + config.toml + install 脚本 + SKILL.md）
+/// target 格式：{os}-{arch}，如 linux-x86_64、windows-x86_64
+/// token 为 DB 中的不透明 UUID，由 cli.setup MCP 工具生成，5 分钟有效
+pub async fn download_cli_handler(
+    State(state): State<ApiState>,
+    Path((version, target)): Path<(String, String)>,
+    Query(query): Query<DownloadSkillQuery>,
+) -> Result<impl IntoResponse, ApiError> {
+    // 1. 防止路径遍历
+    if version.contains("..") || version.contains('/') || version.contains('\\')
+        || target.contains("..") || target.contains('/') || target.contains('\\')
+    {
+        return Err(ApiError::BadRequest("Invalid version or target".to_string()));
+    }
+
+    // 2. 验证 CLI 下载凭证
+    let token_record = state
+        .download_token_repo
+        .validate_cli_token(&query.token)
+        .await
+        .map_err(|e| {
+            tracing::error!("CLI download token DB lookup failed: {}", e);
+            ApiError::InternalError("Download verification failed".to_string())
+        })?
+        .ok_or_else(|| {
+            ApiError::Unauthorized(
+                "Invalid, expired, or already used CLI download token".to_string(),
+            )
+        })?;
+
+    tracing::info!(
+        "CLI download: v{}/{}, identity={}, api_key={}",
+        version,
+        target,
+        token_record.identity_id,
+        token_record.api_key_id
+    );
+
+    // 3. 找到 CLI 二进制文件
+    let is_windows = target.starts_with("windows");
+    let binary_name = if is_windows {
+        "skill-garden.exe"
+    } else {
+        "skill-garden"
+    };
+
+    let bin_path = std::path::PathBuf::from("cli-dist")
+        .join(&version)
+        .join(&target)
+        .join(binary_name);
+
+    if !bin_path.exists() {
+        return Err(ApiError::NotFound(format!(
+            "CLI binary v{}/{} not found on server. \
+             Build it with: cargo build --release --no-default-features --features cli --bin skill-garden, \
+             then place it at cli-dist/{}/{}/{}",
+            version, target, version, target, binary_name
+        )));
+    }
+
+    // 4. 读取预填的 config.toml（cli.setup 时写入 token）
+    let config_data = token_record.config_data.unwrap_or_else(|| {
+        let server_url = std::env::var("AION_HIVE_PUBLIC_URL").unwrap_or_else(|_| {
+            format!(
+                "http://localhost:{}",
+                std::env::var("AION_HIVE_HTTP_PORT").unwrap_or_else(|_| "8080".to_string())
+            )
+        });
+        format!(
+            "server = \"{}\"\ntoken = \"sk_<YOUR_API_KEY>\"\n",
+            server_url.trim_end_matches('/')
+        )
+    });
+
+    let version_clone = version.clone();
+    let target_clone = target.clone();
+
+    // Compute display labels for SKILL.md template
+    let server_url = std::env::var("AION_HIVE_PUBLIC_URL").unwrap_or_else(|_| {
+        format!(
+            "http://localhost:{}",
+            std::env::var("AION_HIVE_HTTP_PORT").unwrap_or_else(|_| "8080".to_string())
+        )
+    });
+    let os_label = if target.starts_with("linux") {
+        "Linux"
+    } else if target.starts_with("macos") {
+        "macOS"
+    } else {
+        "Windows"
+    };
+    let verify_cmd = if is_windows {
+        "skill-garden.exe whoami"
+    } else {
+        "skill-garden whoami"
+    };
+
+    // 5. 在 blocking 线程池中生成 tar.gz
+    let tarball = tokio::task::spawn_blocking(move || -> Result<Vec<u8>, String> {
+        let mut buf = Vec::new();
+        let encoder = flate2::write::GzEncoder::new(&mut buf, flate2::Compression::default());
+        let mut tar_builder = tar::Builder::new(encoder);
+
+        let prefix = "skill-garden-cli";
+
+        // Helper: add a file from bytes
+        fn add_bytes<W: std::io::Write>(
+            tar: &mut tar::Builder<W>,
+            path: &str,
+            data: &[u8],
+            mode: u32,
+        ) -> Result<(), String> {
+            let mut header = tar::Header::new_gnu();
+            header.set_path(path).map_err(|e| format!("tar path error: {}", e))?;
+            header.set_size(data.len() as u64);
+            header.set_mode(mode);
+            header.set_cksum();
+            tar.append_data(&mut header, path, std::io::Cursor::new(data))
+                .map_err(|e| format!("tar append error for {}: {}", path, e))?;
+            Ok(())
+        }
+
+        // 5a. 添加二进制文件
+        let bin_bytes = std::fs::read(&bin_path)
+            .map_err(|e| format!("Failed to read binary {}: {}", bin_path.display(), e))?;
+        let bin_tar_path = format!("{}/{}", prefix, binary_name);
+        add_bytes(&mut tar_builder, &bin_tar_path, &bin_bytes, 0o755)?;
+
+        // 5b. 添加 config.toml
+        let config_tar_path = format!("{}/config.toml", prefix);
+        add_bytes(
+            &mut tar_builder,
+            &config_tar_path,
+            config_data.as_bytes(),
+            0o644,
+        )?;
+
+        // 5c. 添加 install.sh
+        let install_sh =
+            include_str!("../../cli-dist/install.sh").replace("{version}", &version_clone);
+        let install_sh_path = format!("{}/install.sh", prefix);
+        add_bytes(
+            &mut tar_builder,
+            &install_sh_path,
+            install_sh.as_bytes(),
+            0o755,
+        )?;
+
+        // 5d. 添加 install.ps1
+        let install_ps1 =
+            include_str!("../../cli-dist/install.ps1").replace("{version}", &version_clone);
+        let install_ps1_path = format!("{}/install.ps1", prefix);
+        add_bytes(
+            &mut tar_builder,
+            &install_ps1_path,
+            install_ps1.as_bytes(),
+            0o644,
+        )?;
+
+        // 5e. 添加 skill-garden/SKILL.md（作为独立 Skill 目录，Agent 可直接安装）
+        let skill_md = include_str!("../../cli-dist/SKILL.md")
+            .replace("{server_url}", &server_url)
+            .replace("{os}", os_label)
+            .replace("{version}", &version_clone)
+            .replace("{verify}", verify_cmd);
+        add_bytes(
+            &mut tar_builder,
+            "skill-garden/SKILL.md",
+            skill_md.as_bytes(),
+            0o644,
+        )?;
+
+        // Finalize tar.gz
+        let encoder = tar_builder
+            .into_inner()
+            .map_err(|e| format!("Failed to finalize tar: {}", e))?;
+        encoder
+            .finish()
+            .map_err(|e| format!("Failed to compress: {}", e))?;
+
+        Ok(buf)
+    })
+    .await
+    .map_err(|e| ApiError::InternalError(format!("Tarball generation failed: {}", e)))?
+    .map_err(|e| ApiError::InternalError(e))?;
+
+    // 6. 返回 tar.gz 流
+    let archive_name = format!("skill-garden-cli-{}-{}.tar.gz", target_clone, version);
+    let response = axum::response::Response::builder()
+        .status(StatusCode::OK)
+        .header("Content-Type", "application/gzip")
+        .header(
+            "Content-Disposition",
+            format!("attachment; filename=\"{}\"", archive_name),
         )
         .header("Content-Length", tarball.len().to_string())
         .body(axum::body::Body::from(tarball))

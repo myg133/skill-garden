@@ -106,7 +106,7 @@ impl SkillRepository {
         let visibility = new_skill
             .visibility
             .clone()
-            .unwrap_or_else(|| "org_visible".to_string());
+            .unwrap_or_else(|| "private".to_string());
         let tools = new_skill.tools.clone().unwrap_or_default();
         let tools_json = serde_json::to_value(&tools).unwrap_or(serde_json::Value::Array(vec![]));
 
