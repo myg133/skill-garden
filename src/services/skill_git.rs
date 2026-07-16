@@ -1146,6 +1146,163 @@ pub(crate) fn copy_dir_recursive(src: &Path, dst: &Path) -> std::io::Result<()> 
     Ok(())
 }
 
+// ==================== 版本回退 ====================
+
+/// 回退结果
+#[derive(Debug, Serialize)]
+pub struct RollbackResult {
+    pub skill_name: String,
+    pub from_version: String,
+    pub target_version: String,
+    pub new_version: String,
+    pub git_commit: String,
+    pub git_tag: String,
+    pub file_count: i32,
+    pub total_size_bytes: i64,
+}
+
+impl SkillGitService {
+    /// 回退到指定版本：从 Git tag 恢复文件，创建新的 patch 版本
+    ///
+    /// 步骤：
+    /// 1. 验证目标版本的 Git tag 存在
+    /// 2. 检出目标版本的文件到仓库工作目录
+    /// 3. 解析 SKILL.md 获取元数据
+    /// 4. 计算新版本号（当前最新版本 patch+1）
+    /// 5. Git commit + tag 新版本
+    /// 6. 记录 skill_versions 表
+    pub fn rollback_version(
+        &self,
+        skill_name: &str,
+        target_version: &str,
+        admin_identity_id: Uuid,
+        version_repo: &VersionRepository,
+    ) -> Result<RollbackResult, AppError> {
+        let repo_dir = self.repo_path(skill_name);
+        if !repo_dir.join(".git").exists() {
+            return Err(AppError::SkillNotFound(format!(
+                "Git repo for skill {} not found",
+                skill_name
+            )));
+        }
+
+        let target_tag = if target_version.starts_with('v') {
+            target_version.to_string()
+        } else {
+            format!("v{}", target_version)
+        };
+
+        // 1. 验证目标 tag 存在
+        let tag_check = Command::new("git")
+            .current_dir(&repo_dir)
+            .args(["rev-parse", &target_tag])
+            .output()
+            .map_err(|e| AppError::InternalError(format!("git rev-parse failed: {}", e)))?;
+
+        if !tag_check.status.success() {
+            return Err(AppError::SkillNotFound(format!(
+                "Version tag {} not found for skill {}",
+                target_tag, skill_name
+            )));
+        }
+
+        // 2. 获取最新版本号，计算新版本号
+        let latest = tokio::runtime::Handle::current()
+            .block_on(async { version_repo.get_latest_version(skill_name).await })
+            .map_err(|e| AppError::InternalError(e.to_string()))?;
+
+        let current_version = latest.unwrap_or_else(|| "1.0.0".to_string());
+        let new_version = {
+            let parsed = semver::Version::parse(&current_version).map_err(|e| {
+                AppError::ValidationError(format!("Invalid version {}: {}", current_version, e))
+            })?;
+            format!("{}.{}.{}", parsed.major, parsed.minor, parsed.patch + 1)
+        };
+
+        // 3. 清空工作目录，从目标 tag 检出文件
+        self.clean_working_dir(&repo_dir)?;
+
+        // git checkout target_tag -- .
+        // 先用 git checkout {tag} -- . 检出所有文件
+        let checkout = Command::new("git")
+            .current_dir(&repo_dir)
+            .args(["checkout", &target_tag, "--", "."])
+            .output()
+            .map_err(|e| AppError::InternalError(format!("git checkout failed: {}", e)))?;
+
+        if !checkout.status.success() {
+            let stderr = String::from_utf8_lossy(&checkout.stderr);
+            return Err(AppError::InternalError(format!(
+                "Failed to checkout version {}: {}",
+                target_tag, stderr
+            )));
+        }
+
+        // 4. 读取并解析 SKILL.md
+        let skill_md_path = repo_dir.join("SKILL.md");
+        let skill_md_content =
+            fs::read_to_string(&skill_md_path).map_err(|e| {
+                AppError::InternalError(format!("SKILL.md not found at version {}: {}", target_tag, e))
+            })?;
+        let _meta = parse_skill_md_frontmatter(&skill_md_content)?;
+
+        // 5. 获取文件列表和总大小
+        let mut file_paths: Vec<String> = Vec::new();
+        collect_files(&repo_dir, &repo_dir, &mut file_paths).map_err(|e| {
+            AppError::InternalError(format!("Failed to collect files: {}", e))
+        })?;
+        let file_count = file_paths.len() as i32;
+        let total_size: u64 = file_paths
+            .iter()
+            .filter_map(|p| fs::metadata(repo_dir.join(p)).ok())
+            .map(|m| m.len())
+            .sum();
+
+        // 6. Git commit + tag
+        let new_tag = format!("v{}", new_version);
+        let commit_msg = format!(
+            "v{}: Rollback from v{} to v{} by admin {}",
+            new_version, current_version, target_version, admin_identity_id
+        );
+        let commit_hash = self.git_commit_and_tag(&repo_dir, &commit_msg, &new_tag)?;
+
+        // 7. 写入 skill_versions 表
+        tokio::runtime::Handle::current()
+            .block_on(async {
+                version_repo
+                    .create(NewSkillVersion {
+                        skill_name: skill_name.to_string(),
+                        version: new_version.clone(),
+                        git_commit_hash: Some(commit_hash.clone()),
+                        git_tag: Some(new_tag.clone()),
+                        changelog: Some(commit_msg.clone()),
+                        file_count,
+                        total_size_bytes: total_size as i64,
+                        uploaded_by: Some(admin_identity_id),
+                        git_remote_url: None,
+                    })
+                    .await
+            })
+            .map_err(|e| AppError::InternalError(format!("Failed to record rollback version: {}", e)))?;
+
+        info!(
+            "Rollback: skill={} {} -> {} (new: {}, commit={})",
+            skill_name, current_version, target_version, new_version, commit_hash
+        );
+
+        Ok(RollbackResult {
+            skill_name: skill_name.to_string(),
+            from_version: current_version,
+            target_version: target_version.to_string(),
+            new_version,
+            git_commit: commit_hash,
+            git_tag: new_tag,
+            file_count,
+            total_size_bytes: total_size as i64,
+        })
+    }
+}
+
 /// 递归收集目录下所有文件的相对路径
 fn collect_files(base: &Path, current: &Path, out: &mut Vec<String>) -> Result<(), std::io::Error> {
     for entry in fs::read_dir(current)? {

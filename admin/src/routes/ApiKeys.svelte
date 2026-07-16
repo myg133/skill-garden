@@ -78,14 +78,22 @@
     }
   }
 
-  function getIdentityName(id) {
-    const identity = identities.find(i => i.id === id);
-    return identity ? identity.name : id;
+  function getIdentityName(key) {
+    if (key.identity_name) return key.identity_name;
+    const identity = identities.find(i => i.id === key.identity_id);
+    return identity ? identity.name : key.identity_id;
   }
 
-  function getOrgName(id) {
-    const org = organizations.find(o => o.id === id);
-    return org ? org.name : id;
+  function getOrgName(key) {
+    if (key.organization_name) return key.organization_name;
+    const org = organizations.find(o => o.id === key.organization_id);
+    return org ? org.name : key.organization_id;
+  }
+
+  function formatId(id) {
+    if (!id) return '';
+    const s = String(id);
+    return s.length > 12 ? s.slice(0, 8) + '...' : s;
   }
 
   function getStatusColor(status) {
@@ -150,8 +158,18 @@
               <td class="px-6 py-4">
                 <p class="text-sm font-semibold text-gray-800">{key.name || 'Unnamed'}</p>
               </td>
-              <td class="px-6 py-4 text-sm text-gray-600">{getIdentityName(key.identity_id)}</td>
-              <td class="px-6 py-4 text-sm text-gray-600">{getOrgName(key.organization_id)}</td>
+              <td class="px-6 py-4">
+                <div class="text-sm text-gray-800 font-medium">{getIdentityName(key)}</div>
+                {#if key.identity_name}
+                  <div class="text-xs text-gray-400 font-mono mt-0.5" title={key.identity_id}>{formatId(key.identity_id)}</div>
+                {/if}
+              </td>
+              <td class="px-6 py-4">
+                <div class="text-sm text-gray-800 font-medium">{getOrgName(key)}</div>
+                {#if key.organization_id}
+                  <div class="text-xs text-gray-400 font-mono mt-0.5" title={key.organization_id}>{formatId(key.organization_id)}</div>
+                {/if}
+              </td>
               <td class="px-6 py-4">
                 <code class="text-xs font-mono bg-gray-100 px-2 py-1 rounded">{key.key_prefix}***</code>
               </td>

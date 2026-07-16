@@ -1015,6 +1015,15 @@ pub struct ConfirmUploadBody {
     pub owner_type: Option<String>,
     pub owner_id: Option<uuid::Uuid>,
     pub author_identity_id: Option<uuid::Uuid>,
+    /// 当 owner_type = "organization" 时，前端传入具体的组织 ID
+    pub organization_id: Option<uuid::Uuid>,
+}
+
+/// 版本回退请求（admin only）
+#[derive(Debug, Deserialize)]
+pub struct RollbackSkillBody {
+    /// 要回退到的目标版本号（不含 v 前缀），如 "1.0.2"
+    pub version: String,
 }
 
 /// 版本列表项

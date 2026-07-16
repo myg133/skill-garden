@@ -39,6 +39,7 @@ pub struct Skill {
     pub reviewed_by: Option<Uuid>,
     pub reviewed_at: Option<DateTime<Utc>>,
     pub review_comment: Option<String>,
+    pub admin_unpublished: bool,
     pub created_at: DateTime<Utc>,
     pub updated_at: DateTime<Utc>,
 }
@@ -62,6 +63,7 @@ pub struct SkillMetadata {
     pub reviewed_by: Option<Uuid>,
     pub reviewed_at: Option<DateTime<Utc>>,
     pub review_comment: Option<String>,
+    pub admin_unpublished: bool,
     pub created_at: DateTime<Utc>,
     pub updated_at: DateTime<Utc>,
 }
@@ -182,6 +184,7 @@ impl SkillRepository {
             reviewed_by: skill_row.reviewed_by,
             reviewed_at: skill_row.reviewed_at,
             review_comment: skill_row.review_comment,
+            admin_unpublished: skill_row.admin_unpublished,
             created_at: skill_row.created_at,
             updated_at: skill_row.updated_at,
         })
@@ -190,7 +193,7 @@ impl SkillRepository {
     pub async fn find_by_id(&self, skill_id: &str) -> DbResult<Option<Skill>> {
         let skill_row = sqlx::query_as::<_, SkillRow>(
             r#"
-            SELECT id, name, description, version, author_agent_id, author_identity_id, owner_type, owner_id, compatibility, content, install_count, status, git_url, visibility, skill_tools, reviewed_by, reviewed_at, review_comment, created_at, updated_at
+            SELECT id, name, description, version, author_agent_id, author_identity_id, owner_type, owner_id, compatibility, content, install_count, status, git_url, visibility, skill_tools, reviewed_by, reviewed_at, review_comment, admin_unpublished, created_at, updated_at
             FROM skills WHERE id = $1
             "#,
         )
@@ -224,6 +227,7 @@ impl SkillRepository {
                     reviewed_by: row.reviewed_by,
                     reviewed_at: row.reviewed_at,
                     review_comment: row.review_comment,
+                    admin_unpublished: row.admin_unpublished,
                     created_at: row.created_at,
                     updated_at: row.updated_at,
                 }))
@@ -253,7 +257,7 @@ impl SkillRepository {
             r#"
             SELECT s.id, s.name, s.description, s.version, s.author_agent_id, s.author_identity_id,
                    s.owner_type, s.owner_id, s.install_count, s.status, s.git_url, s.visibility,
-                   s.reviewed_by, s.reviewed_at, s.review_comment, s.created_at, s.updated_at,
+                   s.reviewed_by, s.reviewed_at, s.review_comment, s.admin_unpublished, s.created_at, s.updated_at,
                    COALESCE(i.display_name, i.username, i.name) AS author_name
             FROM skills s
             LEFT JOIN identities i ON i.id = s.author_identity_id
@@ -298,7 +302,7 @@ impl SkillRepository {
             SELECT s.id, s.name, s.description, s.version, s.author_agent_id,
                    s.author_identity_id, s.owner_type, s.owner_id,
                    s.install_count, s.status, s.git_url, s.visibility,
-                   s.reviewed_by, s.reviewed_at, s.review_comment, s.created_at, s.updated_at,
+                   s.reviewed_by, s.reviewed_at, s.review_comment, s.admin_unpublished, s.created_at, s.updated_at,
                    COALESCE(i.display_name, i.username, i.name) AS author_name
             FROM skills s
             LEFT JOIN identities i ON i.id = s.author_identity_id
@@ -329,7 +333,7 @@ impl SkillRepository {
             SELECT s.id, s.name, s.description, s.version, s.author_agent_id,
                    s.author_identity_id, s.owner_type, s.owner_id,
                    s.install_count, s.status, s.git_url, s.visibility,
-                   s.reviewed_by, s.reviewed_at, s.review_comment, s.created_at, s.updated_at,
+                   s.reviewed_by, s.reviewed_at, s.review_comment, s.admin_unpublished, s.created_at, s.updated_at,
                    COALESCE(i.display_name, i.username, i.name) AS author_name
             FROM skills s
             LEFT JOIN identities i ON i.id = s.author_identity_id
@@ -435,7 +439,7 @@ impl SkillRepository {
             r#"
             SELECT s.id, s.name, s.description, s.version, s.author_agent_id, s.author_identity_id,
                    s.owner_type, s.owner_id, s.install_count, s.status, s.git_url, s.visibility,
-                   s.reviewed_by, s.reviewed_at, s.review_comment, s.created_at, s.updated_at,
+                   s.reviewed_by, s.reviewed_at, s.review_comment, s.admin_unpublished, s.created_at, s.updated_at,
                    COALESCE(i.display_name, i.username, i.name) AS author_name
             FROM skills s
             LEFT JOIN identities i ON i.id = s.author_identity_id
@@ -489,13 +493,30 @@ impl SkillRepository {
         Ok(())
     }
 
+    /// 设置 admin 下架标记
+    pub async fn set_admin_unpublished(&self, skill_id: &str, value: bool) -> DbResult<()> {
+        let result = sqlx::query(
+            "UPDATE skills SET admin_unpublished = $1, updated_at = NOW() WHERE id = $2",
+        )
+        .bind(value)
+        .bind(skill_id)
+        .execute(&self.pool)
+        .await
+        .map_err(|e| DbError::QueryError(e.to_string()))?;
+
+        if result.rows_affected() == 0 {
+            return Err(DbError::NotFound(format!("Skill {} not found", skill_id)));
+        }
+        Ok(())
+    }
+
     /// 列出用户自己创建的 Skill（owner_type=user 且 owner_id 或 author_identity_id 匹配）
     pub async fn list_by_owner(&self, identity_id: Uuid) -> DbResult<Vec<SkillMetadata>> {
         let rows = sqlx::query_as::<_, SkillMetadataRow>(
             r#"
             SELECT s.id, s.name, s.description, s.version, s.author_agent_id, s.author_identity_id,
                    s.owner_type, s.owner_id, s.install_count, s.status, s.git_url, s.visibility,
-                   s.reviewed_by, s.reviewed_at, s.review_comment, s.created_at, s.updated_at,
+                   s.reviewed_by, s.reviewed_at, s.review_comment, s.admin_unpublished, s.created_at, s.updated_at,
                    COALESCE(i.display_name, i.username, i.name) AS author_name
             FROM skills s
             LEFT JOIN identities i ON i.id = s.author_identity_id
@@ -530,7 +551,7 @@ impl SkillRepository {
                 r#"
                 SELECT s.id, s.name, s.description, s.version, s.author_agent_id, s.author_identity_id,
                        s.owner_type, s.owner_id, s.install_count, s.status, s.git_url, s.visibility,
-                       s.reviewed_by, s.reviewed_at, s.review_comment, s.created_at, s.updated_at,
+                       s.reviewed_by, s.reviewed_at, s.review_comment, s.admin_unpublished, s.created_at, s.updated_at,
                        COALESCE(i.display_name, i.username, i.name) AS author_name
                 FROM skills s
                 LEFT JOIN identities i ON i.id = s.author_identity_id
@@ -560,7 +581,7 @@ impl SkillRepository {
             r#"
             SELECT s.id, s.name, s.description, s.version, s.author_agent_id, s.author_identity_id,
                    s.owner_type, s.owner_id, s.install_count, s.status, s.git_url, s.visibility,
-                   s.reviewed_by, s.reviewed_at, s.review_comment, s.created_at, s.updated_at,
+                   s.reviewed_by, s.reviewed_at, s.review_comment, s.admin_unpublished, s.created_at, s.updated_at,
                    COALESCE(i.display_name, i.username, i.name) AS author_name
             FROM skills s
             LEFT JOIN identities i ON i.id = s.author_identity_id
@@ -608,6 +629,7 @@ impl SkillRepository {
             reviewed_by: row.reviewed_by,
             reviewed_at: row.reviewed_at,
             review_comment: row.review_comment,
+            admin_unpublished: row.admin_unpublished,
             created_at: row.created_at,
             updated_at: row.updated_at,
         }
@@ -655,6 +677,7 @@ struct SkillRow {
     reviewed_by: Option<Uuid>,
     reviewed_at: Option<DateTime<Utc>>,
     review_comment: Option<String>,
+    admin_unpublished: bool,
     created_at: DateTime<Utc>,
     updated_at: DateTime<Utc>,
 }
@@ -677,6 +700,7 @@ struct SkillMetadataRow {
     reviewed_by: Option<Uuid>,
     reviewed_at: Option<DateTime<Utc>>,
     review_comment: Option<String>,
+    admin_unpublished: bool,
     created_at: DateTime<Utc>,
     updated_at: DateTime<Utc>,
 }

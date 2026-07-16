@@ -163,6 +163,18 @@ pub fn create_api_router(state: ApiState) -> Router<ApiState> {
         )
         // Admin routes (under /api/v1/admin)
         .route("/api/v1/admin/stats", get(get_admin_stats_handler))
+        .route(
+            "/api/v1/admin/skills/:skill_name/rollback",
+            post(rollback_skill_handler),
+        )
+        .route(
+            "/api/v1/admin/skills/:id/unpublish",
+            post(admin_unpublish_skill_handler),
+        )
+        .route(
+            "/api/v1/admin/skills/:id/publish",
+            post(admin_publish_skill_handler),
+        )
         .route("/api/v1/admin/audit-logs", get(list_audit_logs_handler))
         .route("/api/v1/admin/status", get(get_admin_status_handler))
         // v0.4 multi-tenant routes

@@ -63,6 +63,10 @@
   let selectedFileContent = '';
   let selectedFileLoading = false;
   let fileFetchCache = {};
+  // Owner selection
+  let userOrgs = [];
+  let ownerType = 'user';       // 'user' | 'organization'
+  let selectedOrgId = '';
 
   onMount(() => {
     loadSkills();
@@ -112,6 +116,28 @@
     loadSkills();
   }
 
+  async function handleUnpublishSkill(skill) {
+    try {
+      await api.adminUnpublishSkill(skill.id);
+      addToast(`${skill.name} 已下架`, 'success');
+      skill.status = 'approved';
+      skill.visibility = 'private';
+    } catch (e) {
+      addToast(e.message, 'error');
+    }
+  }
+
+  async function handleAdminPublishSkill(skill) {
+    try {
+      await api.adminPublishSkill(skill.id);
+      addToast(`${skill.name} 已上架`, 'success');
+      skill.status = 'published';
+      skill.visibility = 'marketplace';
+    } catch (e) {
+      addToast(e.message, 'error');
+    }
+  }
+
   function goToPage(p) {
     page = p;
     loadSkills();
@@ -122,7 +148,7 @@
   }
 
   // --- Create Modal ---
-  function openCreateModal() {
+  async function openCreateModal() {
     createStep = 'upload';
     uploading = false;
     confirming = false;
@@ -134,7 +160,22 @@
     selectedFilePath = '';
     selectedFileContent = '';
     fileFetchCache = {};
+    ownerType = 'user';
+    selectedOrgId = '';
     showCreateModal = true;
+
+    // 加载用户所属组织列表
+    try {
+      const res = await api.getUserOrgs();
+      userOrgs = res.data || res || [];
+      // 如果恰好只属于一个组织，默认选中组织模式
+      if (userOrgs.length === 1) {
+        ownerType = 'organization';
+        selectedOrgId = userOrgs[0].id;
+      }
+    } catch {
+      userOrgs = [];
+    }
   }
 
   function closeCreateModal() {
@@ -273,7 +314,12 @@
   async function handleConfirmUpload() {
     confirming = true;
     try {
-      const res = await api.confirmSkillUpload(previewId);
+      const data = {};
+      if (ownerType === 'organization' && selectedOrgId) {
+        data.owner_type = 'organization';
+        data.organization_id = selectedOrgId;
+      }
+      const res = await api.confirmSkillUpload(previewId, data);
       addToast(res.message || 'Skill uploaded successfully', 'success');
       closeCreateModal();
       await loadSkills();
@@ -419,6 +465,9 @@
             <th class="px-6 py-4 text-left"><SortHeader label="Author" sortKey="author_agent_id" currentSort="{{key: sortKey, dir: sortDir}}" onSort={handleSort} /></th>
             <th class="px-6 py-4 text-left"><SortHeader label="Installs" sortKey="install_count" currentSort="{{key: sortKey, dir: sortDir}}" onSort={handleSort} /></th>
             <th class="px-6 py-4 text-left"><SortHeader label="Created" sortKey="created" currentSort="{{key: sortKey, dir: sortDir}}" onSort={handleSort} /></th>
+            {#if $isAdmin}
+              <th class="px-6 py-4 text-left"><SortHeader label="Actions" /></th>
+            {/if}
           </tr>
         </thead>
         <tbody>
@@ -456,6 +505,23 @@
                 <span class="text-gray-600 text-sm font-semibold">{skill.install_count || 0}</span>
               </td>
               <td class="px-6 py-4 text-gray-500 text-sm">{skill.created ? new Date(skill.created).toLocaleDateString() : 'N/A'}</td>
+              {#if $isAdmin}
+                <td class="px-6 py-4">
+                  <div class="flex items-center gap-1.5">
+                    {#if skill.status === 'published' && skill.visibility === 'marketplace'}
+                      <button
+                        on:click={() => handleUnpublishSkill(skill)}
+                        class="px-2.5 py-1 text-[11px] font-semibold bg-amber-100 text-amber-700 rounded-lg hover:bg-amber-200 transition-colors"
+                      >下架</button>
+                    {:else}
+                      <button
+                        on:click={() => handleAdminPublishSkill(skill)}
+                        class="px-2.5 py-1 text-[11px] font-semibold bg-emerald-100 text-emerald-700 rounded-lg hover:bg-emerald-200 transition-colors"
+                      >上架</button>
+                    {/if}
+                  </div>
+                </td>
+              {/if}
             </tr>
           {/each}
         </tbody>
@@ -604,6 +670,33 @@
       {/each}
       {#if (previewMeta.dependencies || []).length > 0}
         <span class="text-[11px] text-gray-400 ml-2">deps: {previewMeta.dependencies.join(', ')}</span>
+      {/if}
+    </div>
+    {/if}
+
+    <!-- Owner type selector -->
+    {#if userOrgs.length > 0}
+    <div class="flex-shrink-0 px-6 py-3 border-b border-gray-100 bg-white flex items-center gap-4">
+      <span class="text-xs font-semibold text-gray-500 uppercase tracking-wider">归属</span>
+      <div class="flex items-center gap-3">
+        <label class="flex items-center gap-1.5 cursor-pointer">
+          <input type="radio" bind:group={ownerType} value="user" class="w-3.5 h-3.5 text-blue-600" />
+          <span class="text-sm text-gray-700">个人</span>
+        </label>
+        <label class="flex items-center gap-1.5 cursor-pointer">
+          <input type="radio" bind:group={ownerType} value="organization" class="w-3.5 h-3.5 text-blue-600" />
+          <span class="text-sm text-gray-700">组织</span>
+        </label>
+      </div>
+      {#if ownerType === 'organization'}
+        <select bind:value={selectedOrgId} class="ml-2 px-3 py-1.5 border border-gray-200 rounded-lg text-sm text-gray-700 bg-white focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500">
+          <option value="">-- 选择组织 --</option>
+          {#each userOrgs as org (org.id)}
+            <option value={org.id}>
+              {org.name}{org.slug ? ` (@${org.slug})` : ''}{org.role ? ` · ${org.role}` : ''}
+            </option>
+          {/each}
+        </select>
       {/if}
     </div>
     {/if}

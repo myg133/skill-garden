@@ -2,7 +2,7 @@
 
 use crate::db::repositories::ApiKeyRepository;
 use crate::models::api_key::{
-    ApiKey, ApiKeyResponse, CreateApiKeyRequest, UserCreateApiKeyRequest,
+    ApiKey, ApiKeyListItem, ApiKeyResponse, CreateApiKeyRequest, UserCreateApiKeyRequest,
 };
 use crate::models::error::AppError;
 use sha2::{Digest, Sha256};
@@ -105,6 +105,33 @@ impl ApiKeyService {
     pub async fn list(&self) -> Result<Vec<ApiKey>, AppError> {
         self.repo
             .list()
+            .await
+            .map_err(|e| AppError::InternalError(e.to_string()))
+    }
+
+    pub async fn list_with_names(&self) -> Result<Vec<ApiKeyListItem>, AppError> {
+        self.repo
+            .list_with_names()
+            .await
+            .map_err(|e| AppError::InternalError(e.to_string()))
+    }
+
+    pub async fn list_with_names_by_identity(
+        &self,
+        identity_id: Uuid,
+    ) -> Result<Vec<ApiKeyListItem>, AppError> {
+        self.repo
+            .list_with_names_by_identity(identity_id)
+            .await
+            .map_err(|e| AppError::InternalError(e.to_string()))
+    }
+
+    pub async fn list_with_names_by_organization(
+        &self,
+        organization_id: Uuid,
+    ) -> Result<Vec<ApiKeyListItem>, AppError> {
+        self.repo
+            .list_with_names_by_organization(organization_id)
             .await
             .map_err(|e| AppError::InternalError(e.to_string()))
     }

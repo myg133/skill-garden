@@ -2,6 +2,7 @@
   import { onMount } from 'svelte';
   import { api } from '../lib/api.js';
   import { addToast } from '../stores/app.js';
+  import { isAdmin } from '../stores/auth.js';
   import Badge from '../components/Badge.svelte';
   import ReviewActions from '../components/ReviewActions.svelte';
   import LoadingSpinner from '../components/LoadingSpinner.svelte';
@@ -14,6 +15,7 @@
   let loading = true;
   let error = '';
   let publishLoading = false;
+  let unpublishLoading = false;
 
   // Tag editing state
   let editingTags = false;
@@ -240,13 +242,32 @@
   async function handlePublish() {
     publishLoading = true;
     try {
-      await api.publishSkill(id);
+      if ($isAdmin) {
+        await api.adminPublishSkill(id);
+      } else {
+        await api.publishSkill(id);
+      }
       addToast(`${skill.name} published`, 'success');
       skill.status = 'published';
+      skill.visibility = 'marketplace';
     } catch (e) {
       addToast(e.message, 'error');
     } finally {
       publishLoading = false;
+    }
+  }
+
+  async function handleUnpublish() {
+    unpublishLoading = true;
+    try {
+      await api.adminUnpublishSkill(id);
+      addToast(`${skill.name} unpublished`, 'success');
+      skill.status = 'approved';
+      skill.visibility = 'private';
+    } catch (e) {
+      addToast(e.message, 'error');
+    } finally {
+      unpublishLoading = false;
     }
   }
 
@@ -323,7 +344,7 @@
         {#if skill.status === 'pending_review'}
           <ReviewActions {skill} />
         {/if}
-        {#if skill.status === 'approved'}
+        {#if skill.status === 'approved' && !$isAdmin}
           <button
             on:click={handlePublish}
             disabled={publishLoading}
@@ -334,6 +355,34 @@
             {/if}
             Publish to Marketplace
           </button>
+        {/if}
+        {#if $isAdmin}
+          <div class="flex items-center gap-2">
+            {#if skill.status === 'published' && skill.visibility === 'marketplace'}
+              <button
+                on:click={handleUnpublish}
+                disabled={unpublishLoading}
+                class="px-4 py-2 text-sm font-semibold bg-amber-500 text-white rounded-xl hover:bg-amber-600 disabled:opacity-50 transition-all duration-200 shadow-sm shadow-amber-500/20 hover:shadow-md hover:shadow-amber-500/30 active:scale-[0.97]"
+              >
+                {#if unpublishLoading}
+                  <svg class="w-4 h-4 animate-spin mr-1 inline" fill="none" viewBox="0 0 24 24"><circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"/><path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z"/></svg>
+                {/if}
+                下架
+              </button>
+            {/if}
+            {#if skill.status !== 'published' || skill.visibility !== 'marketplace'}
+              <button
+                on:click={handlePublish}
+                disabled={publishLoading}
+                class="px-4 py-2 text-sm font-semibold bg-emerald-500 text-white rounded-xl hover:bg-emerald-600 disabled:opacity-50 transition-all duration-200 shadow-sm shadow-emerald-500/20 hover:shadow-md hover:shadow-emerald-500/30 active:scale-[0.97]"
+              >
+                {#if publishLoading}
+                  <svg class="w-4 h-4 animate-spin mr-1 inline" fill="none" viewBox="0 0 24 24"><circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"/><path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z"/></svg>
+                {/if}
+                上架
+              </button>
+            {/if}
+          </div>
         {/if}
       </div>
     </div>

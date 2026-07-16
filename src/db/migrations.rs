@@ -114,6 +114,10 @@ const MIGRATIONS: &[(&str, &str)] = &[
         "027_cli_and_review_enhancements",
         include_str!("migrations/027_cli_and_review_enhancements.sql"),
     ),
+    (
+        "028_add_admin_unpublished",
+        include_str!("migrations/028_add_admin_unpublished.sql"),
+    ),
 ];
 
 fn split_sql_statements(sql: &str) -> Vec<&str> {

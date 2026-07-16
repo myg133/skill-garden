@@ -384,6 +384,16 @@ export const api = {
     return request(`/skills/${id}/publish`, { method: 'POST' });
   },
 
+  // Admin: unpublish a published skill (下架)
+  adminUnpublishSkill(id) {
+    return request(`/admin/skills/${id}/unpublish`, { method: 'POST' });
+  },
+
+  // Admin: republish a skill to marketplace (上架)
+  adminPublishSkill(id) {
+    return request(`/admin/skills/${id}/publish`, { method: 'POST' });
+  },
+
   getSkill(id) {
     return request(`/skills/${id}`);
   },

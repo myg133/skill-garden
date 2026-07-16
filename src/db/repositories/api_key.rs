@@ -5,7 +5,7 @@ use sqlx::PgPool;
 use uuid::Uuid;
 
 use crate::db::error::{DbError, DbResult};
-use crate::models::api_key::{ApiKey, ApiKeyStatus, CreateApiKeyRequest};
+use crate::models::api_key::{ApiKey, ApiKeyListItem, ApiKeyStatus, CreateApiKeyRequest};
 
 #[derive(Clone)]
 pub struct ApiKeyRepository {
@@ -126,6 +126,82 @@ impl ApiKeyRepository {
         Ok(keys.into_iter().map(|k| k.into()).collect())
     }
 
+    pub async fn list_with_names(&self) -> DbResult<Vec<ApiKeyListItem>> {
+        let rows = sqlx::query_as::<_, ApiKeyWithNamesRow>(
+            r#"
+            SELECT
+                ak.id, ak.identity_id, ak.organization_id,
+                ak.key_prefix, ak.name, ak.scopes,
+                ak.rate_limit, ak.status, ak.expires_at, ak.created_at, ak.last_used_at,
+                COALESCE(i.display_name, i.username, i.name) AS identity_name,
+                o.name AS organization_name
+            FROM api_keys ak
+            LEFT JOIN identities i ON i.id = ak.identity_id
+            LEFT JOIN organizations o ON o.id = ak.organization_id
+            ORDER BY ak.created_at DESC
+            "#,
+        )
+        .fetch_all(&self.pool)
+        .await
+        .map_err(|e| DbError::QueryError(e.to_string()))?;
+
+        Ok(rows.into_iter().map(|r| r.into()).collect())
+    }
+
+    pub async fn list_with_names_by_identity(
+        &self,
+        identity_id: Uuid,
+    ) -> DbResult<Vec<ApiKeyListItem>> {
+        let rows = sqlx::query_as::<_, ApiKeyWithNamesRow>(
+            r#"
+            SELECT
+                ak.id, ak.identity_id, ak.organization_id,
+                ak.key_prefix, ak.name, ak.scopes,
+                ak.rate_limit, ak.status, ak.expires_at, ak.created_at, ak.last_used_at,
+                COALESCE(i.display_name, i.username, i.name) AS identity_name,
+                o.name AS organization_name
+            FROM api_keys ak
+            LEFT JOIN identities i ON i.id = ak.identity_id
+            LEFT JOIN organizations o ON o.id = ak.organization_id
+            WHERE ak.identity_id = $1 AND ak.status != 'revoked'
+            ORDER BY ak.created_at DESC
+            "#,
+        )
+        .bind(identity_id)
+        .fetch_all(&self.pool)
+        .await
+        .map_err(|e| DbError::QueryError(e.to_string()))?;
+
+        Ok(rows.into_iter().map(|r| r.into()).collect())
+    }
+
+    pub async fn list_with_names_by_organization(
+        &self,
+        organization_id: Uuid,
+    ) -> DbResult<Vec<ApiKeyListItem>> {
+        let rows = sqlx::query_as::<_, ApiKeyWithNamesRow>(
+            r#"
+            SELECT
+                ak.id, ak.identity_id, ak.organization_id,
+                ak.key_prefix, ak.name, ak.scopes,
+                ak.rate_limit, ak.status, ak.expires_at, ak.created_at, ak.last_used_at,
+                COALESCE(i.display_name, i.username, i.name) AS identity_name,
+                o.name AS organization_name
+            FROM api_keys ak
+            LEFT JOIN identities i ON i.id = ak.identity_id
+            LEFT JOIN organizations o ON o.id = ak.organization_id
+            WHERE ak.organization_id = $1
+            ORDER BY ak.created_at DESC
+            "#,
+        )
+        .bind(organization_id)
+        .fetch_all(&self.pool)
+        .await
+        .map_err(|e| DbError::QueryError(e.to_string()))?;
+
+        Ok(rows.into_iter().map(|r| r.into()).collect())
+    }
+
     pub async fn revoke(&self, id: Uuid) -> DbResult<()> {
         sqlx::query("UPDATE api_keys SET status = 'revoked' WHERE id = $1")
             .bind(id)
@@ -151,6 +227,44 @@ impl ApiKeyRepository {
             .await
             .map_err(|e| DbError::QueryError(e.to_string()))?;
         Ok(())
+    }
+}
+
+#[derive(sqlx::FromRow)]
+struct ApiKeyWithNamesRow {
+    id: Uuid,
+    identity_id: Uuid,
+    organization_id: Option<Uuid>,
+    key_prefix: String,
+    name: Option<String>,
+    scopes: serde_json::Value,
+    rate_limit: i32,
+    status: String,
+    expires_at: Option<chrono::DateTime<Utc>>,
+    created_at: chrono::DateTime<Utc>,
+    last_used_at: Option<chrono::DateTime<Utc>>,
+    identity_name: Option<String>,
+    organization_name: Option<String>,
+}
+
+impl From<ApiKeyWithNamesRow> for ApiKeyListItem {
+    fn from(row: ApiKeyWithNamesRow) -> Self {
+        let scopes: Vec<String> = serde_json::from_value(row.scopes).unwrap_or_default();
+        Self {
+            id: row.id,
+            identity_id: row.identity_id,
+            identity_name: row.identity_name,
+            organization_id: row.organization_id,
+            organization_name: row.organization_name,
+            key_prefix: row.key_prefix,
+            name: row.name,
+            scopes,
+            rate_limit: row.rate_limit,
+            status: ApiKeyStatus::from(row.status.as_str()),
+            expires_at: row.expires_at,
+            created_at: row.created_at,
+            last_used_at: row.last_used_at,
+        }
     }
 }
 

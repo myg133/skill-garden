@@ -443,24 +443,22 @@ pub async fn list_api_keys_handler(
     Query(query): Query<crate::api::models::ListApiKeysQuery>,
 ) -> Result<impl IntoResponse, ApiError> {
     agent_context.require_admin()?;
-    let identity_id = query.identity_id;
-    let org_id = query.organization_id;
-    let keys = if let Some(identity_id) = identity_id {
+    let keys = if let Some(identity_id) = query.identity_id {
         state
             .api_key
-            .list_by_identity(identity_id)
+            .list_with_names_by_identity(identity_id)
             .await
             .map_err(|e| ApiError::InternalError(e.to_string()))?
-    } else if let Some(org_id) = org_id {
+    } else if let Some(org_id) = query.organization_id {
         state
             .api_key
-            .list_by_organization(org_id)
+            .list_with_names_by_organization(org_id)
             .await
             .map_err(|e| ApiError::InternalError(e.to_string()))?
     } else {
         state
             .api_key
-            .list()
+            .list_with_names()
             .await
             .map_err(|e| ApiError::InternalError(e.to_string()))?
     };
@@ -1389,12 +1387,15 @@ pub async fn create_skill_handler(
         subject,
         identity_id,
         org_id: agent_org_id,
+        roles,
         ..
     }: AgentContext,
     Json(body): Json<crate::api::models::CreateSkillBody>,
 ) -> Result<impl IntoResponse, ApiError> {
     let identity_id = identity_id
         .ok_or_else(|| ApiError::Unauthorized("identity_id required".to_string()))?;
+
+    let is_admin = roles.iter().any(|r| r == "admin");
 
     // owner_type: body 显式指定 > 自动推断（agent_org_id 存在 → organization，否则 user）
     let effective_owner_type = body.owner_type.as_deref().unwrap_or_else(|| {
@@ -1408,16 +1409,18 @@ pub async fn create_skill_handler(
             .or(agent_org_id)
             .ok_or_else(|| ApiError::BadRequest("organization_id is required when owner_type is organization".to_string()))?;
 
-        // 验证用户属于该组织
-        let is_member = state
-            .permission
-            .is_org_member(identity_id, org_id)
-            .await
-            .map_err(|e| ApiError::InternalError(e.to_string()))?;
-        if !is_member {
-            return Err(ApiError::Forbidden(
-                "你不能为不属于的组织创建 Skill".to_string(),
-            ));
+        // 验证用户属于该组织（admin 跳过组织成员校验）
+        if !is_admin {
+            let is_member = state
+                .permission
+                .is_org_member(identity_id, org_id)
+                .await
+                .map_err(|e| ApiError::InternalError(e.to_string()))?;
+            if !is_member {
+                return Err(ApiError::Forbidden(
+                    "你不能为不属于的组织创建 Skill".to_string(),
+                ));
+            }
         }
 
         (
@@ -2166,26 +2169,45 @@ pub async fn update_user_me_handler(
 
 pub async fn get_user_orgs_handler(
     State(state): State<ApiState>,
-    AgentContext { identity_id, .. }: AgentContext,
+    AgentContext { identity_id, roles, .. }: AgentContext,
 ) -> Result<impl IntoResponse, ApiError> {
     let identity_id =
         identity_id.ok_or_else(|| ApiError::Unauthorized("Identity required".to_string()))?;
 
-    let orgs = state
-        .permission
-        .get_user_orgs(identity_id)
-        .await
-        .map_err(|e| ApiError::BadRequest(format!("Failed to list orgs: {}", e)))?;
+    let is_admin = roles.iter().any(|r| r == "admin");
 
-    let result: Vec<crate::api::models::UserOrgResponse> = orgs
-        .into_iter()
-        .map(|o| crate::api::models::UserOrgResponse {
-            id: o.id,
-            name: o.name,
-            slug: o.slug,
-            role: o.role,
-        })
-        .collect();
+    let result: Vec<crate::api::models::UserOrgResponse> = if is_admin {
+        // admin 用户可以看到全部组织，用于创建 Skill 时选择归属
+        let orgs = state
+            .organization
+            .list_orgs(1000, 0)
+            .await
+            .map_err(|e| ApiError::BadRequest(format!("Failed to list orgs: {}", e)))?;
+
+        orgs.into_iter()
+            .map(|o| crate::api::models::UserOrgResponse {
+                id: o.id,
+                name: o.name,
+                slug: o.slug,
+                role: "admin".to_string(),
+            })
+            .collect()
+    } else {
+        let orgs = state
+            .permission
+            .get_user_orgs(identity_id)
+            .await
+            .map_err(|e| ApiError::BadRequest(format!("Failed to list orgs: {}", e)))?;
+
+        orgs.into_iter()
+            .map(|o| crate::api::models::UserOrgResponse {
+                id: o.id,
+                name: o.name,
+                slug: o.slug,
+                role: o.role,
+            })
+            .collect()
+    };
 
     Ok((StatusCode::OK, Json(result)))
 }
@@ -2459,6 +2481,13 @@ pub async fn publish_skill_handler(
         ));
     }
 
+    // 被 admin 下架的 skill，作者/组织不能自行上架，必须由 admin 重新上架
+    if skill.admin_unpublished {
+        return Err(ApiError::BadRequest(
+            "This skill was unpublished by an admin and can only be republished by an admin".to_string(),
+        ));
+    }
+
     skill_repo
         .update_status(&skill_id, "published", None, None)
         .await
@@ -2488,6 +2517,259 @@ pub async fn publish_skill_handler(
             message: "Skill published successfully".to_string(),
             skill_id,
         }),
+    ))
+}
+
+/// POST /api/v1/admin/skills/:skill_name/rollback — 超级管理员版本回退
+pub async fn rollback_skill_handler(
+    State(state): State<ApiState>,
+    agent_context: AgentContext,
+    axum::extract::Path((skill_name,)): axum::extract::Path<(String,)>,
+    Json(body): Json<crate::api::models::RollbackSkillBody>,
+) -> Result<impl IntoResponse, ApiError> {
+    agent_context.require_admin()?;
+    let identity_id = agent_context.require_identity()?;
+
+    let pool = state.agent_repo.pool().clone();
+    let skill_repo = crate::db::repositories::skill::SkillRepository::new(pool.clone());
+    let version_repo = crate::db::repositories::version::VersionRepository::new(pool);
+
+    // 1. 获取当前最新版本的 owner 信息
+    let skill_list = skill_repo
+        .list_by_name(&skill_name)
+        .await
+        .map_err(|e| ApiError::BadRequest(format!("Failed to lookup skill: {}", e)))?;
+    let latest = skill_list
+        .first()
+        .ok_or_else(|| ApiError::NotFound(format!("Skill {} not found", skill_name)))?;
+
+    // 2. 执行 Git 回退：从 tag 恢复文件 + commit + tag + 写入 skill_versions
+    let result = state
+        .skill_git
+        .rollback_version(&skill_name, &body.version, identity_id, &version_repo)
+        .map_err(|e| match e {
+            crate::models::error::AppError::SkillNotFound(_) => {
+                ApiError::NotFound(format!("Version {} not found for skill {}", body.version, skill_name))
+            }
+            other => ApiError::BadRequest(format!("Rollback failed: {}", other)),
+        })?;
+
+    // 3. 读取恢复后的 SKILL.md 获取元数据
+    let repo_dir = state.skill_git.repo_path(&skill_name);
+    let skill_md_content = std::fs::read_to_string(repo_dir.join("SKILL.md"))
+        .map_err(|e| ApiError::InternalError(format!("Failed to read restored SKILL.md: {}", e)))?;
+    let meta = crate::services::skill_git::parse_skill_md_frontmatter(&skill_md_content)
+        .map_err(|e| ApiError::BadRequest(format!("Failed to parse restored SKILL.md: {}", e)))?;
+
+    // 4. 通过 RegistryService 创建新版本的 skill 记录
+    let new_skill = crate::models::skill::NewSkill {
+        name: skill_name.clone(),
+        description: meta.description,
+        tags: meta.tags,
+        content: skill_md_content,
+        version: result.new_version.clone(),
+        git_url: None,
+        visibility: Some(skill_list.iter().find_map(|s| {
+            match s.visibility.as_str() {
+                "private" => Some(crate::models::skill_policy::Visibility::Private),
+                "org_visible" => Some(crate::models::skill_policy::Visibility::OrgVisible),
+                "marketplace" => Some(crate::models::skill_policy::Visibility::Marketplace),
+                "shared" => Some(crate::models::skill_policy::Visibility::Shared),
+                _ => None,
+            }
+        }).unwrap_or(crate::models::skill_policy::Visibility::OrgVisible)),
+        tools: None,
+        owner_type: latest.owner_type.clone(),
+        owner_id: latest.owner_id,
+        author_identity_id: Some(identity_id),
+    };
+    let skill = state
+        .registry
+        .create_skill(new_skill, &agent_context.subject, &state.search)
+        .await
+        .map_err(|e| ApiError::BadRequest(format!("Failed to create rolled-back skill: {}", e)))?;
+
+    // 5. 状态设为 published，visibility 设为 marketplace
+    skill_repo
+        .update_status(&skill.id, "published", None, None)
+        .await
+        .map_err(|e| ApiError::BadRequest(format!("Failed to set rollback skill status: {}", e)))?;
+    skill_repo
+        .update(&skill.id, None, None, None, Some("marketplace"))
+        .await
+        .map_err(|e| ApiError::BadRequest(format!("Failed to set marketplace visibility: {}", e)))?;
+
+    // 6. 从 Git 仓库同步文件到 skills_dir（覆盖 create_skill 写入的 SKILL.md）
+    state
+        .registry
+        .sync_skill_files_from(&skill_name, &repo_dir)
+        .map_err(|e| ApiError::InternalError(format!("Failed to sync files: {}", e)))?;
+
+    // 7. 审计日志
+    state
+        .audit_repo
+        .create(crate::db::repositories::audit::NewAuditLog {
+            agent_id: Some(agent_context.subject),
+            action: "skill_rollback".to_string(),
+            resource_type: "skill".to_string(),
+            resource_id: Some(skill.id.clone()),
+            details: serde_json::json!({
+                "skill_name": skill_name,
+                "from_version": result.from_version,
+                "target_version": result.target_version,
+                "new_version": result.new_version,
+            }),
+        })
+        .await
+        .map_err(|e| ApiError::InternalError(e.to_string()))?;
+
+    Ok((
+        StatusCode::OK,
+        Json(serde_json::json!({
+            "message": format!(
+                "Skill {} rolled back from {} to {} (new version: {})",
+                skill_name, result.from_version, result.target_version, result.new_version
+            ),
+            "skill_name": skill_name,
+            "from_version": result.from_version,
+            "target_version": result.target_version,
+            "new_version": result.new_version,
+            "skill_id": skill.id,
+        })),
+    ))
+}
+
+/// POST /api/v1/admin/skills/:id/unpublish — 超级管理员下架已发布的 Skill
+pub async fn admin_unpublish_skill_handler(
+    State(state): State<ApiState>,
+    Path(skill_id): Path<String>,
+    agent_context: AgentContext,
+) -> Result<impl IntoResponse, ApiError> {
+    agent_context.require_admin()?;
+    let _ = agent_context.require_identity()?;
+
+    use crate::db::repositories::skill::SkillRepository;
+    let pool = state.agent_repo.pool().clone();
+    let skill_repo = SkillRepository::new(pool);
+
+    let skill = skill_repo
+        .find_by_id(&skill_id)
+        .await
+        .map_err(|e| ApiError::BadRequest(e.to_string()))?
+        .ok_or_else(|| ApiError::NotFound(format!("Skill {} not found", skill_id)))?;
+
+    if skill.status != "published" {
+        return Err(ApiError::BadRequest(
+            "Only published skills can be unpublished".to_string(),
+        ));
+    }
+
+    // 下架：状态改为 approved，可见性改为 private，设置 admin_unpublished 标记
+    skill_repo
+        .update_status(&skill_id, "approved", None, None)
+        .await
+        .map_err(|e| ApiError::BadRequest(format!("Failed to unpublish skill: {}", e)))?;
+
+    skill_repo
+        .update(&skill_id, None, None, None, Some("private"))
+        .await
+        .map_err(|e| ApiError::BadRequest(format!("Failed to set visibility: {}", e)))?;
+
+    skill_repo
+        .set_admin_unpublished(&skill_id, true)
+        .await
+        .map_err(|e| ApiError::BadRequest(format!("Failed to set admin unpublished flag: {}", e)))?;
+
+    state
+        .audit_repo
+        .create(crate::db::repositories::audit::NewAuditLog {
+            agent_id: Some(agent_context.subject),
+            action: "skill_unpublished".to_string(),
+            resource_type: "skill".to_string(),
+            resource_id: Some(skill_id.clone()),
+            details: serde_json::json!({
+                "skill_name": skill.name,
+                "previous_status": "published",
+                "new_status": "approved",
+            }),
+        })
+        .await
+        .map_err(|e| ApiError::InternalError(e.to_string()))?;
+
+    Ok((
+        StatusCode::OK,
+        Json(serde_json::json!({
+            "message": format!("Skill {} unpublished successfully", skill.name),
+            "skill_id": skill_id,
+            "status": "approved",
+        })),
+    ))
+}
+
+/// POST /api/v1/admin/skills/:id/publish — 超级管理员上架 Skill 到市场
+pub async fn admin_publish_skill_handler(
+    State(state): State<ApiState>,
+    Path(skill_id): Path<String>,
+    agent_context: AgentContext,
+) -> Result<impl IntoResponse, ApiError> {
+    agent_context.require_admin()?;
+    let _ = agent_context.require_identity()?;
+
+    use crate::db::repositories::skill::SkillRepository;
+    let pool = state.agent_repo.pool().clone();
+    let skill_repo = SkillRepository::new(pool);
+
+    let skill = skill_repo
+        .find_by_id(&skill_id)
+        .await
+        .map_err(|e| ApiError::BadRequest(e.to_string()))?
+        .ok_or_else(|| ApiError::NotFound(format!("Skill {} not found", skill_id)))?;
+
+    if skill.status == "published" && skill.visibility == "marketplace" {
+        return Err(ApiError::BadRequest(
+            "Skill is already published to marketplace".to_string(),
+        ));
+    }
+
+    // 上架：状态改为 published，可见性改为 marketplace，清除 admin_unpublished 标记
+    skill_repo
+        .update_status(&skill_id, "published", None, None)
+        .await
+        .map_err(|e| ApiError::BadRequest(format!("Failed to publish skill: {}", e)))?;
+
+    skill_repo
+        .update(&skill_id, None, None, None, Some("marketplace"))
+        .await
+        .map_err(|e| ApiError::BadRequest(format!("Failed to set marketplace visibility: {}", e)))?;
+
+    skill_repo
+        .set_admin_unpublished(&skill_id, false)
+        .await
+        .map_err(|e| ApiError::BadRequest(format!("Failed to clear admin unpublished flag: {}", e)))?;
+
+    state
+        .audit_repo
+        .create(crate::db::repositories::audit::NewAuditLog {
+            agent_id: Some(agent_context.subject),
+            action: "skill_admin_published".to_string(),
+            resource_type: "skill".to_string(),
+            resource_id: Some(skill_id.clone()),
+            details: serde_json::json!({
+                "skill_name": skill.name,
+                "previous_status": skill.status,
+                "new_status": "published",
+            }),
+        })
+        .await
+        .map_err(|e| ApiError::InternalError(e.to_string()))?;
+
+    Ok((
+        StatusCode::OK,
+        Json(serde_json::json!({
+            "message": format!("Skill {} published to marketplace", skill.name),
+            "skill_id": skill_id,
+            "status": "published",
+        })),
     ))
 }
 
@@ -5368,15 +5650,53 @@ pub async fn confirm_skill_upload_handler(
     AgentContext {
         subject,
         identity_id,
+        org_id: agent_org_id,
+        roles,
         ..
     }: AgentContext,
     axum::extract::Path((preview_id,)): axum::extract::Path<(String,)>,
     Json(body): Json<crate::api::models::ConfirmUploadBody>,
 ) -> Result<impl IntoResponse, ApiError> {
-    let owner_type = body.owner_type.unwrap_or_else(|| "user".to_string());
-    // 前端可能不传 author_identity_id 和 owner_id，从 JWT token 中自动补全
-    let author_identity_id = body.author_identity_id.or(identity_id);
-    let owner_id = body.owner_id.or(identity_id);
+    let _identity_id = identity_id
+        .ok_or_else(|| ApiError::Unauthorized("identity_id required".to_string()))?;
+
+    let is_admin = roles.iter().any(|r| r == "admin");
+
+    // 推断 owner_type：body 显式 → 自动（有 agent_org_id → organization，否则 user）
+    let effective_owner_type = body.owner_type.as_deref().unwrap_or_else(|| {
+        if agent_org_id.is_some() { "organization" } else { "user" }
+    });
+
+    let (owner_type, owner_id) = if effective_owner_type == "organization" {
+        let org_id = body
+            .organization_id
+            .or(body.owner_id)
+            .or(agent_org_id)
+            .ok_or_else(|| ApiError::BadRequest(
+                "organization_id is required when owner_type is organization".to_string(),
+            ))?;
+
+        // 验证用户属于该组织（admin 跳过组织成员校验）
+        if !is_admin {
+            let is_member = state
+                .permission
+                .is_org_member(_identity_id, org_id)
+                .await
+                .map_err(|e| ApiError::InternalError(e.to_string()))?;
+            if !is_member {
+                return Err(ApiError::Forbidden(
+                    "你不能为不属于的组织创建 Skill".to_string(),
+                ));
+            }
+        }
+
+        ("organization".to_string(), Some(org_id))
+    } else {
+        // 个人用户创建
+        ("user".to_string(), Some(_identity_id))
+    };
+
+    let author_identity_id = body.author_identity_id.or(Some(_identity_id));
 
     let upload_result = state
         .skill_git

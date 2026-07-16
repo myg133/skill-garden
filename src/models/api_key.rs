@@ -108,6 +108,24 @@ impl ApiKeyResponse {
     }
 }
 
+/// 列表项，附带 identity / organization 的显示名称，避免前端二次查询。
+#[derive(Debug, Clone, Serialize)]
+pub struct ApiKeyListItem {
+    pub id: Uuid,
+    pub identity_id: Uuid,
+    pub identity_name: Option<String>,
+    pub organization_id: Option<Uuid>,
+    pub organization_name: Option<String>,
+    pub key_prefix: String,
+    pub name: Option<String>,
+    pub scopes: Vec<String>,
+    pub rate_limit: i32,
+    pub status: ApiKeyStatus,
+    pub expires_at: Option<DateTime<Utc>>,
+    pub created_at: DateTime<Utc>,
+    pub last_used_at: Option<DateTime<Utc>>,
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct AuditLog {
     pub id: Uuid,
