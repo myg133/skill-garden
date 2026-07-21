@@ -3,13 +3,20 @@
   import { Link } from 'svelte-routing';
   import { api } from '../lib/api.js';
   import { addToast } from '../stores/app.js';
+  import { hasPermission } from '../stores/permission.js';
+  import { ACTIONS } from '../config/actions.js';
   import LoadingSpinner from '../components/LoadingSpinner.svelte';
   import Icon from '../components/Icon.svelte';
   import OrgOverviewHeader from '../components/OrgOverviewHeader.svelte';
   import OrgMembersTab from '../components/OrgMembersTab.svelte';
   import OrgGroupsTab from '../components/OrgGroupsTab.svelte';
+  import Badge from '../components/Badge.svelte';
 
   export let id = '';
+
+  const ACT_ORG = ACTIONS.OrganizationDetail;
+  const ACT_GRP = ACTIONS.Groups;
+  const ACT_GDT = ACTIONS.GroupDetail;
 
   // --- Core data ---
   let organization = null;
@@ -24,7 +31,7 @@
   // --- UI state ---
   let editing = false;
   let editName = '';
-  let activeTab = 'overview';
+  let activeTab = 'members';
 
   // --- Invite modal ---
   let showInviteModal = false;
@@ -111,6 +118,16 @@
     editing = true;
   }
 
+  function formatDuration(start, end) {
+    if (!start) return 'N/A';
+    const ms = new Date(end || Date.now()) - new Date(start);
+    const mins = Math.floor(ms / 60000);
+    if (mins < 60) return `${mins}m`;
+    const hours = Math.floor(mins / 60);
+    return `${hours}h ${mins % 60}m`;
+  }
+
+
   // --- Invite ---
   async function handleInvite() {
     if (!inviteForm.email.trim() || !inviteForm.role) return;
@@ -162,12 +179,14 @@
     }
   }
 
+  // Computed org identifier (slug or fallback to id) for group API calls
+  $: orgRef = organization ? (organization.slug || organization.id) : '';
+
   // --- Groups (delegate to OrgGroupsTab via callback) ---
   async function loadGroups() {
-    if (!organization?.slug) { addToast('Organization slug is required for group operations', 'warning'); return; }
     loadingGroups = true;
     try {
-      const res = await api.listOrgGroups(organization.slug);
+      const res = await api.listOrgGroups(orgRef);
       groups = res.data || [];
     } catch (e) {
       addToast(e.message, 'error');
@@ -180,32 +199,32 @@
     try {
       switch (action) {
         case 'create':
-          await api.createOrgGroup(organization.slug, { name: payload.name, slug: payload.slug, description: payload.description, group_type: payload.group_type });
+          await api.createOrgGroup(orgRef, { name: payload.name, slug: payload.slug, description: payload.description, group_type: payload.group_type });
           addToast('Group created', 'success');
           await loadGroups();
           break;
         case 'update':
-          await api.updateOrgGroup(organization.slug, payload.id, { name: payload.name, slug: payload.slug, description: payload.description, group_type: payload.group_type });
+          await api.updateOrgGroup(orgRef, payload.id, { name: payload.name, slug: payload.slug, description: payload.description, group_type: payload.group_type });
           addToast('Group updated', 'success');
           await loadGroups();
           break;
         case 'delete':
-          await api.deleteOrgGroup(organization.slug, payload.id);
+          await api.deleteOrgGroup(orgRef, payload.id);
           addToast('Group deleted', 'success');
           await loadGroups();
           break;
         case 'listMembers': {
-          const res = await api.listOrgGroupMembers(organization.slug, payload.groupId);
+          const res = await api.listOrgGroupMembers(orgRef, payload.groupId);
           return res.data || [];
         }
         case 'updateMember':
-          await api.updateOrgGroupMember(organization.slug, payload.groupId, payload.agentId, { role: payload.role });
+          await api.updateOrgGroupMember(orgRef, payload.groupId, payload.agentId, { role: payload.role });
           addToast('Member role updated', 'success');
-          return (await api.listOrgGroupMembers(organization.slug, payload.groupId)).data || [];
+          return (await api.listOrgGroupMembers(orgRef, payload.groupId)).data || [];
         case 'removeMember':
-          await api.removeOrgGroupMember(organization.slug, payload.groupId, payload.agentId);
+          await api.removeOrgGroupMember(orgRef, payload.groupId, payload.agentId);
           addToast('Member removed from group', 'success');
-          return (await api.listOrgGroupMembers(organization.slug, payload.groupId)).data || [];
+          return (await api.listOrgGroupMembers(orgRef, payload.groupId)).data || [];
       }
     } catch (e) {
       addToast(e.message, 'error');
@@ -253,6 +272,7 @@
       {activeSessionCount}
       toolCount={orgTools.length}
       {activeTab}
+      canEdit={hasPermission(ACT_ORG.editSettings)}
       onStartEdit={startEdit}
       onUpdate={handleUpdate}
       onCancelEdit={() => editing = false}
@@ -264,47 +284,70 @@
       <OrgMembersTab
         {members}
         {orgRoles}
+        canInviteMember={hasPermission(ACT_ORG.inviteMember)}
+        canManageRoles={hasPermission(ACT_ORG.manageRoles)}
+        canRemoveMember={hasPermission(ACT_ORG.removeMember)}
         onInvite={() => { showInviteModal = true; inviteForm = { email: '', role: 'member' }; }}
         onUpdateRole={handleUpdateRole}
         onRemoveMember={handleRemoveMember}
       />
     {/if}
 
-    <!-- Overview / Sessions / Tools -->
-    {#if activeTab === 'overview' || activeTab === 'sessions' || activeTab === 'tools'}
+    <!-- Sessions / Tools -->
+    {#if activeTab === 'sessions' || activeTab === 'tools'}
       <div class="grid grid-cols-1 gap-5">
-        {#if activeTab === 'sessions' || activeTab === 'overview'}
+        {#if activeTab === 'sessions'}
           <div class="bg-white rounded-xl border border-gray-200 shadow-card">
             <div class="px-6 py-4 border-b border-gray-100">
               <h2 class="font-semibold text-gray-900 text-sm">Sessions</h2>
             </div>
-            <div class="divide-y divide-gray-50 max-h-80 overflow-y-auto">
+            <div class="max-h-96 overflow-y-auto">
               {#if sessions.length === 0}
                 <div class="px-6 py-12 text-center text-gray-400 text-sm font-medium">No sessions</div>
               {:else}
-                {#each sessions as session (session.id)}
-                  <div class="px-6 py-4 flex items-center justify-between table-row">
-                    <div>
-                      <p class="text-gray-900 text-sm font-mono font-semibold">{session.id}</p>
-                      <p class="text-gray-400 text-xs mt-0.5">Agent: {session.agent_id}</p>
-                    </div>
-                    <div class="flex items-center gap-3">
-                      <span class="inline-flex items-center gap-1.5 px-2.5 py-1 text-xs font-semibold rounded-full {session.status === 'active' ? 'bg-emerald-50 text-emerald-600 ring-1 ring-emerald-500/20' : 'bg-gray-100 text-gray-600 ring-1 ring-gray-500/10'}">
-                        {#if session.status === 'active'}<span class="w-1.5 h-1.5 rounded-full bg-emerald-500 pulse-dot"></span>{/if}
-                        {session.status}
-                      </span>
-                      {#if session.status === 'active'}
-                        <button on:click={() => handleEndSession(session.id)} class="text-red-500 hover:text-red-600 text-xs font-semibold transition-colors">End</button>
-                      {/if}
-                    </div>
-                  </div>
-                {/each}
+                <table class="w-full">
+                  <thead>
+                    <tr class="border-b border-gray-100 bg-gray-50">
+                      <th class="px-6 py-3 text-left text-xs font-semibold text-gray-400 uppercase tracking-wider">Identity</th>
+                      <th class="px-6 py-3 text-left text-xs font-semibold text-gray-400 uppercase tracking-wider">Status</th>
+                      <th class="px-6 py-3 text-left text-xs font-semibold text-gray-400 uppercase tracking-wider">Created</th>
+                      <th class="px-6 py-3 text-left text-xs font-semibold text-gray-400 uppercase tracking-wider">Last Active</th>
+                      <th class="px-6 py-3 text-left text-xs font-semibold text-gray-400 uppercase tracking-wider">Ended</th>
+                      <th class="px-6 py-3 text-left text-xs font-semibold text-gray-400 uppercase tracking-wider">Duration</th>
+                      <th class="px-6 py-3 text-right text-xs font-semibold text-gray-400 uppercase tracking-wider">Actions</th>
+                    </tr>
+                  </thead>
+                  <tbody class="divide-y divide-gray-50">
+                    {#each sessions as session (session.id)}
+                      <tr class="table-row">
+                        <td class="px-6 py-4">
+                          <p class="text-gray-900 text-sm font-semibold">{session.identity_display_name || session.identity_name || 'Unknown'}</p>
+                          <p class="text-gray-400 text-xs font-mono mt-0.5 truncate max-w-[180px]">{session.id}</p>
+                        </td>
+                        <td class="px-6 py-4">
+                          <Badge status={session.status} />
+                        </td>
+                        <td class="px-6 py-4 text-gray-500 text-sm whitespace-nowrap">{session.created_at ? new Date(session.created_at).toLocaleString() : 'N/A'}</td>
+                        <td class="px-6 py-4 text-gray-500 text-sm whitespace-nowrap">{session.last_active_at ? new Date(session.last_active_at).toLocaleString() : 'N/A'}</td>
+                        <td class="px-6 py-4 text-gray-500 text-sm whitespace-nowrap">{session.ended_at ? new Date(session.ended_at).toLocaleString() : '—'}</td>
+                        <td class="px-6 py-4 text-gray-500 text-sm font-medium whitespace-nowrap">{formatDuration(session.created_at, session.ended_at)}</td>
+                        <td class="px-6 py-4 text-right">
+                          {#if session.status === 'active'}
+                            <button on:click={() => handleEndSession(session.id)} class="text-red-500 hover:text-red-600 text-xs font-semibold transition-colors">End</button>
+                          {:else}
+                            <span class="text-gray-300 text-xs">—</span>
+                          {/if}
+                        </td>
+                      </tr>
+                    {/each}
+                  </tbody>
+                </table>
               {/if}
             </div>
           </div>
         {/if}
 
-        {#if activeTab === 'tools' || activeTab === 'overview'}
+        {#if activeTab === 'tools'}
           <div class="bg-white rounded-xl border border-gray-200 shadow-card">
             <div class="px-6 py-4 border-b border-gray-100">
               <h2 class="font-semibold text-gray-900 text-sm">Registered Tools</h2>
@@ -336,6 +379,10 @@
         {loadingGroups}
         {groupTypes}
         {orgRoles}
+        canCreateGroup={hasPermission(ACT_GRP.create)}
+        canEditGroup={hasPermission(ACT_GRP.edit)}
+        canDeleteGroup={hasPermission(ACT_GRP.delete)}
+        canManageMembers={hasPermission(ACT_GDT.addMember)}
         onRefreshGroups={handleGroupsAction}
         onAddMember={group => { selectedGroupForAdd = group; showAddMemberModal = true; addMemberForm = { agent_id: '', role: 'member' }; }}
       />
@@ -350,7 +397,7 @@
       <div class="space-y-4">
         <div>
           <label for="invite-email" class="block text-xs font-semibold text-gray-500 uppercase tracking-wider mb-2">Email</label>
-          <input id="invite-email" type="email" bind:value={inviteForm.email} placeholder="Enter email address" class="w-full px-4 py-3 border border-gray-200 rounded-lg text-sm input-focus outline-none font-medium" />
+          <input id="invite-email" type="email" bind:value={inviteForm.email} placeholder="Enter email address" class="w-full px-4 py-3 border border-gray-200 rounded-lg text-sm input-focus outline-none font-medium bg-white" />
         </div>
         <div>
           <label for="invite-role" class="block text-xs font-semibold text-gray-500 uppercase tracking-wider mb-2">Role</label>
@@ -375,7 +422,7 @@
       <div class="space-y-4">
         <div>
           <label for="add-member-id" class="block text-xs font-semibold text-gray-500 uppercase tracking-wider mb-2">Identity ID (UUID)</label>
-          <input id="add-member-id" type="text" bind:value={addMemberForm.agent_id} placeholder="e.g. 550e8400-e29b-41d4-a716-446655440000" class="w-full px-4 py-3 border border-gray-200 rounded-lg text-sm input-focus outline-none font-medium" />
+          <input id="add-member-id" type="text" bind:value={addMemberForm.agent_id} placeholder="e.g. 550e8400-e29b-41d4-a716-446655440000" class="w-full px-4 py-3 border border-gray-200 rounded-lg text-sm input-focus outline-none font-medium bg-white" />
         </div>
         <div>
           <label for="add-member-role" class="block text-xs font-semibold text-gray-500 uppercase tracking-wider mb-2">Role</label>

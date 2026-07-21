@@ -65,10 +65,7 @@ pub async fn search(client: &ApiClient, query: &str, limit: u32) -> Result<()> {
         return Ok(());
     }
 
-    println!(
-        "{:<40} {:<12} {:<10}",
-        "SKILL ID", "VERSION", "SCORE"
-    );
+    println!("{:<40} {:<12} {:<10}", "SKILL ID", "VERSION", "SCORE");
     println!("{}", "-".repeat(66));
     for r in &results {
         let id = r.skill_id.as_deref().unwrap_or("-");
@@ -222,10 +219,7 @@ pub async fn stats(client: &ApiClient, skill_id: &str) -> Result<()> {
     println!("  总执行次数: {}", s.total_evaluations);
     println!("  成功次数:   {}", s.success_count);
     println!("  失败次数:   {}", s.failure_count);
-    println!(
-        "  成功率:     {:.1}%",
-        s.success_rate * 100.0
-    );
+    println!("  成功率:     {:.1}%", s.success_rate * 100.0);
     println!("  平均耗时:   {:.1}ms", s.avg_duration_ms);
     if !s.confidence.is_empty() {
         println!("  置信度:     {}", s.confidence);
@@ -248,7 +242,10 @@ pub fn config_show() -> Result<()> {
     println!("token      = {:?}", mask_token(config.token.as_deref()));
     println!(
         "skills_dir = {:?}",
-        config.skills_dir.as_deref().unwrap_or("未设置（默认 ./skills/）")
+        config
+            .skills_dir
+            .as_deref()
+            .unwrap_or("未设置（默认 ./skills/）")
     );
     Ok(())
 }
@@ -294,11 +291,7 @@ fn print_list_result(resp: ListResult, page: u32) {
             s.status,
         );
     }
-    println!(
-        "\n第 {} 页，共 {} 个 Skill",
-        page,
-        resp.total
-    );
+    println!("\n第 {} 页，共 {} 个 Skill", page, resp.total);
 }
 
 fn print_skill_detail(detail: &SkillDetail) {

@@ -61,6 +61,13 @@ impl SystemRoleAssignmentService {
             .map_err(|e| AppError::InternalError(e.to_string()))
     }
 
+    pub async fn list_all(&self) -> Result<Vec<SystemRoleAssignment>, AppError> {
+        self.repo
+            .list_all()
+            .await
+            .map_err(|e| AppError::InternalError(e.to_string()))
+    }
+
     pub async fn list_by_role(
         &self,
         role_name: &str,

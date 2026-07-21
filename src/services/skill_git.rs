@@ -447,12 +447,33 @@ impl SkillGitService {
             .find_by_id(&format!("skill-{}-{}", metadata.name, version))
             .await
             .map_err(|e| AppError::InternalError(e.to_string()))?;
-        let _is_new_skill = existing_skill.is_none();
         if existing_skill.is_some() {
-            return Err(AppError::SkillAlreadyExists(format!(
-                "Skill {} version {} already exists. Upload with a new version.",
-                metadata.name, version
-            )));
+            // 如果 skill_versions 中没有版本记录，说明是上次上传部分失败残留
+            // 清理后继续（正常重试）
+            if latest_version.is_none() {
+                warn!(
+                    "Cleaning up partially-failed upload for {} v{} (no version record found)",
+                    metadata.name, version
+                );
+                skill_repo
+                    .delete(&format!("skill-{}-{}", metadata.name, version))
+                    .await
+                    .map_err(|e| AppError::InternalError(e.to_string()))?;
+            } else {
+                // 正常版本冲突
+                let suggested = latest_version.as_ref().map_or_else(
+                    || "1.0.0".to_string(),
+                    |v| {
+                        semver::Version::parse(v)
+                            .map(|sv| format!("{}.{}.{}", sv.major, sv.minor, sv.patch + 1))
+                            .unwrap_or_else(|_| "1.0.1".to_string())
+                    },
+                );
+                return Err(AppError::SkillAlreadyExists(format!(
+                    "版本 {} 已存在，建议使用版本 {}",
+                    version, suggested
+                )));
+            }
         }
 
         // 准备 Git 仓库
@@ -1240,17 +1261,18 @@ impl SkillGitService {
 
         // 4. 读取并解析 SKILL.md
         let skill_md_path = repo_dir.join("SKILL.md");
-        let skill_md_content =
-            fs::read_to_string(&skill_md_path).map_err(|e| {
-                AppError::InternalError(format!("SKILL.md not found at version {}: {}", target_tag, e))
-            })?;
+        let skill_md_content = fs::read_to_string(&skill_md_path).map_err(|e| {
+            AppError::InternalError(format!(
+                "SKILL.md not found at version {}: {}",
+                target_tag, e
+            ))
+        })?;
         let _meta = parse_skill_md_frontmatter(&skill_md_content)?;
 
         // 5. 获取文件列表和总大小
         let mut file_paths: Vec<String> = Vec::new();
-        collect_files(&repo_dir, &repo_dir, &mut file_paths).map_err(|e| {
-            AppError::InternalError(format!("Failed to collect files: {}", e))
-        })?;
+        collect_files(&repo_dir, &repo_dir, &mut file_paths)
+            .map_err(|e| AppError::InternalError(format!("Failed to collect files: {}", e)))?;
         let file_count = file_paths.len() as i32;
         let total_size: u64 = file_paths
             .iter()
@@ -1283,7 +1305,9 @@ impl SkillGitService {
                     })
                     .await
             })
-            .map_err(|e| AppError::InternalError(format!("Failed to record rollback version: {}", e)))?;
+            .map_err(|e| {
+                AppError::InternalError(format!("Failed to record rollback version: {}", e))
+            })?;
 
         info!(
             "Rollback: skill={} {} -> {} (new: {}, commit={})",
@@ -1389,17 +1413,28 @@ pub fn parse_skill_md_frontmatter(content: &str) -> Result<ParsedSkillMetadata, 
 
     let mut current_key: Option<String> = None;
     let mut list_buffer: Vec<String> = Vec::new();
+    let mut multiline_buffer: Vec<String> = Vec::new(); // 多行标量文本缓冲
+    let mut is_multiline_scalar = false; // 是否为 YAML | 或 > 多行文本
 
     for line in fm_body.lines() {
-        let line = line.trim();
+        let raw_line = line;
+        let line = raw_line.trim();
         if line.is_empty() || line.starts_with('#') {
+            // 多行文本中的空行也保留（| 模式保留换行，> 模式合并）
+            if is_multiline_scalar {
+                multiline_buffer.push(String::new());
+            }
             continue;
         }
 
         if let Some(colon_pos) = line.find(':') {
-            // 遇到新 key 时保存之前的 list
+            // 遇到新 key 时保存之前的多行文本或列表
             if let Some(ref key) = current_key {
-                if !list_buffer.is_empty() {
+                if is_multiline_scalar && !multiline_buffer.is_empty() {
+                    let merged = multiline_buffer.join(" ");
+                    apply_scalar_value(&mut metadata, key, &merged);
+                    multiline_buffer.clear();
+                } else if !list_buffer.is_empty() {
                     apply_list_value(&mut metadata, key, &list_buffer);
                     list_buffer.clear();
                 }
@@ -1409,11 +1444,24 @@ pub fn parse_skill_md_frontmatter(content: &str) -> Result<ParsedSkillMetadata, 
             let value = line[colon_pos + 1..].trim().to_string();
 
             if value.is_empty() || value == "[]" {
-                // 可能是多行列表的开始
+                // 空值：可能是多行列表或多行文本的开始
                 current_key = Some(key.clone());
+                is_multiline_scalar = false;
                 if value == "[]" {
                     list_buffer = Vec::new();
+                } else {
+                    list_buffer = Vec::new();
+                    multiline_buffer = Vec::new();
                 }
+                continue;
+            }
+
+            // YAML 块标量: | 或 > 或 |-
+            if value == "|" || value == "|-" || value == ">-" || value == ">" || value == "|+" || value == ">+" {
+                current_key = Some(key.clone());
+                is_multiline_scalar = true;
+                multiline_buffer = Vec::new();
+                list_buffer.clear();
                 continue;
             }
 
@@ -1427,11 +1475,15 @@ pub fn parse_skill_md_frontmatter(content: &str) -> Result<ParsedSkillMetadata, 
                 apply_list_value(&mut metadata, &key, &items);
                 current_key = None;
                 list_buffer.clear();
+                is_multiline_scalar = false;
             } else {
                 apply_scalar_value(&mut metadata, &key, &value);
                 current_key = None;
                 list_buffer.clear();
             }
+        } else if is_multiline_scalar {
+            // 多行文本内容行
+            multiline_buffer.push(raw_line.trim().to_string());
         } else if let Some(ref _key) = current_key {
             // 列表项：- item
             let item = line.trim_start_matches('-').trim();
@@ -1442,9 +1494,12 @@ pub fn parse_skill_md_frontmatter(content: &str) -> Result<ParsedSkillMetadata, 
         }
     }
 
-    // 处理结尾的 list
+    // 处理结尾的多行文本或列表
     if let Some(ref key) = current_key {
-        if !list_buffer.is_empty() {
+        if is_multiline_scalar && !multiline_buffer.is_empty() {
+            let merged = multiline_buffer.join(" ");
+            apply_scalar_value(&mut metadata, key, &merged);
+        } else if !list_buffer.is_empty() {
             apply_list_value(&mut metadata, key, &list_buffer);
         }
     }
@@ -1453,11 +1508,16 @@ pub fn parse_skill_md_frontmatter(content: &str) -> Result<ParsedSkillMetadata, 
 }
 
 fn apply_scalar_value(meta: &mut ParsedSkillMetadata, key: &str, value: &str) {
+    // 去掉外层引号（支持 "..." 和 '...'）
+    let cleaned = value
+        .trim()
+        .trim_start_matches('"').trim_end_matches('"')
+        .trim_start_matches('\'').trim_end_matches('\'');
     match key {
-        "name" => meta.name = value.to_string(),
-        "description" => meta.description = normalize_description(value),
-        "version" => meta.version = Some(value.to_string()),
-        "compatibility" => meta.compatibility = value.to_string(),
+        "name" => meta.name = cleaned.to_string(),
+        "description" => meta.description = normalize_description(cleaned),
+        "version" => meta.version = Some(cleaned.to_string()),
+        "compatibility" => meta.compatibility = cleaned.to_string(),
         _ => {}
     }
 }

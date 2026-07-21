@@ -1,0 +1,23 @@
+{
+  "name": "_auto_9560464b5fac4285812d02d6f9799c21",
+  "leadAgentId": "9560464b5fac4285812d02d6f9799c21",
+  "workspacePath": "d:\\anchnet\\skill-garden",
+  "createdAt": "2026-07-16T09:33:42.943Z",
+  "options": {
+    "workspacePath": "d:\\anchnet\\skill-garden",
+    "isAutoTeam": true
+  },
+  "members": [
+    {
+      "memberId": "team-lead@_auto_9560464b5fac4285812d02d6f9799c21",
+      "name": "team-lead",
+      "role": "Team Lead - coordinates the team and interacts with the user"
+    },
+    {
+      "memberId": "explorer-phase1@_auto_9560464b5fac4285812d02d6f9799c21",
+      "name": "explorer-phase1",
+      "role": "Map all require_admin and require_org_member call sites"
+    }
+  ],
+  "isAutoTeam": true
+}

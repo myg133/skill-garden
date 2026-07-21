@@ -118,6 +118,34 @@ const MIGRATIONS: &[(&str, &str)] = &[
         "028_add_admin_unpublished",
         include_str!("migrations/028_add_admin_unpublished.sql"),
     ),
+    (
+        "029_add_unified_admin_auth",
+        include_str!("migrations/029_add_unified_admin_auth.sql"),
+    ),
+    (
+        "030_add_tenant_role_assignments",
+        include_str!("migrations/030_add_tenant_role_assignments.sql"),
+    ),
+    (
+        "031_seed_admin_user",
+        include_str!("migrations/031_seed_admin_user.sql"),
+    ),
+    (
+        "032_add_marketplace_status",
+        include_str!("migrations/032_add_marketplace_status.sql"),
+    ),
+    (
+        "033_add_marketplace_permissions",
+        include_str!("migrations/033_add_marketplace_permissions.sql"),
+    ),
+    (
+        "034_cleanup_legacy_permissions",
+        include_str!("migrations/034_cleanup_legacy_permissions.sql"),
+    ),
+    (
+        "035_add_pending_delist_status",
+        include_str!("migrations/035_add_pending_delist_status.sql"),
+    ),
 ];
 
 fn split_sql_statements(sql: &str) -> Vec<&str> {

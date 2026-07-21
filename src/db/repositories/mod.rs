@@ -23,6 +23,7 @@ pub mod skill;
 pub mod skill_policy;
 pub mod system_role_assignment;
 pub mod tenant;
+pub mod tenant_role_assignment;
 pub mod version;
 
 pub use agent::AgentRepository;
@@ -47,4 +48,5 @@ pub use skill::SkillRepository;
 pub use skill_policy::SkillPolicyRepository;
 pub use system_role_assignment::SystemRoleAssignmentRepository;
 pub use tenant::TenantRepository;
+pub use tenant_role_assignment::TenantRoleAssignmentRepository;
 pub use version::{NewSkillVersion, SkillVersion, VersionRepository};

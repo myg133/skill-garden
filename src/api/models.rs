@@ -35,6 +35,12 @@ pub struct ListSkillsQuery {
     pub keyword: Option<String>,
     pub page: Option<usize>,
     pub page_size: Option<usize>,
+    /// 按组织 ID 过滤（仅该组织的 Skill）
+    pub org_id: Option<Uuid>,
+    /// 按 marketplace_status 过滤（如 "listed", "pending_review"）
+    pub marketplace_status: Option<String>,
+    /// 仅个人 Skill（scope=personal）
+    pub scope_personal: Option<bool>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -254,6 +260,12 @@ pub struct UserInfoResponse {
     pub identity_type: String,
     pub is_admin: bool,
     pub organizations: Vec<UserOrgInfo>,
+    /// 系统级角色列表，如 ["super_admin", "marketplace_admin"]
+    #[serde(default)]
+    pub system_roles: Vec<String>,
+    /// 租户级角色列表
+    #[serde(default)]
+    pub tenant_roles: Vec<TenantRoleInfo>,
     pub created_at: chrono::DateTime<chrono::Utc>,
 }
 
@@ -264,6 +276,41 @@ pub struct UserOrgInfo {
     pub name: String,
     pub slug: Option<String>,
     pub role: String,
+}
+
+/// 租户角色信息（登录/权限响应用）
+#[derive(Debug, Serialize, Clone)]
+pub struct TenantRoleInfo {
+    pub tenant_id: uuid::Uuid,
+    pub tenant_name: String,
+    pub role_name: String,
+}
+
+/// 组织角色信息（权限刷新响应用）
+#[derive(Debug, Serialize, Clone)]
+pub struct OrgRoleInfo {
+    pub org_id: uuid::Uuid,
+    pub org_name: String,
+    pub role_name: String,
+}
+
+/// 组角色信息（权限刷新响应用）
+#[derive(Debug, Serialize, Clone)]
+pub struct GroupRoleInfo {
+    pub group_id: uuid::Uuid,
+    pub group_name: String,
+    pub role_name: String,
+}
+
+/// GET /users/me/permissions 响应
+#[derive(Debug, Serialize)]
+pub struct MyPermissionsResponse {
+    pub system_roles: Vec<String>,
+    pub tenant_roles: Vec<TenantRoleInfo>,
+    pub org_roles: Vec<OrgRoleInfo>,
+    pub group_roles: Vec<GroupRoleInfo>,
+    /// 当前用户所有可用的 permission_code 列表
+    pub permissions: Vec<String>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -702,7 +749,21 @@ pub struct CreateApiKeyBody {
     pub name: Option<String>,
     pub scopes: Option<Vec<String>>,
     pub rate_limit: Option<i32>,
+    #[serde(default)]
+    pub expires_in_days: Option<i32>,
     pub expires_at: Option<chrono::DateTime<chrono::Utc>>,
+}
+
+impl CreateApiKeyBody {
+    /// Compute expires_at from expires_in_days if set (takes precedence over raw expires_at)
+    pub fn effective_expires_at(&self) -> Option<chrono::DateTime<chrono::Utc>> {
+        if let Some(days) = self.expires_in_days {
+            let duration = chrono::Duration::days(days as i64);
+            Some(chrono::Utc::now() + duration)
+        } else {
+            self.expires_at
+        }
+    }
 }
 
 /// User-facing API key creation (identity_id derived from auth context)
@@ -712,30 +773,47 @@ pub struct CreateMyApiKeyBody {
     pub name: Option<String>,
     pub scopes: Option<Vec<String>>,
     pub rate_limit: Option<i32>,
+    #[serde(default)]
+    pub expires_in_days: Option<i32>,
+    #[serde(default)]
     pub expires_at: Option<chrono::DateTime<chrono::Utc>>,
+}
+
+impl CreateMyApiKeyBody {
+    /// Compute expires_at from expires_in_days if set (takes precedence over raw expires_at)
+    pub fn effective_expires_at(&self) -> Option<chrono::DateTime<chrono::Utc>> {
+        if let Some(days) = self.expires_in_days {
+            let duration = chrono::Duration::days(days as i64);
+            Some(chrono::Utc::now() + duration)
+        } else {
+            self.expires_at
+        }
+    }
 }
 
 impl From<CreateApiKeyBody> for crate::models::api_key::CreateApiKeyRequest {
     fn from(body: CreateApiKeyBody) -> Self {
+        let expires_at = body.effective_expires_at();
         crate::models::api_key::CreateApiKeyRequest {
             identity_id: body.identity_id,
             organization_id: body.organization_id,
             name: body.name,
             scopes: body.scopes.unwrap_or_default(),
             rate_limit: body.rate_limit.unwrap_or(1000),
-            expires_at: body.expires_at,
+            expires_at,
         }
     }
 }
 
 impl From<CreateMyApiKeyBody> for crate::models::api_key::UserCreateApiKeyRequest {
     fn from(body: CreateMyApiKeyBody) -> Self {
+        let expires_at = body.effective_expires_at();
         crate::models::api_key::UserCreateApiKeyRequest {
             organization_id: body.organization_id,
             name: body.name,
             scopes: body.scopes.unwrap_or_default(),
             rate_limit: body.rate_limit.unwrap_or(1000),
-            expires_at: body.expires_at,
+            expires_at,
         }
     }
 }
@@ -744,6 +822,13 @@ impl From<CreateMyApiKeyBody> for crate::models::api_key::UserCreateApiKeyReques
 pub struct ListApiKeysQuery {
     pub identity_id: Option<Uuid>,
     pub organization_id: Option<Uuid>,
+}
+
+/// 更新 API Key 状态的请求体（禁用 / 启用）
+#[derive(Debug, Deserialize)]
+pub struct UpdateApiKeyStatusBody {
+    /// 目标状态，仅允许 "disabled" | "active"
+    pub status: String,
 }
 
 // Audit entry models
@@ -846,6 +931,7 @@ pub struct PermissionCheckBody {
     pub owner_type: Option<String>,
     pub owner_id: Option<Uuid>,
     pub author_identity_id: Option<Uuid>,
+    pub tenant_id: Option<Uuid>,
     pub organization_id: Option<Uuid>,
     pub group_id: Option<Uuid>,
 }
@@ -861,13 +947,6 @@ pub struct MarketplaceQuery {
     pub tag: Option<String>,
     pub limit: Option<i64>,
     pub offset: Option<i64>,
-}
-
-#[derive(Debug, Serialize)]
-pub struct InstallSkillResponse {
-    pub message: String,
-    pub skill_id: String,
-    pub install_count: i32,
 }
 
 /// Create skill under organization
@@ -1087,4 +1166,46 @@ pub struct GitlabWebhookBody {
 pub struct GitlabWebhookProject {
     pub name: Option<String>,
     pub path_with_namespace: Option<String>,
+}
+
+// --- Tenant Role Assignment Models ---
+
+#[derive(Debug, Deserialize)]
+pub struct AssignTenantRoleBody {
+    pub identity_id: Uuid,
+    pub tenant_id: Uuid,
+    pub role_name: String,
+}
+
+#[derive(Debug, Deserialize)]
+pub struct RevokeTenantRoleBody {
+    pub identity_id: Uuid,
+    pub tenant_id: Uuid,
+    pub role_name: String,
+}
+
+#[derive(Debug, Deserialize)]
+pub struct ListTenantRoleAssignmentsQuery {
+    pub tenant_id: Option<Uuid>,
+    pub identity_id: Option<Uuid>,
+}
+
+// --- Marketplace Reviewer Assignment Models ---
+
+#[derive(Debug, Deserialize)]
+pub struct AssignMarketplaceReviewerBody {
+    pub identity_id: Uuid,
+}
+
+#[derive(Debug, Deserialize)]
+pub struct RevokeMarketplaceReviewerBody {
+    pub identity_id: Uuid,
+}
+
+// --- Marketplace Delist Request Models ---
+
+/// 作者申请下架市场 Skill 的请求体
+#[derive(Debug, Deserialize)]
+pub struct RequestDelistBody {
+    pub reason: Option<String>,
 }

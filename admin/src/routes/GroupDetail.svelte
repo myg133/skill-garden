@@ -3,9 +3,14 @@
   import { Link } from 'svelte-routing';
   import { api } from '../lib/api.js';
   import { addToast } from '../stores/app.js';
+  import { hasPermission } from '../stores/permission.js';
+  import { ACTIONS } from '../config/actions.js';
   import LoadingSpinner from '../components/LoadingSpinner.svelte';
 
   export let id = '';
+
+  const ACT = ACTIONS.GroupDetail;
+  const ACT_GRP = ACTIONS.Groups;
 
   let group = null;
   let members = [];
@@ -253,18 +258,22 @@
               </div>
             </div>
             <div class="flex gap-2">
-              <button
-                on:click={startEdit}
-                class="btn-secondary px-4 py-2 rounded-xl text-sm font-semibold"
-              >
-                Edit
-              </button>
-              <button
-                on:click={handleDelete}
-                class="px-4 py-2 rounded-xl text-sm font-semibold text-rose-600 hover:bg-rose-50 transition-colors"
-              >
-                Delete
-              </button>
+              {#if hasPermission(ACT_GRP.edit)}
+                <button
+                  on:click={startEdit}
+                  class="btn-secondary px-4 py-2 rounded-xl text-sm font-semibold"
+                >
+                  Edit
+                </button>
+              {/if}
+              {#if hasPermission(ACT_GRP.delete)}
+                <button
+                  on:click={handleDelete}
+                  class="px-4 py-2 rounded-xl text-sm font-semibold text-rose-600 hover:bg-rose-50 transition-colors"
+                >
+                  Delete
+                </button>
+              {/if}
             </div>
           {/if}
         </div>
@@ -299,13 +308,15 @@
     <div class="bg-white rounded-2xl border border-gray-200 shadow-card">
       <div class="px-6 py-4 border-b border-gray-100 flex items-center justify-between">
         <h2 class="font-semibold text-gray-800 text-sm">Group Members ({members.length})</h2>
-        <button
-          on:click={() => { showAddMemberModal = true; addMemberForm = { agent_id: '', role: 'member' }; }}
-          class="btn-primary px-4 py-2 rounded-xl font-semibold text-sm flex items-center gap-2"
-        >
-          <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 4v16m8-8H4"/></svg>
-          Add Member
-        </button>
+        {#if hasPermission(ACT.addMember)}
+          <button
+            on:click={() => { showAddMemberModal = true; addMemberForm = { agent_id: '', role: 'member' }; }}
+            class="btn-primary px-4 py-2 rounded-xl font-semibold text-sm flex items-center gap-2"
+          >
+            <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 4v16m8-8H4"/></svg>
+            Add Member
+          </button>
+        {/if}
       </div>
       <div class="overflow-x-auto">
         {#if members.length === 0}
@@ -380,7 +391,7 @@
                   </td>
                   <td class="px-6 py-4 text-right">
                     <div class="flex items-center justify-end gap-1">
-                      {#if editingMember !== member.agent_id}
+                      {#if editingMember !== member.agent_id && hasPermission(ACT.manageRoles)}
                         <button
                           on:click={() => { editingMember = member.agent_id; editMemberRole = member.role; }}
                           class="p-2 rounded-lg text-gray-400 hover:text-blue-500 hover:bg-blue-50 transition-all"
@@ -389,13 +400,15 @@
                           <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15.232 5.232l3.536 3.536m-2.036-5.036a2.5 2.5 0 113.536 3.536L6.5 21.036H3v-3.572L16.732 3.732z"/></svg>
                         </button>
                       {/if}
-                      <button
-                        on:click={() => handleRemoveMember(member)}
-                        class="p-2 rounded-lg text-gray-400 hover:text-red-500 hover:bg-red-50 transition-all"
-                        title="Remove"
-                      >
-                        <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16"/></svg>
-                      </button>
+                      {#if hasPermission(ACT.removeMember)}
+                        <button
+                          on:click={() => handleRemoveMember(member)}
+                          class="p-2 rounded-lg text-gray-400 hover:text-red-500 hover:bg-red-50 transition-all"
+                          title="Remove"
+                        >
+                          <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16"/></svg>
+                        </button>
+                      {/if}
                     </div>
                   </td>
                 </tr>
@@ -479,7 +492,7 @@
           type="text"
           bind:value={addMemberForm.agent_id}
           placeholder="UUID of the identity"
-          class="w-full px-4 py-3 border border-gray-200 rounded-xl text-sm input-focus outline-none font-medium font-mono"
+          class="w-full px-4 py-3 border border-gray-200 rounded-xl text-sm input-focus outline-none font-medium font-mono bg-white text-gray-900"
         />
         <p class="text-gray-400 text-xs mt-1">Enter the identity UUID to add to this group.</p>
       </div>
@@ -488,7 +501,7 @@
         <select
           id="add-member-role"
           bind:value={addMemberForm.role}
-          class="w-full px-4 py-3 border border-gray-200 rounded-xl text-sm input-focus outline-none font-medium bg-white"
+          class="w-full px-4 py-3 border border-gray-200 rounded-xl text-sm input-focus outline-none font-medium bg-white text-gray-900"
         >
           <option value="lead">lead — Full group management</option>
           <option value="member">member — Read & basic operations</option>

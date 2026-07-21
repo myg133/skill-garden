@@ -1,7 +1,7 @@
 //! API Routes Configuration
 
 use axum::{
-    routing::{delete, get, post, put},
+    routing::{delete, get, patch, post, put},
     Router,
 };
 
@@ -44,6 +44,10 @@ pub fn create_api_router(state: ApiState) -> Router<ApiState> {
         )
         .route("/api/v1/skills/:id/reject", post(reject_org_skill_handler))
         .route("/api/v1/skills/:id/publish", post(publish_skill_handler))
+        .route(
+            "/api/v1/skills/:id/submit-to-marketplace",
+            post(submit_to_marketplace_handler),
+        )
         .route("/api/v1/skills/:id/groups", get(list_skill_groups_handler))
         .route(
             "/api/v1/skills/:id/groups",
@@ -53,7 +57,6 @@ pub fn create_api_router(state: ApiState) -> Router<ApiState> {
             "/api/v1/skills/:id/groups/:group_id",
             delete(remove_skill_from_group_handler),
         )
-        .route("/api/v1/skills/:id/install", post(install_skill_handler))
         // Skill tarball download (token-protected, generated from data/skills/)
         .route(
             "/api/v1/skills/:name/download/:version",
@@ -106,6 +109,10 @@ pub fn create_api_router(state: ApiState) -> Router<ApiState> {
         .route("/api/v1/users/me", get(get_user_me_handler))
         .route("/api/v1/users/me", put(update_user_me_handler))
         .route("/api/v1/users/me/orgs", get(get_user_orgs_handler))
+        .route(
+            "/api/v1/users/me/permissions",
+            get(get_my_permissions_handler),
+        )
         // My skills (user-facing)
         .route("/api/v1/my-skills", get(list_my_skills_handler))
         .route(
@@ -117,6 +124,7 @@ pub fn create_api_router(state: ApiState) -> Router<ApiState> {
         .route("/api/v1/api-keys", get(list_my_api_keys_handler))
         .route("/api/v1/api-keys", post(create_my_api_key_handler))
         .route("/api/v1/api-keys/:id", delete(revoke_my_api_key_handler))
+        .route("/api/v1/api-keys/:id", patch(update_my_api_key_status_handler))
         // Agent routes (user-facing self-service)
         .route("/api/v1/agents", get(list_my_agents_handler))
         .route("/api/v1/agents/:agent_id", delete(revoke_my_agent_handler))
@@ -174,6 +182,36 @@ pub fn create_api_router(state: ApiState) -> Router<ApiState> {
         .route(
             "/api/v1/admin/skills/:id/publish",
             post(admin_publish_skill_handler),
+        )
+        // Marketplace review routes
+        .route(
+            "/api/v1/admin/marketplace/:id/approve",
+            post(marketplace_review_approve_handler),
+        )
+        .route(
+            "/api/v1/admin/marketplace/:id/reject",
+            post(marketplace_review_reject_handler),
+        )
+        .route(
+            "/api/v1/admin/marketplace/:id/relist",
+            post(marketplace_relist_handler),
+        )
+        .route(
+            "/api/v1/admin/marketplace/:id/delist",
+            post(marketplace_delist_handler),
+        )
+        // Marketplace delist request/approve/reject
+        .route(
+            "/api/v1/skills/:id/request-delist",
+            post(request_marketplace_delist_handler),
+        )
+        .route(
+            "/api/v1/admin/marketplace/:id/approve-delist",
+            post(marketplace_approve_delist_handler),
+        )
+        .route(
+            "/api/v1/admin/marketplace/:id/reject-delist",
+            post(marketplace_reject_delist_handler),
         )
         .route("/api/v1/admin/audit-logs", get(list_audit_logs_handler))
         .route("/api/v1/admin/status", get(get_admin_status_handler))
@@ -394,6 +432,32 @@ pub fn create_api_router(state: ApiState) -> Router<ApiState> {
             "/api/v1/admin/system-role-assignments",
             delete(revoke_system_role_handler),
         )
+        // Marketplace reviewer assignment routes (marketplace_admin manages reviewers)
+        .route(
+            "/api/v1/admin/marketplace-reviewers",
+            get(list_marketplace_reviewers_handler),
+        )
+        .route(
+            "/api/v1/admin/marketplace-reviewers",
+            post(assign_marketplace_reviewer_handler),
+        )
+        .route(
+            "/api/v1/admin/marketplace-reviewers",
+            delete(revoke_marketplace_reviewer_handler),
+        )
+        // Tenant role assignment routes (super_admin / tenant_admin manages org admins)
+        .route(
+            "/api/v1/admin/tenant-role-assignments",
+            get(list_tenant_role_assignments_handler),
+        )
+        .route(
+            "/api/v1/admin/tenant-role-assignments",
+            post(assign_tenant_role_handler),
+        )
+        .route(
+            "/api/v1/admin/tenant-role-assignments",
+            delete(revoke_tenant_role_handler),
+        )
         // Role permission routes
         .route(
             "/api/v1/admin/role-permissions",
@@ -416,6 +480,7 @@ pub fn create_api_router(state: ApiState) -> Router<ApiState> {
         .route("/api/v1/admin/api-keys", get(list_api_keys_handler))
         .route("/api/v1/admin/api-keys", post(create_api_key_handler))
         .route("/api/v1/admin/api-keys/:id", delete(delete_api_key_handler))
+        .route("/api/v1/admin/api-keys/:id", patch(update_api_key_status_handler))
         // Audit Log Entries
         .route(
             "/api/v1/admin/audit-entries",

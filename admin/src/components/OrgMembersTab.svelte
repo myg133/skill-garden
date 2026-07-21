@@ -4,6 +4,10 @@
   export let members = [];
   export let orgRoles = ['owner', 'admin', 'reviewer', 'developer', 'member'];
 
+  export let canInviteMember = false;
+  export let canManageRoles = false;
+  export let canRemoveMember = false;
+
   export let onInvite = () => {};
   export let onUpdateRole = () => {};
   export let onRemoveMember = () => {};
@@ -41,13 +45,15 @@
 <div class="bg-white rounded-2xl border border-gray-200 shadow-card">
   <div class="px-6 py-4 border-b border-gray-100 flex items-center justify-between">
     <h2 class="font-semibold text-gray-800 text-sm">Organization Members ({members.length})</h2>
-    <button
-      on:click={onInvite}
-      class="btn-primary px-4 py-2 rounded-xl font-semibold text-sm flex items-center gap-2"
-    >
-      <Icon name="plus" size="w-4 h-4" />
-      Invite Member
-    </button>
+    {#if canInviteMember}
+      <button
+        on:click={onInvite}
+        class="btn-primary px-4 py-2 rounded-xl font-semibold text-sm flex items-center gap-2"
+      >
+        <Icon name="plus" size="w-4 h-4" />
+        Invite Member
+      </button>
+    {/if}
   </div>
   <div class="overflow-x-auto">
     {#if members.length === 0}
@@ -111,7 +117,7 @@
               </td>
               <td class="px-6 py-4 text-right">
                 <div class="flex items-center justify-end gap-1">
-                  {#if editingMember !== (member.username || member.name)}
+                  {#if editingMember !== (member.username || member.name) && canManageRoles}
                     <button
                       on:click={() => { editingMember = (member.username || member.name); editMemberRole = member.role; }}
                       class="p-2 rounded-lg text-gray-400 hover:text-blue-500 hover:bg-blue-50 transition-all" title="Edit role"
@@ -119,12 +125,14 @@
                       <Icon name="edit" size="w-4 h-4" />
                     </button>
                   {/if}
-                  <button
-                    on:click={() => onRemoveMember(member.username || member.name)}
-                    class="p-2 rounded-lg text-gray-400 hover:text-red-500 hover:bg-red-50 transition-all" title="Remove"
-                  >
-                    <Icon name="trash" size="w-4 h-4" />
-                  </button>
+                  {#if canRemoveMember}
+                    <button
+                      on:click={() => onRemoveMember(member.username || member.name)}
+                      class="p-2 rounded-lg text-gray-400 hover:text-red-500 hover:bg-red-50 transition-all" title="Remove"
+                    >
+                      <Icon name="trash" size="w-4 h-4" />
+                    </button>
+                  {/if}
                 </div>
               </td>
             </tr>

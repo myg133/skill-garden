@@ -20,12 +20,40 @@ pub struct ApiKey {
     pub last_used_at: Option<DateTime<Utc>>,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+impl ApiKey {
+    /// 计算有效状态：如果 DB 中为 Active 但已过期，返回 Expired
+    pub fn effective_status(&self) -> ApiKeyStatus {
+        ApiKeyStatus::compute_effective(self.status, self.expires_at)
+    }
+}
+
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq)]
 #[serde(rename_all = "lowercase")]
 pub enum ApiKeyStatus {
     Active,
+    Disabled,
     Expired,
     Revoked,
+}
+
+impl ApiKeyStatus {
+    /// 根据 DB 状态和 expires_at 计算有效的展示状态
+    /// 优先级：Revoked > Disabled > Expired > Active
+    pub fn compute_effective(db_status: ApiKeyStatus, expires_at: Option<DateTime<Utc>>) -> ApiKeyStatus {
+        // Revoked / Disabled 等显式管理状态原样保留
+        if db_status == ApiKeyStatus::Revoked {
+            return ApiKeyStatus::Revoked;
+        }
+        if db_status == ApiKeyStatus::Disabled {
+            return ApiKeyStatus::Disabled;
+        }
+        if let Some(ref expires_at) = expires_at {
+            if *expires_at < chrono::Utc::now() {
+                return ApiKeyStatus::Expired;
+            }
+        }
+        ApiKeyStatus::Active
+    }
 }
 
 impl Default for ApiKeyStatus {
@@ -37,6 +65,7 @@ impl Default for ApiKeyStatus {
 impl From<&str> for ApiKeyStatus {
     fn from(s: &str) -> Self {
         match s.to_lowercase().as_str() {
+            "disabled" => ApiKeyStatus::Disabled,
             "expired" => ApiKeyStatus::Expired,
             "revoked" => ApiKeyStatus::Revoked,
             _ => ApiKeyStatus::Active,

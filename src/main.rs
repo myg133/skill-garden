@@ -287,6 +287,7 @@ async fn run_http_server(state: AppState, port: u16) -> Result<()> {
         api_key: state.api_key.clone(),
         audit: state.audit.clone(),
         system_role_assignment: state.system_role_assignment.clone(),
+        tenant_role_assignment: state.tenant_role_assignment.clone(),
         role_permission: state.role_permission.clone(),
         permission: state.permission.clone(),
         login_rate_limiter: login_rate_limiter.clone(),

@@ -2,7 +2,9 @@
   import { onMount } from 'svelte';
   import { api } from '../lib/api.js';
   import { addToast } from '../stores/app.js';
-  import { isAdmin } from '../stores/auth.js';
+  import { auth, isAdmin } from '../stores/auth.js';
+  import { hasPermission, permissionStore } from '../stores/permission.js';
+  import { useLocation } from 'svelte-routing';
   import Badge from '../components/Badge.svelte';
   import ReviewActions from '../components/ReviewActions.svelte';
   import LoadingSpinner from '../components/LoadingSpinner.svelte';
@@ -16,6 +18,29 @@
   let error = '';
   let publishLoading = false;
   let unpublishLoading = false;
+  let submitLoading = false;
+  let marketplaceLoading = false;
+  let requestDelistLoading = false;
+
+  const location = useLocation();
+
+  // 从市场进入的详情页强制只读，不允许编辑
+  $: isMarketplaceView = $location.state?.readonly === true;
+
+  // 当前用户是否能编辑此 skill
+  // - 从市场进入 → 始终不可编辑
+  // - 管理员 → 始终可编辑
+  // - 市场管理员（marketplace_admin / marketplace_reviewer）→ 可编辑
+  // - 个人 Skill（owner_type=user）→ 已登录用户可编辑（后端兜底权限）
+  // - 组织 owner/admin/developer → 对该组织的 skill 可编辑
+  $: isMarketAdmin = ($permissionStore.systemRoles || []).some(r => r === 'marketplace_admin' || r === 'marketplace_reviewer');
+  $: canEdit = !isMarketplaceView && ($isAdmin || isMarketAdmin || (skill && (
+    skill.owner_type === 'user' ||
+    skill.author_name === $auth.username ||
+    skill.author_agent_id === $auth.username ||
+    (skill.owner_type === 'organization' && skill.owner_id &&
+      ($permissionStore.orgRoles || []).some(r => r.org_id === skill.owner_id && ['owner', 'admin', 'developer'].includes(r.role)))
+  )));
 
   // Tag editing state
   let editingTags = false;
@@ -243,13 +268,17 @@
     publishLoading = true;
     try {
       if ($isAdmin) {
+        // Admin: force publish to marketplace (bypasses review)
         await api.adminPublishSkill(id);
+        addToast(`${skill.name} listed on marketplace`, 'success');
+        skill.marketplace_status = 'listed';
+        skill.visibility = 'marketplace';
       } else {
+        // User: internal publish only, doesn't affect marketplace
         await api.publishSkill(id);
+        addToast(`${skill.name} published`, 'success');
+        skill.status = 'published';
       }
-      addToast(`${skill.name} published`, 'success');
-      skill.status = 'published';
-      skill.visibility = 'marketplace';
     } catch (e) {
       addToast(e.message, 'error');
     } finally {
@@ -261,13 +290,94 @@
     unpublishLoading = true;
     try {
       await api.adminUnpublishSkill(id);
-      addToast(`${skill.name} unpublished`, 'success');
-      skill.status = 'approved';
-      skill.visibility = 'private';
+      addToast(`${skill.name} delisted from marketplace`, 'success');
+      skill.marketplace_status = 'delisted';
     } catch (e) {
       addToast(e.message, 'error');
     } finally {
       unpublishLoading = false;
+    }
+  }
+
+  async function handleRequestDelist() {
+    const reason = prompt('请输入申请下架的原因（可选）：');
+    if (reason === null) return; // user cancelled
+    requestDelistLoading = true;
+    try {
+      await api.requestMarketplaceDelist(id, reason || undefined);
+      addToast(`${skill.name} 下架申请已提交，等待审核`, 'success');
+      skill.marketplace_status = 'pending_delist';
+    } catch (e) {
+      addToast(e.message, 'error');
+    } finally {
+      requestDelistLoading = false;
+    }
+  }
+
+  async function handleSubmitToMarketplace() {
+    marketplaceLoading = true;
+    try {
+      await api.submitToMarketplace(id);
+      addToast(`${skill.name} submitted to marketplace review`, 'success');
+      skill.marketplace_status = 'pending_review';
+    } catch (e) {
+      addToast(e.message, 'error');
+    } finally {
+      marketplaceLoading = false;
+    }
+  }
+
+  async function handleMarketplaceApprove() {
+    marketplaceLoading = true;
+    try {
+      await api.marketplaceReviewApprove(id);
+      addToast(`${skill.name} approved for marketplace`, 'success');
+      skill.marketplace_status = 'listed';
+      skill.visibility = 'marketplace';
+    } catch (e) {
+      addToast(e.message, 'error');
+    } finally {
+      marketplaceLoading = false;
+    }
+  }
+
+  async function handleMarketplaceReject() {
+    marketplaceLoading = true;
+    try {
+      await api.marketplaceReviewReject(id);
+      addToast(`${skill.name} rejected from marketplace`, 'success');
+      skill.marketplace_status = 'rejected';
+    } catch (e) {
+      addToast(e.message, 'error');
+    } finally {
+      marketplaceLoading = false;
+    }
+  }
+
+  async function handleRelist() {
+    marketplaceLoading = true;
+    try {
+      await api.marketplaceRelist(id);
+      addToast(`${skill.name} relisted on marketplace`, 'success');
+      skill.marketplace_status = 'listed';
+      skill.visibility = 'marketplace';
+    } catch (e) {
+      addToast(e.message, 'error');
+    } finally {
+      marketplaceLoading = false;
+    }
+  }
+
+  async function handleSubmitReview() {
+    submitLoading = true;
+    try {
+      await api.submitSkillForReview(id);
+      addToast(`${skill.name} 已提交审核`, 'success');
+      skill.status = 'pending_review';
+    } catch (e) {
+      addToast(e.message, 'error');
+    } finally {
+      submitLoading = false;
     }
   }
 
@@ -317,6 +427,32 @@
   }
 
   $: fileTreeNodes = buildFileTree(fileList);
+
+  function marketplaceLabel(status) {
+    const labels = {
+      pending_review: 'Market Review',
+      pending_delist: 'Delist Review',
+      listed: 'Listed',
+      rejected: 'Rejected',
+      delisted: 'Delisted',
+    };
+    return labels[status] || status;
+  }
+
+  function marketplaceColor(status) {
+    const colors = {
+      pending_review: 'bg-amber-50 text-amber-600 ring-1 ring-amber-600/20',
+      pending_delist: 'bg-orange-50 text-orange-600 ring-1 ring-orange-600/20',
+      listed: 'bg-blue-50 text-blue-600 ring-1 ring-blue-600/20',
+      rejected: 'bg-rose-50 text-rose-600 ring-1 ring-rose-600/20',
+      delisted: 'bg-gray-100 text-gray-500 ring-1 ring-gray-600/20',
+    };
+    return colors[status] || '';
+  }
+
+  function marketplaceDotColor(status) {
+    return status === 'listed' ? 'bg-blue-500 pulse-dot' : status === 'pending_review' || status === 'pending_delist' ? 'bg-amber-500 pulse-dot' : 'bg-gray-400';
+  }
 </script>
 
 <div class="p-8">
@@ -335,30 +471,104 @@
             <div class="flex items-center gap-3 mb-1">
               <h1 class="text-[28px] font-extrabold text-gray-900 tracking-tight">{skill.name}</h1>
               <Badge status={skill.status} />
+              {#if skill.marketplace_status}
+                <span class="inline-flex items-center gap-1.5 px-2.5 py-1 text-xs font-semibold rounded-full {marketplaceColor(skill.marketplace_status)}">
+                  <span class="w-1.5 h-1.5 rounded-full {marketplaceDotColor(skill.marketplace_status)}"></span>
+                  {marketplaceLabel(skill.marketplace_status)}
+                </span>
+              {/if}
             </div>
             <p class="text-gray-400 text-sm font-medium">
               v{skill.version || '1.0.0'} · {fileList.length} files · Skill details and statistics
             </p>
           </div>
         </div>
-        {#if skill.status === 'pending_review'}
+        {#if canEdit && skill.status === 'pending_review'}
           <ReviewActions {skill} />
         {/if}
-        {#if skill.status === 'approved' && !$isAdmin}
-          <button
-            on:click={handlePublish}
-            disabled={publishLoading}
-            class="px-4 py-2 text-sm font-semibold bg-emerald-500 text-white rounded-xl hover:bg-emerald-600 disabled:opacity-50 transition-all duration-200 shadow-sm shadow-emerald-500/20 hover:shadow-md hover:shadow-emerald-500/30 active:scale-[0.97]"
-          >
-            {#if publishLoading}
-              <svg class="w-4 h-4 animate-spin mr-1 inline" fill="none" viewBox="0 0 24 24"><circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"/><path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z"/></svg>
-            {/if}
-            Publish to Marketplace
-          </button>
-        {/if}
-        {#if $isAdmin}
+        {#if canEdit && !$isAdmin}
+          <!-- Non-admin user (skill owner): internal lifecycle -->
+          {#if skill.status === 'draft' || skill.status === 'rejected'}
+            <button
+              on:click={handleSubmitReview}
+              disabled={submitLoading}
+              class="px-4 py-2 text-sm font-semibold bg-amber-500 text-white rounded-xl hover:bg-amber-600 disabled:opacity-50 transition-all duration-200 shadow-sm shadow-amber-500/20 hover:shadow-md hover:shadow-amber-500/30 active:scale-[0.97]"
+            >
+              {#if submitLoading}
+                <svg class="w-4 h-4 animate-spin mr-1 inline" fill="none" viewBox="0 0 24 24"><circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"/><path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z"/></svg>
+              {/if}
+              Submit for Review
+            </button>
+          {/if}
+          {#if skill.status === 'approved'}
+            <button
+              on:click={handlePublish}
+              disabled={publishLoading}
+              class="px-4 py-2 text-sm font-semibold bg-emerald-500 text-white rounded-xl hover:bg-emerald-600 disabled:opacity-50 transition-all duration-200 shadow-sm shadow-emerald-500/20 hover:shadow-md hover:shadow-emerald-500/30 active:scale-[0.97]"
+            >
+              {#if publishLoading}
+                <svg class="w-4 h-4 animate-spin mr-1 inline" fill="none" viewBox="0 0 24 24"><circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"/><path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z"/></svg>
+              {/if}
+              Publish
+            </button>
+          {/if}
+          {#if skill.status === 'published' && (!skill.marketplace_status || skill.marketplace_status === 'rejected' || skill.marketplace_status === 'delisted')}
+            <button
+              on:click={handleSubmitToMarketplace}
+              disabled={marketplaceLoading}
+              class="px-4 py-2 text-sm font-semibold bg-blue-500 text-white rounded-xl hover:bg-blue-600 disabled:opacity-50 transition-all duration-200 shadow-sm shadow-blue-500/20 hover:shadow-md hover:shadow-blue-500/30 active:scale-[0.97]"
+            >
+              {#if marketplaceLoading}
+                <svg class="w-4 h-4 animate-spin mr-1 inline" fill="none" viewBox="0 0 24 24"><circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"/><path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z"/></svg>
+              {/if}
+              Submit to Marketplace
+            </button>
+          {/if}
+          {#if skill.marketplace_status === 'pending_review'}
+            <span class="px-4 py-2 text-sm font-semibold bg-amber-50 text-amber-600 rounded-xl ring-1 ring-amber-600/20">
+              Awaiting Market Review
+            </span>
+          {/if}
+          {#if skill.marketplace_status === 'listed'}
+            <button
+              on:click={handleRequestDelist}
+              disabled={requestDelistLoading}
+              class="px-4 py-2 text-sm font-semibold bg-rose-500 text-white rounded-xl hover:bg-rose-600 disabled:opacity-50 transition-all duration-200 shadow-sm shadow-rose-500/20 hover:shadow-md hover:shadow-rose-500/30 active:scale-[0.97]"
+            >
+              {#if requestDelistLoading}
+                <svg class="w-4 h-4 animate-spin mr-1 inline" fill="none" viewBox="0 0 24 24"><circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"/><path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z"/></svg>
+              {/if}
+              申请下架
+            </button>
+          {/if}
+          {#if skill.marketplace_status === 'pending_delist'}
+            <span class="px-4 py-2 text-sm font-semibold bg-orange-50 text-orange-600 rounded-xl ring-1 ring-orange-600/20">
+              Delist Request Pending
+            </span>
+          {/if}
+        {:else if $isAdmin}
+          <!-- Admin: marketplace operations -->
           <div class="flex items-center gap-2">
-            {#if skill.status === 'published' && skill.visibility === 'marketplace'}
+            {#if skill.marketplace_status === 'pending_review'}
+              <button
+                on:click={handleMarketplaceApprove}
+                disabled={marketplaceLoading}
+                class="px-4 py-2 text-sm font-semibold bg-emerald-500 text-white rounded-xl hover:bg-emerald-600 disabled:opacity-50 transition-all duration-200 shadow-sm shadow-emerald-500/20 hover:shadow-md hover:shadow-emerald-500/30 active:scale-[0.97]"
+              >
+                {#if marketplaceLoading}
+                  <svg class="w-4 h-4 animate-spin mr-1 inline" fill="none" viewBox="0 0 24 24"><circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"/><path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z"/></svg>
+                {/if}
+                通过
+              </button>
+              <button
+                on:click={handleMarketplaceReject}
+                disabled={marketplaceLoading}
+                class="px-4 py-2 text-sm font-semibold bg-rose-500 text-white rounded-xl hover:bg-rose-600 disabled:opacity-50 transition-all duration-200 shadow-sm shadow-rose-500/20 hover:shadow-md hover:shadow-rose-500/30 active:scale-[0.97]"
+              >
+                驳回
+              </button>
+            {/if}
+            {#if skill.marketplace_status === 'listed'}
               <button
                 on:click={handleUnpublish}
                 disabled={unpublishLoading}
@@ -370,7 +580,16 @@
                 下架
               </button>
             {/if}
-            {#if skill.status !== 'published' || skill.visibility !== 'marketplace'}
+            {#if skill.marketplace_status === 'delisted'}
+              <button
+                on:click={handleRelist}
+                disabled={marketplaceLoading}
+                class="px-4 py-2 text-sm font-semibold bg-emerald-500 text-white rounded-xl hover:bg-emerald-600 disabled:opacity-50 transition-all duration-200 shadow-sm shadow-emerald-500/20 hover:shadow-md hover:shadow-emerald-500/30 active:scale-[0.97]"
+              >
+                重新上架
+              </button>
+            {/if}
+            {#if (!skill.marketplace_status || skill.marketplace_status === 'rejected') && skill.status !== 'pending_review'}
               <button
                 on:click={handlePublish}
                 disabled={publishLoading}
@@ -450,7 +669,7 @@
       <div class="bg-white rounded-2xl border border-gray-200 shadow-card">
         <div class="px-6 py-4 border-b border-gray-200 flex items-center justify-between">
           <h2 class="font-semibold text-gray-800 text-sm">Tags</h2>
-          {#if !editingTags}
+          {#if !editingTags && canEdit}
             <button
               on:click={startEditTags}
               class="text-xs font-medium text-blue-600 hover:text-blue-700 transition-colors"
@@ -519,12 +738,14 @@
           {:else}
             <div class="text-center">
               <p class="text-gray-400 text-sm mb-3">No tags</p>
+              {#if canEdit}
               <button
                 on:click={startEditTags}
                 class="text-xs font-medium text-blue-600 hover:text-blue-700 transition-colors"
               >
                 + Add tags
               </button>
+              {/if}
             </div>
           {/if}
         </div>

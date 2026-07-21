@@ -1,0 +1,18 @@
+{
+  "name": "permission-refactor",
+  "leadAgentId": "9560464b5fac4285812d02d6f9799c21",
+  "workspacePath": "d:/anchnet/skill-garden",
+  "createdAt": "2026-07-20T07:56:44.675Z",
+  "options": {
+    "workspacePath": "d:/anchnet/skill-garden",
+    "isAutoTeam": false
+  },
+  "members": [
+    {
+      "memberId": "team-lead@permission-refactor",
+      "name": "team-lead",
+      "role": "Team Lead - coordinates the team and interacts with the user"
+    }
+  ],
+  "isAutoTeam": false
+}

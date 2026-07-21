@@ -2,7 +2,8 @@
 
 use crate::db::repositories::ApiKeyRepository;
 use crate::models::api_key::{
-    ApiKey, ApiKeyListItem, ApiKeyResponse, CreateApiKeyRequest, UserCreateApiKeyRequest,
+    ApiKey, ApiKeyListItem, ApiKeyResponse, ApiKeyStatus, CreateApiKeyRequest,
+    UserCreateApiKeyRequest,
 };
 use crate::models::error::AppError;
 use sha2::{Digest, Sha256};
@@ -61,9 +62,10 @@ impl ApiKeyService {
     }
 
     /// 验证 API Key 明文，返回对应的 ApiKey 记录
-    /// 如果 key 无效或已撤销则返回 None
+    /// 如果 key 无效、已禁用、已撤销或已过期则返回 None
     pub async fn validate(&self, key: &str) -> Result<Option<ApiKey>, AppError> {
         let key_hash = self.hash_key(key);
+        let now = chrono::Utc::now();
 
         self.repo
             .find_by_key_hash(&key_hash)
@@ -71,8 +73,17 @@ impl ApiKeyService {
             .map_err(|e| AppError::InternalError(e.to_string()))
             .map(|opt| {
                 opt.filter(|k| {
-                    // 只有 active 状态的 key 才有效，expired 由 expires_at 自动判断
-                    matches!(k.status, crate::models::api_key::ApiKeyStatus::Active)
+                    // 状态必须是 active（禁用和撤销都会被拒绝）
+                    if !matches!(k.status, crate::models::api_key::ApiKeyStatus::Active) {
+                        return false;
+                    }
+                    // 过期时间比较：expires_at 不为空且已过期 → 拒绝
+                    if let Some(ref expires_at) = k.expires_at {
+                        if *expires_at < now {
+                            return false;
+                        }
+                    }
+                    true
                 })
             })
     }
@@ -89,6 +100,14 @@ impl ApiKeyService {
         self.repo
             .list_by_identity(identity_id)
             .await
+            .map(|keys| {
+                keys.into_iter()
+                    .map(|mut k| {
+                        k.status = k.effective_status();
+                        k
+                    })
+                    .collect()
+            })
             .map_err(|e| AppError::InternalError(e.to_string()))
     }
 
@@ -99,6 +118,14 @@ impl ApiKeyService {
         self.repo
             .list_by_organization(organization_id)
             .await
+            .map(|keys| {
+                keys.into_iter()
+                    .map(|mut k| {
+                        k.status = k.effective_status();
+                        k
+                    })
+                    .collect()
+            })
             .map_err(|e| AppError::InternalError(e.to_string()))
     }
 
@@ -106,6 +133,14 @@ impl ApiKeyService {
         self.repo
             .list()
             .await
+            .map(|keys| {
+                keys.into_iter()
+                    .map(|mut k| {
+                        k.status = k.effective_status();
+                        k
+                    })
+                    .collect()
+            })
             .map_err(|e| AppError::InternalError(e.to_string()))
     }
 
@@ -113,6 +148,14 @@ impl ApiKeyService {
         self.repo
             .list_with_names()
             .await
+            .map(|keys| {
+                keys.into_iter()
+                    .map(|mut k| {
+                        k.status = ApiKeyStatus::compute_effective(k.status, k.expires_at);
+                        k
+                    })
+                    .collect()
+            })
             .map_err(|e| AppError::InternalError(e.to_string()))
     }
 
@@ -123,6 +166,14 @@ impl ApiKeyService {
         self.repo
             .list_with_names_by_identity(identity_id)
             .await
+            .map(|keys| {
+                keys.into_iter()
+                    .map(|mut k| {
+                        k.status = ApiKeyStatus::compute_effective(k.status, k.expires_at);
+                        k
+                    })
+                    .collect()
+            })
             .map_err(|e| AppError::InternalError(e.to_string()))
     }
 
@@ -133,12 +184,34 @@ impl ApiKeyService {
         self.repo
             .list_with_names_by_organization(organization_id)
             .await
+            .map(|keys| {
+                keys.into_iter()
+                    .map(|mut k| {
+                        k.status = ApiKeyStatus::compute_effective(k.status, k.expires_at);
+                        k
+                    })
+                    .collect()
+            })
             .map_err(|e| AppError::InternalError(e.to_string()))
     }
 
     pub async fn revoke(&self, id: Uuid) -> Result<(), AppError> {
         self.repo
             .revoke(id)
+            .await
+            .map_err(|e| AppError::InternalError(e.to_string()))
+    }
+
+    pub async fn disable(&self, id: Uuid) -> Result<(), AppError> {
+        self.repo
+            .disable(id)
+            .await
+            .map_err(|e| AppError::InternalError(e.to_string()))
+    }
+
+    pub async fn enable(&self, id: Uuid) -> Result<(), AppError> {
+        self.repo
+            .enable(id)
             .await
             .map_err(|e| AppError::InternalError(e.to_string()))
     }

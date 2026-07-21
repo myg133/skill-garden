@@ -107,4 +107,31 @@ impl IdentityService {
             None => Ok(false),
         }
     }
+
+    /// 验证密码并返回用户信息（避免一次查询 identity 表后 login handler 再次查询）
+    pub async fn verify_password_and_get_user(
+        &self,
+        username: &str,
+        password: &str,
+    ) -> Result<Option<crate::models::identity::Identity>, AppError> {
+        let identity = self
+            .repo
+            .find_by_username(username)
+            .await
+            .map_err(|e| AppError::InternalError(e.to_string()))?;
+
+        match identity {
+            Some(user) => match &user.password_hash {
+                Some(hash) => {
+                    if bcrypt::verify(password, hash).unwrap_or(false) {
+                        Ok(Some(user))
+                    } else {
+                        Ok(None)
+                    }
+                }
+                None => Ok(None),
+            },
+            None => Ok(None),
+        }
+    }
 }

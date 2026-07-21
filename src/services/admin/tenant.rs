@@ -1,5 +1,7 @@
 //! Tenant Service
 
+use std::collections::HashMap;
+
 use crate::db::repositories::TenantRepository;
 use crate::models::error::AppError;
 use crate::models::tenant::{NewTenant, Tenant, TenantUpdate};
@@ -38,6 +40,14 @@ impl TenantService {
     pub async fn get_by_slug(&self, slug: &str) -> Result<Option<Tenant>, AppError> {
         self.repo
             .find_by_slug(slug)
+            .await
+            .map_err(|e| AppError::InternalError(e.to_string()))
+    }
+
+    /// 批量查询租户名称（避免 N+1）
+    pub async fn get_names_by_ids(&self, ids: &[Uuid]) -> Result<HashMap<Uuid, String>, AppError> {
+        self.repo
+            .find_names_by_ids(ids)
             .await
             .map_err(|e| AppError::InternalError(e.to_string()))
     }

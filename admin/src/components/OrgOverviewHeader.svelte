@@ -7,6 +7,8 @@
   export let toolCount = 0;
   export let activeTab = 'overview';
 
+  export let canEdit = false;
+
   export let onStartEdit = () => {};
   export let onUpdate = () => {};
   export let onCancelEdit = () => {};
@@ -28,7 +30,9 @@
         </div>
       {:else}
         <h1 class="text-[28px] font-extrabold text-gray-800 tracking-tight">{organization.name}</h1>
-        <button on:click={onStartEdit} class="btn-secondary px-4 py-2 rounded-xl text-sm font-semibold">Edit</button>
+        {#if canEdit}
+          <button on:click={onStartEdit} class="btn-secondary px-4 py-2 rounded-xl text-sm font-semibold">Edit</button>
+        {/if}
       {/if}
     </div>
     <p class="text-gray-400 text-xs mt-1.5 font-mono">ID: {organization.id}</p>
@@ -61,7 +65,6 @@
   <!-- Tabs -->
   <div class="px-6 border-t border-gray-200 flex gap-0">
     {#each [
-      { key: 'overview', label: 'Overview' },
       { key: 'members', label: 'Members' },
       { key: 'sessions', label: 'Sessions' },
       { key: 'tools', label: 'Tools' },

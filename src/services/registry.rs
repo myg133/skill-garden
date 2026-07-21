@@ -138,12 +138,19 @@ impl RegistryService {
             tags: db_skill.tags,
             install_count: db_skill.install_count as u32,
             git_url: db_skill.git_url,
-            visibility: crate::models::skill_policy::Visibility::OrgVisible,
+            visibility: match db_skill.visibility.as_str() {
+                "private" => crate::models::skill_policy::Visibility::Private,
+                "shared" => crate::models::skill_policy::Visibility::Shared,
+                "marketplace" => crate::models::skill_policy::Visibility::Marketplace,
+                _ => crate::models::skill_policy::Visibility::OrgVisible,
+            },
             tools: db_skill.tools,
             status: db_skill.status,
             reviewed_by: db_skill.reviewed_by,
             reviewed_at: db_skill.reviewed_at,
             review_comment: db_skill.review_comment,
+            marketplace_status: db_skill.marketplace_status,
+            pre_marketplace_visibility: db_skill.pre_marketplace_visibility,
         };
         search.add_skill(&skill)?;
 
@@ -370,12 +377,19 @@ impl RegistryService {
             tags: db_skill.tags,
             install_count: db_skill.install_count as u32,
             git_url: db_skill.git_url,
-            visibility: crate::models::skill_policy::Visibility::OrgVisible,
+            visibility: match db_skill.visibility.as_str() {
+                "private" => crate::models::skill_policy::Visibility::Private,
+                "shared" => crate::models::skill_policy::Visibility::Shared,
+                "marketplace" => crate::models::skill_policy::Visibility::Marketplace,
+                _ => crate::models::skill_policy::Visibility::OrgVisible,
+            },
             tools: db_skill.tools,
             status: db_skill.status,
             reviewed_by: db_skill.reviewed_by,
             reviewed_at: db_skill.reviewed_at,
             review_comment: db_skill.review_comment,
+            marketplace_status: db_skill.marketplace_status,
+            pre_marketplace_visibility: db_skill.pre_marketplace_visibility,
         };
         Ok(skill)
     }
@@ -551,6 +565,8 @@ impl RegistryService {
                 reviewed_by: m.reviewed_by,
                 reviewed_at: m.reviewed_at,
                 review_comment: m.review_comment,
+                marketplace_status: m.marketplace_status,
+                pre_marketplace_visibility: m.pre_marketplace_visibility,
             })
             .collect())
     }
@@ -576,7 +592,13 @@ impl RegistryService {
         let Some(id_id) = identity_id else {
             return skills
                 .into_iter()
-                .filter(|s| s.status == "published" && matches!(s.visibility, crate::models::skill_policy::Visibility::Marketplace))
+                .filter(|s| {
+                    s.status == "published"
+                        && matches!(
+                            s.visibility,
+                            crate::models::skill_policy::Visibility::Marketplace
+                        )
+                })
                 .collect();
         };
 
@@ -584,7 +606,12 @@ impl RegistryService {
             .into_iter()
             .filter(|s| {
                 // published + marketplace → 所有人可见
-                if s.status == "published" && matches!(s.visibility, crate::models::skill_policy::Visibility::Marketplace) {
+                if s.status == "published"
+                    && matches!(
+                        s.visibility,
+                        crate::models::skill_policy::Visibility::Marketplace
+                    )
+                {
                     return true;
                 }
                 // 个人所有者的 Skill（任何状态）→ 所有者可见
@@ -644,6 +671,8 @@ impl RegistryService {
                 reviewed_by: m.reviewed_by,
                 reviewed_at: m.reviewed_at,
                 review_comment: m.review_comment,
+                marketplace_status: m.marketplace_status,
+                pre_marketplace_visibility: m.pre_marketplace_visibility,
             })
             .collect())
     }
@@ -742,30 +771,85 @@ dependencies: [{}]
         let mut compatibility = ">=1.0.0".to_string();
         let mut dependencies: Vec<String> = Vec::new();
 
-        for line in frontmatter.lines() {
-            let line = line.trim();
-            if line.starts_with("description:") {
-                description = line.trim_start_matches("description:").trim().to_string();
-            } else if line.starts_with("tags:") {
-                let tags_str = line.trim_start_matches("tags:").trim();
-                if tags_str.starts_with('[') && tags_str.ends_with(']') {
-                    tags = tags_str[1..tags_str.len() - 1]
-                        .split(',')
-                        .map(|s| s.trim().to_string())
-                        .filter(|s| !s.is_empty())
-                        .collect();
+        let mut current_key: Option<&str> = None;
+        let mut multiline_buffer: Vec<String> = Vec::new();
+        let mut is_multiline = false;
+
+        for raw_line in frontmatter.lines() {
+            let line = raw_line.trim();
+            if line.is_empty() || line.starts_with('#') {
+                if is_multiline {
+                    multiline_buffer.push(String::new());
                 }
-            } else if line.starts_with("compatibility:") {
-                compatibility = line.trim_start_matches("compatibility:").trim().to_string();
-            } else if line.starts_with("dependencies:") {
-                let deps_str = line.trim_start_matches("dependencies:").trim();
-                if deps_str.starts_with('[') && deps_str.ends_with(']') {
-                    dependencies = deps_str[1..deps_str.len() - 1]
-                        .split(',')
-                        .map(|s| s.trim().to_string())
-                        .filter(|s| !s.is_empty())
-                        .collect();
+                continue;
+            }
+
+            // 检测新 key: value 行
+            if let Some(colon_pos) = line.find(':') {
+                let key = line[..colon_pos].trim();
+                let value = line[colon_pos + 1..].trim();
+
+                // 遇到新 key 时保存之前的多行文本
+                if is_multiline && !multiline_buffer.is_empty() {
+                    if let Some(prev_key) = current_key {
+                        if prev_key == "description" {
+                            description = multiline_buffer.join(" ");
+                            description = normalize_description(&description);
+                        }
+                    }
+                    multiline_buffer.clear();
+                    is_multiline = false;
                 }
+
+                // YAML 块标量: | 或 >
+                if value == "|" || value == "|-" || value == ">" || value == ">-" || value == "|+" || value == ">+" {
+                    current_key = Some(key);
+                    is_multiline = true;
+                    multiline_buffer = Vec::new();
+                    continue;
+                }
+
+                // 普通键值对
+                current_key = Some(key);
+
+                let cleaned = value
+                    .trim_start_matches('"').trim_end_matches('"')
+                    .trim_start_matches('\'').trim_end_matches('\'');
+
+                match key {
+                    "description" => description = normalize_description(cleaned),
+                    "tags" => {
+                        if value.starts_with('[') && value.ends_with(']') {
+                            tags = value[1..value.len() - 1]
+                                .split(',')
+                                .map(|s| s.trim().trim_matches('"').trim_matches('\'').to_string())
+                                .filter(|s| !s.is_empty())
+                                .collect();
+                        }
+                    }
+                    "compatibility" => compatibility = cleaned.to_string(),
+                    "dependencies" => {
+                        if value.starts_with('[') && value.ends_with(']') {
+                            dependencies = value[1..value.len() - 1]
+                                .split(',')
+                                .map(|s| s.trim().trim_matches('"').trim_matches('\'').to_string())
+                                .filter(|s| !s.is_empty())
+                                .collect();
+                        }
+                    }
+                    _ => {}
+                }
+            } else if is_multiline {
+                // 多行文本内容行
+                multiline_buffer.push(raw_line.trim().to_string());
+            }
+        }
+
+        // 处理结尾的多行文本
+        if is_multiline && !multiline_buffer.is_empty() {
+            if current_key == Some("description") {
+                description = multiline_buffer.join(" ");
+                description = normalize_description(&description);
             }
         }
 
@@ -792,6 +876,8 @@ dependencies: [{}]
             reviewed_by: meta.reviewed_by,
             reviewed_at: meta.reviewed_at,
             review_comment: meta.review_comment.clone(),
+            marketplace_status: meta.marketplace_status.clone(),
+            pre_marketplace_visibility: meta.pre_marketplace_visibility.clone(),
         })
     }
 
@@ -840,6 +926,8 @@ dependencies: [{}]
                                     reviewed_by: None,
                                     reviewed_at: None,
                                     review_comment: None,
+                                    marketplace_status: None,
+                                    pre_marketplace_visibility: None,
                                 },
                             ) {
                                 if !existing_ids.contains(&skill.id) {

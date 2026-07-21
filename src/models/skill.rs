@@ -64,6 +64,12 @@ pub struct Skill {
     /// 审核评论
     #[serde(skip_serializing_if = "Option::is_none")]
     pub review_comment: Option<String>,
+    /// 市场状态: null | pending_review | listed | rejected | delisted | unlisted
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub marketplace_status: Option<String>,
+    /// 提交市场前的原始可见性，撤市时恢复
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub pre_marketplace_visibility: Option<String>,
 }
 
 fn default_owner_type() -> String {
@@ -110,6 +116,8 @@ impl Skill {
             reviewed_by: None,
             reviewed_at: None,
             review_comment: None,
+            marketplace_status: None,
+            pre_marketplace_visibility: None,
         }
     }
 
@@ -150,6 +158,12 @@ pub struct SkillMetadata {
     pub reviewed_at: Option<DateTime<Utc>>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub review_comment: Option<String>,
+    /// 市场状态: null | pending_review | listed | rejected | delisted | unlisted
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub marketplace_status: Option<String>,
+    /// 提交市场前的原始可见性，撤市时恢复
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub pre_marketplace_visibility: Option<String>,
 }
 
 impl From<&Skill> for SkillMetadata {
@@ -174,6 +188,8 @@ impl From<&Skill> for SkillMetadata {
             reviewed_by: skill.reviewed_by,
             reviewed_at: skill.reviewed_at,
             review_comment: skill.review_comment.clone(),
+            marketplace_status: skill.marketplace_status.clone(),
+            pre_marketplace_visibility: skill.pre_marketplace_visibility.clone(),
         }
     }
 }

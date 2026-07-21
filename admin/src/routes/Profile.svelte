@@ -18,26 +18,24 @@
   let changingPassword = false;
 
   onMount(async () => {
-    await Promise.all([loadUser(), loadUserOrgs()]);
+    await loadUser();
   });
 
   async function loadUser() {
     loading = true;
     error = '';
     try {
-      user = await api.getMe();
+      const [me, orgs] = await Promise.all([
+        api.getMe(),
+        api.getUserOrgs().catch(() => []),
+      ]);
+      user = me;
+      // /users/me/orgs 已支持 tenant_admin 视角，会包含用户直接加入的组织 + 租户下管理的组织
+      userOrgs = orgs || [];
     } catch (e) {
       error = e.message;
     } finally {
       loading = false;
-    }
-  }
-
-  async function loadUserOrgs() {
-    try {
-      userOrgs = await api.getUserOrgs();
-    } catch (e) {
-      addToast('组织列表加载失败，请刷新重试', 'warning');
     }
   }
 

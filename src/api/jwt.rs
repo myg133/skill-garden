@@ -191,6 +191,7 @@ pub fn generate_token(subject: &str, roles: &[&str], scope: &[&str]) -> Result<S
 }
 
 /// 生成管理员/用户登录 Token
+/// Phase 2: JWT 瘦身 - 不再通过 roles 携带权限信息，统一走 PermissionService
 pub fn generate_identity_token(
     identity_id: Uuid,
     roles: &[&str],
@@ -199,11 +200,9 @@ pub fn generate_identity_token(
     let now = Utc::now();
     let exp = now + Duration::hours(get_jwt_expiry_hours());
 
-    let auth_source = if roles.iter().any(|r| *r == "admin") {
-        AuthSource::AdminLogin
-    } else {
-        AuthSource::UserLogin
-    };
+    // Phase 2: 始终使用 UserLogin，不再区分 AdminLogin/UserLogin
+    // 权限判断统一走 PermissionService::has_permission()
+    let auth_source = AuthSource::UserLogin;
 
     let claims = Claims {
         subject: identity_id.to_string(),

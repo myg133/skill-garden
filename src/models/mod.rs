@@ -20,6 +20,7 @@ pub mod skill;
 pub mod skill_policy;
 pub mod system_role_assignment;
 pub mod tenant;
+pub mod tenant_role_assignment;
 
 pub use api_key::*;
 pub use download_token::*;
@@ -41,3 +42,4 @@ pub use skill::*;
 pub use skill_policy::*;
 pub use system_role_assignment::*;
 pub use tenant::*;
+pub use tenant_role_assignment::*;

@@ -4,13 +4,33 @@
   import { api } from '../lib/api.js';
   import { addToast } from '../stores/app.js';
   import { isAdmin } from '../stores/auth.js';
+  import { hasPermission, permissionStore, isAnyAdmin } from '../stores/permission.js';
+  import { ACTIONS } from '../config/actions.js';
+  import { selectedOrg, isPersonalSpace } from '../stores/org.js';
 
-  $: skillLinkBase = $isAdmin ? '/skills' : '/user/skills';
+  $: skillLinkBase = ($isAdmin || ($permissionStore.loaded && isAnyAdmin())) ? '/skills' : '/user/skills';
+  const ACT = ACTIONS.Skills;
   import Badge from '../components/Badge.svelte';
   import EmptyState from '../components/EmptyState.svelte';
   import LoadingSpinner from '../components/LoadingSpinner.svelte';
   import SortHeader from '../components/SortHeader.svelte';
   import FileTreeNode from '../components/FileTreeNode.svelte';
+
+  // --- Role Detection ---
+  $: systemRoles = $permissionStore.systemRoles || [];
+  $: isSuperAdmin = systemRoles.includes('super_admin');
+  $: isMarketplaceAdmin = systemRoles.includes('marketplace_admin');
+  $: isMarketplaceReviewer = systemRoles.includes('marketplace_reviewer');
+  $: isMarketplaceRole = isMarketplaceAdmin || isMarketplaceReviewer;
+
+  // --- View Mode ---
+  // Tabs only for marketplace roles
+  let activeTab = 'marketplace-list'; // 'marketplace-stats' | 'marketplace-list' | 'personal'
+
+  // --- Org Context ---
+  $: currentOrgId = $selectedOrg?.id || null;
+  $: currentOrgName = $selectedOrg?.name || '';
+  $: inPersonalSpace = !!$isPersonalSpace;
 
   let skills = [];
   let loading = true;
@@ -24,6 +44,9 @@
   let currentSearch = '';
   let sortKey = '';
   let sortDir = 'asc';
+
+  // Marketplace stats
+  let marketStats = { listed: 0, pending: 0, newThisMonth: 0, downloads: 0 };
 
   $: sortedSkills = sortSkills(skills, sortKey, sortDir);
 
@@ -72,6 +95,12 @@
     loadSkills();
   });
 
+  // Reload when org context changes
+  $: $selectedOrg, (() => { page = 1; loadSkills(); })();
+
+  // Reload when tab changes (for marketplace roles)
+  $: activeTab, (() => { if (isMarketplaceRole) { page = 1; loadSkills(); } })();
+
   async function loadSkills() {
     loading = true;
     error = '';
@@ -79,6 +108,26 @@
       const params = { page, page_size: pageSize };
       if (keyword.trim()) params.keyword = keyword.trim();
       if (tagFilter) params.tag = tagFilter;
+
+      // Phase 5-6: Apply context-aware filters
+      // 非管理员的普通用户：始终显示个人 Skill，不受 OrgSwitcher 影响
+      const isAdminUser = $isAdmin || isSuperAdmin;
+      if (!isAdminUser) {
+        params.scope_personal = true;
+      } else if (isMarketplaceRole) {
+        // Marketplace admin/reviewer: tab-based views
+        if (activeTab === 'marketplace-list') {
+          params.marketplace_status = 'listed';
+        } else if (activeTab === 'personal') {
+          params.scope_personal = true;
+        }
+        // marketplace-stats: load stats separately
+      } else if (inPersonalSpace) {
+        params.scope_personal = true;
+      } else if (currentOrgId) {
+        params.org_id = currentOrgId;
+      }
+      // super_admin: no extra filter (sees everything)
 
       const res = await api.listSkills(params);
       skills = res.data || [];
@@ -89,10 +138,32 @@
         skills.forEach(s => (s.tags || []).forEach(t => tagsSet.add(t)));
         allTags = [...tagsSet].sort();
       }
+
+      // Load market stats for marketplace roles
+      if (isMarketplaceRole) {
+        loadMarketStats();
+      }
     } catch (e) {
       error = e.message;
     } finally {
       loading = false;
+    }
+  }
+
+  async function loadMarketStats() {
+    try {
+      const [listedRes, pendingRes] = await Promise.all([
+        api.listSkills({ marketplace_status: 'listed', page_size: 1 }).catch(() => ({ total: 0 })),
+        api.listSkills({ marketplace_status: 'pending_review', page_size: 1 }).catch(() => ({ total: 0 })),
+      ]);
+      marketStats = {
+        listed: listedRes.total || 0,
+        pending: pendingRes.total || 0,
+        newThisMonth: 0,
+        downloads: 0,
+      };
+    } catch {
+      // silently fail for stats
     }
   }
 
@@ -127,12 +198,79 @@
     }
   }
 
+  async function handleDeleteSkill(skill) {
+    // Marketplace-aware confirmation
+    let confirmMsg = '';
+    if (skill.marketplace_status === 'listed') {
+      confirmMsg = `"${skill.name}" 已上架到市场。删除后将从市场中移除且不可恢复，确定删除？`;
+    } else if (skill.marketplace_status === 'pending_review') {
+      confirmMsg = `"${skill.name}" 正在市场审核中。删除将同时取消审核申请，确定删除？`;
+    } else if (skill.marketplace_status === 'delisted') {
+      confirmMsg = `"${skill.name}" 已从市场下架，删除后将永久移除，确定删除？`;
+    } else {
+      confirmMsg = `确定要永久删除 "${skill.name}" 吗？此操作不可撤销。`;
+    }
+    if (!confirm(confirmMsg)) return;
+
+    try {
+      await api.deleteSkill(skill.id);
+      addToast(`${skill.name} 已删除`, 'success');
+      loadSkills();
+    } catch (e) {
+      addToast(e.message, 'error');
+    }
+  }
+
   async function handleAdminPublishSkill(skill) {
     try {
       await api.adminPublishSkill(skill.id);
       addToast(`${skill.name} 已上架`, 'success');
       skill.status = 'published';
       skill.visibility = 'marketplace';
+    } catch (e) {
+      addToast(e.message, 'error');
+    }
+  }
+
+  async function handleSubmitReview(skill) {
+    try {
+      await api.submitSkillForReview(skill.id);
+      addToast(`${skill.name} 已提交审核`, 'success');
+      skill.status = 'pending_review';
+    } catch (e) {
+      addToast(e.message, 'error');
+    }
+  }
+
+  // --- Marketplace dual-track operations ---
+  async function handleSubmitToMarketplace(skill) {
+    if (!confirm(`将 "${skill.name}" 提交到市场审核？`)) return;
+    try {
+      await api.submitToMarketplace(skill.id);
+      addToast(`${skill.name} 已提交市场审核`, 'success');
+      skill.marketplace_status = 'pending_review';
+    } catch (e) {
+      addToast(e.message, 'error');
+    }
+  }
+
+  async function handleMarketplaceDelist(skill) {
+    if (!confirm(`确定将 "${skill.name}" 从市场下架？该 Skill 不会被删除。`)) return;
+    try {
+      await api.marketplaceDelist(skill.id);
+      addToast(`${skill.name} 已从市场下架`, 'success');
+      skill.marketplace_status = 'delisted';
+    } catch (e) {
+      addToast(e.message, 'error');
+    }
+  }
+
+  async function handleMarketplaceRelist(skill) {
+    if (!confirm(`将 "${skill.name}" 重新上架到市场？`)) return;
+    try {
+      await api.marketplaceRelist(skill.id);
+      addToast(`${skill.name} 已重新上架`, 'success');
+      skill.marketplace_status = 'listed';
     } catch (e) {
       addToast(e.message, 'error');
     }
@@ -382,10 +520,41 @@
 <div class="p-8">
   <div class="page-header flex items-center justify-between">
     <div>
-      <h1 class="text-[28px] font-extrabold text-gray-800 tracking-tight">Skills</h1>
-      <p class="text-gray-500 text-sm mt-1.5 font-medium">Browse and manage all registered skills</p>
+      <h1 class="text-[28px] font-extrabold text-gray-800 tracking-tight">
+        {#if !$isAdmin && !isSuperAdmin}
+          My Skills
+        {:else if inPersonalSpace}
+          My Skills
+        {:else if currentOrgName}
+          {currentOrgName} Skills
+        {:else if isMarketplaceRole && activeTab === 'personal'}
+          My Skills
+        {:else if isSuperAdmin}
+          All Skills
+        {:else}
+          Skills
+        {/if}
+      </h1>
+      <p class="text-gray-500 text-sm mt-1.5 font-medium">
+        {#if !$isAdmin && !isSuperAdmin}
+          Your personal skill space
+        {:else if inPersonalSpace}
+          Your personal skill space
+        {:else if currentOrgId}
+          Skills in {currentOrgName}
+        {:else if isMarketplaceRole && activeTab === 'marketplace-list'}
+          All marketplace-listed skills
+        {:else if isMarketplaceRole && activeTab === 'personal'}
+          Your personal skills
+        {:else if isSuperAdmin}
+          All skills across all tenants and organizations
+        {:else}
+          Browse and manage all skills
+        {/if}
+      </p>
     </div>
     <div class="flex items-center gap-3">
+      {#if hasPermission(ACT.create)}
       <button
         on:click={openCreateModal}
         class="btn-primary px-5 py-2.5 rounded-xl font-semibold text-sm flex items-center gap-2"
@@ -393,12 +562,53 @@
         <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 4v16m8-8H4"/></svg>
         New Skill
       </button>
+      {/if}
       <span class="inline-flex items-center gap-1.5 px-3.5 py-2 bg-white text-blue-700 rounded-xl text-sm font-semibold ring-1 ring-sky-600/20">
         <span class="w-1.5 h-1.5 rounded-full bg-white0"></span>
         {total} total
       </span>
     </div>
   </div>
+
+  <!-- Tab bar for marketplace roles -->
+  {#if isMarketplaceRole}
+  <div class="flex items-center gap-1 mb-6 bg-gray-100 p-1 rounded-xl w-fit">
+    <button
+      on:click={() => activeTab = 'marketplace-stats'}
+      class="px-4 py-2 rounded-lg text-sm font-semibold transition-all {activeTab === 'marketplace-stats' ? 'bg-white text-gray-800 shadow-sm' : 'text-gray-500 hover:text-gray-700'}"
+    >Market Stats</button>
+    <button
+      on:click={() => activeTab = 'marketplace-list'}
+      class="px-4 py-2 rounded-lg text-sm font-semibold transition-all {activeTab === 'marketplace-list' ? 'bg-white text-gray-800 shadow-sm' : 'text-gray-500 hover:text-gray-700'}"
+    >Marketplace Skills</button>
+    <button
+      on:click={() => activeTab = 'personal'}
+      class="px-4 py-2 rounded-lg text-sm font-semibold transition-all {activeTab === 'personal' ? 'bg-white text-gray-800 shadow-sm' : 'text-gray-500 hover:text-gray-700'}"
+    >Personal</button>
+  </div>
+  {/if}
+
+  <!-- Marketplace Stats Tab -->
+  {#if isMarketplaceRole && activeTab === 'marketplace-stats'}
+  <div class="grid grid-cols-4 gap-4 mb-6">
+    <div class="bg-white rounded-xl border border-gray-200 p-5 shadow-card">
+      <p class="text-xs font-semibold text-gray-500 uppercase tracking-wider mb-2">Listed</p>
+      <p class="text-2xl font-bold text-emerald-600">{marketStats.listed}</p>
+    </div>
+    <div class="bg-white rounded-xl border border-gray-200 p-5 shadow-card">
+      <p class="text-xs font-semibold text-gray-500 uppercase tracking-wider mb-2">Pending Review</p>
+      <p class="text-2xl font-bold text-amber-600">{marketStats.pending}</p>
+    </div>
+    <div class="bg-white rounded-xl border border-gray-200 p-5 shadow-card">
+      <p class="text-xs font-semibold text-gray-500 uppercase tracking-wider mb-2">New This Month</p>
+      <p class="text-2xl font-bold text-blue-600">{marketStats.newThisMonth}</p>
+    </div>
+    <div class="bg-white rounded-xl border border-gray-200 p-5 shadow-card">
+      <p class="text-xs font-semibold text-gray-500 uppercase tracking-wider mb-2">Downloads</p>
+      <p class="text-2xl font-bold text-purple-600">{marketStats.downloads}</p>
+    </div>
+  </div>
+  {/if}
 
   <div class="flex flex-wrap items-center gap-3 mb-6">
     <div class="relative flex-1 min-w-[280px] max-w-md">
@@ -460,14 +670,21 @@
             <th class="px-6 py-4 text-left"><SortHeader label="Name" sortKey="name" currentSort="{{key: sortKey, dir: sortDir}}" onSort={handleSort} /></th>
             <th class="px-6 py-4 text-left"><SortHeader label="Version" sortKey="version" currentSort="{{key: sortKey, dir: sortDir}}" onSort={handleSort} /></th>
             <th class="px-6 py-4 text-left"><SortHeader label="Status" sortKey="status" currentSort="{{key: sortKey, dir: sortDir}}" onSort={handleSort} /></th>
+            {#if isMarketplaceRole}
+            <th class="px-6 py-4 text-left"><SortHeader label="Mkt Status" sortKey="marketplace_status" currentSort="{{key: sortKey, dir: sortDir}}" onSort={handleSort} /></th>
+            {/if}
             <th class="px-6 py-4 text-left"><SortHeader label="Tags" /></th>
+            {#if !isMarketplaceRole && !inPersonalSpace}
             <th class="px-6 py-4 text-left"><SortHeader label="Visibility" sortKey="visibility" currentSort="{{key: sortKey, dir: sortDir}}" onSort={handleSort} /></th>
+            {/if}
+            {#if isMarketplaceRole}
+            <th class="px-6 py-4 text-left"><SortHeader label="Source" /></th>
+            {:else if !inPersonalSpace}
             <th class="px-6 py-4 text-left"><SortHeader label="Author" sortKey="author_agent_id" currentSort="{{key: sortKey, dir: sortDir}}" onSort={handleSort} /></th>
+            {/if}
             <th class="px-6 py-4 text-left"><SortHeader label="Installs" sortKey="install_count" currentSort="{{key: sortKey, dir: sortDir}}" onSort={handleSort} /></th>
             <th class="px-6 py-4 text-left"><SortHeader label="Created" sortKey="created" currentSort="{{key: sortKey, dir: sortDir}}" onSort={handleSort} /></th>
-            {#if $isAdmin}
-              <th class="px-6 py-4 text-left"><SortHeader label="Actions" /></th>
-            {/if}
+            <th class="px-6 py-4 text-left"><SortHeader label="Actions" /></th>
           </tr>
         </thead>
         <tbody>
@@ -487,6 +704,21 @@
               <td class="px-6 py-4">
                 <Badge status={skill.status || 'draft'} />
               </td>
+              {#if isMarketplaceRole}
+              <td class="px-6 py-4">
+                {#if skill.marketplace_status === 'listed'}
+                  <span class="px-2 py-0.5 bg-emerald-100 text-emerald-700 text-[11px] font-medium rounded">listed</span>
+                {:else if skill.marketplace_status === 'pending_review'}
+                  <span class="px-2 py-0.5 bg-amber-100 text-amber-700 text-[11px] font-medium rounded">pending</span>
+                {:else if skill.marketplace_status === 'rejected'}
+                  <span class="px-2 py-0.5 bg-red-100 text-red-700 text-[11px] font-medium rounded">rejected</span>
+                {:else if skill.marketplace_status === 'delisted'}
+                  <span class="px-2 py-0.5 bg-gray-100 text-gray-500 text-[11px] font-medium rounded">delisted</span>
+                {:else}
+                  <span class="text-xs text-gray-400">—</span>
+                {/if}
+              </td>
+              {/if}
               <td class="px-6 py-4">
                 <div class="flex gap-1.5 flex-wrap">
                   {#each (skill.tags || []).slice(0, 2) as tag}
@@ -497,31 +729,76 @@
                   {/if}
                 </div>
               </td>
+              {#if !isMarketplaceRole && !inPersonalSpace}
               <td class="px-6 py-4">
                 <span class="text-gray-500 text-xs capitalize">{skill.visibility || 'org_visible'}</span>
               </td>
+              {/if}
+              {#if isMarketplaceRole}
+              <td class="px-6 py-4 text-gray-500 text-xs">
+                {skill.owner_name || (skill.owner_type === 'user' ? 'Personal · ' + (skill.author_name || 'N/A') : skill.owner_type || 'N/A')}
+              </td>
+              {:else if !inPersonalSpace}
               <td class="px-6 py-4 text-gray-500 text-xs">{skill.author_name || skill.author_agent_id || 'N/A'}</td>
+              {/if}
               <td class="px-6 py-4">
                 <span class="text-gray-600 text-sm font-semibold">{skill.install_count || 0}</span>
               </td>
               <td class="px-6 py-4 text-gray-500 text-sm">{skill.created ? new Date(skill.created).toLocaleDateString() : 'N/A'}</td>
-              {#if $isAdmin}
                 <td class="px-6 py-4">
                   <div class="flex items-center gap-1.5">
-                    {#if skill.status === 'published' && skill.visibility === 'marketplace'}
+                    <!-- Submit internal review -->
+                    {#if (skill.status === 'draft' || skill.status === 'rejected') && hasPermission(ACT.submitReview)}
                       <button
-                        on:click={() => handleUnpublishSkill(skill)}
-                        class="px-2.5 py-1 text-[11px] font-semibold bg-amber-100 text-amber-700 rounded-lg hover:bg-amber-200 transition-colors"
-                      >下架</button>
-                    {:else}
-                      <button
-                        on:click={() => handleAdminPublishSkill(skill)}
-                        class="px-2.5 py-1 text-[11px] font-semibold bg-emerald-100 text-emerald-700 rounded-lg hover:bg-emerald-200 transition-colors"
-                      >上架</button>
+                        on:click={() => handleSubmitReview(skill)}
+                        class="px-2.5 py-1 text-[11px] font-semibold bg-amber-50 text-amber-700 border border-amber-200 rounded-lg hover:bg-amber-100 transition-colors"
+                      >提交审核</button>
+                    {/if}
+
+                    <!-- Marketplace operations (marketplace_admin / marketplace_reviewer) -->
+                    {#if isMarketplaceRole}
+                      {#if skill.marketplace_status === 'listed'}
+                        {#if hasPermission(ACT.marketFeature) && !skill.is_featured}
+                          <button
+                            on:click={() => handleAdminPublishSkill(skill)}
+                            class="px-2.5 py-1 text-[11px] font-semibold bg-amber-50 text-amber-700 border border-amber-200 rounded-lg hover:bg-amber-100 transition-colors"
+                          >精选</button>
+                        {/if}
+                        {#if hasPermission(ACT.marketDelist)}
+                          <button
+                            on:click={() => handleMarketplaceDelist(skill)}
+                            class="px-2.5 py-1 text-[11px] font-semibold bg-rose-50 text-rose-600 border border-rose-200 rounded-lg hover:bg-rose-100 transition-colors"
+                          >下架</button>
+                        {/if}
+                      {:else if skill.marketplace_status === 'delisted' && hasPermission(ACT.marketRelist)}
+                        <button
+                          on:click={() => handleMarketplaceRelist(skill)}
+                          class="px-2.5 py-1 text-[11px] font-semibold bg-emerald-50 text-emerald-700 border border-emerald-200 rounded-lg hover:bg-emerald-100 transition-colors"
+                        >重新上架</button>
+                      {/if}
+                    {:else if skill.status === 'published'}
+                      <!-- Submit to marketplace (org owner/admin) -->
+                      {#if (!skill.marketplace_status || skill.marketplace_status === 'rejected' || skill.marketplace_status === 'delisted') && hasPermission(ACT.submitToMarketplace)}
+                        <button
+                          on:click={() => handleSubmitToMarketplace(skill)}
+                          class="px-2.5 py-1 text-[11px] font-semibold bg-emerald-50 text-emerald-700 border border-emerald-200 rounded-lg hover:bg-emerald-100 transition-colors"
+                        >上架到市场</button>
+                      {:else if skill.marketplace_status === 'pending_review'}
+                        <span class="text-[11px] text-amber-500 font-medium">市场审核中</span>
+                      {:else if skill.marketplace_status === 'listed'}
+                        <span class="text-[11px] text-emerald-500 font-medium">已上架市场</span>
+                      {/if}
+                    {/if}
+
+                    <!-- Delete (all roles with permission) -->
+                    {#if hasPermission(ACT.delete)}
+                    <button
+                      on:click={() => handleDeleteSkill(skill)}
+                      class="px-2.5 py-1 text-[11px] font-semibold bg-red-50 text-red-600 border border-red-200 rounded-lg hover:bg-red-100 transition-colors"
+                    >删除</button>
                     {/if}
                   </div>
                 </td>
-              {/if}
             </tr>
           {/each}
         </tbody>

@@ -74,8 +74,9 @@ impl ApiClient {
                     .and_then(|t| t.as_str())
                     .ok_or_else(|| anyhow::anyhow!("MCP 响应格式异常: content[0].text 缺失"))?;
 
-                let data: Value = serde_json::from_str(inner_json)
-                    .with_context(|| format!("解析工具返回值失败: {}", truncate(inner_json, 200)))?;
+                let data: Value = serde_json::from_str(inner_json).with_context(|| {
+                    format!("解析工具返回值失败: {}", truncate(inner_json, 200))
+                })?;
 
                 // 检查 isError
                 if result
@@ -119,8 +120,7 @@ impl ApiClient {
             "limit": limit,
         });
         let data = self.call_tool("skills.search", args).await?;
-        let items: Vec<SearchItem> = serde_json::from_value(data)
-            .context("解析搜索结果失败")?;
+        let items: Vec<SearchItem> = serde_json::from_value(data).context("解析搜索结果失败")?;
         Ok(items)
     }
 
@@ -132,8 +132,7 @@ impl ApiClient {
             "sort_by": sort_by,
         });
         let data = self.call_tool("skills.list", args).await?;
-        let result: ListResult = serde_json::from_value(data)
-            .context("解析技能列表失败")?;
+        let result: ListResult = serde_json::from_value(data).context("解析技能列表失败")?;
         Ok(result)
     }
 
@@ -141,8 +140,7 @@ impl ApiClient {
     pub async fn info(&self, skill_id: &str) -> Result<SkillDetail> {
         let args = serde_json::json!({ "skill_id": skill_id });
         let data = self.call_tool("skills.info", args).await?;
-        let detail: SkillDetail = serde_json::from_value(data)
-            .context("解析技能详情失败")?;
+        let detail: SkillDetail = serde_json::from_value(data).context("解析技能详情失败")?;
         Ok(detail)
     }
 
@@ -150,8 +148,7 @@ impl ApiClient {
     pub async fn versions(&self, skill_name: &str) -> Result<Vec<VersionItem>> {
         let args = serde_json::json!({ "name": skill_name });
         let data = self.call_tool("skills.versions", args).await?;
-        let items: Vec<VersionItem> = serde_json::from_value(data)
-            .context("解析版本列表失败")?;
+        let items: Vec<VersionItem> = serde_json::from_value(data).context("解析版本列表失败")?;
         Ok(items)
     }
 
@@ -159,8 +156,7 @@ impl ApiClient {
     pub async fn install(&self, skill_id: &str) -> Result<InstallResult> {
         let args = serde_json::json!({ "skill_id": skill_id });
         let data = self.call_tool("skills.install", args).await?;
-        let result: InstallResult = serde_json::from_value(data)
-            .context("解析安装信息失败")?;
+        let result: InstallResult = serde_json::from_value(data).context("解析安装信息失败")?;
         Ok(result)
     }
 
@@ -168,8 +164,7 @@ impl ApiClient {
     pub async fn popular(&self, limit: u32) -> Result<Vec<SkillItem>> {
         let args = serde_json::json!({ "limit": limit });
         let data = self.call_tool("skills.popular", args).await?;
-        let items: Vec<SkillItem> = serde_json::from_value(data)
-            .context("解析热门列表失败")?;
+        let items: Vec<SkillItem> = serde_json::from_value(data).context("解析热门列表失败")?;
         Ok(items)
     }
 
@@ -177,8 +172,7 @@ impl ApiClient {
     pub async fn stats(&self, skill_id: &str) -> Result<StatsData> {
         let args = serde_json::json!({ "skill_id": skill_id });
         let data = self.call_tool("skills.stats", args).await?;
-        let stats: StatsData = serde_json::from_value(data)
-            .context("解析统计信息失败")?;
+        let stats: StatsData = serde_json::from_value(data).context("解析统计信息失败")?;
         Ok(stats)
     }
 
@@ -195,8 +189,7 @@ impl ApiClient {
     pub async fn session_info(&self) -> Result<SessionInfo> {
         let args = serde_json::json!({});
         let data = self.call_tool("session.info", args).await?;
-        let info: SessionInfo = serde_json::from_value(data)
-            .context("解析会话信息失败")?;
+        let info: SessionInfo = serde_json::from_value(data).context("解析会话信息失败")?;
         Ok(info)
     }
 
@@ -217,8 +210,7 @@ impl ApiClient {
 
         let bytes = resp.bytes().await.context("读取响应体失败")?;
 
-        std::fs::create_dir_all(dest_dir)
-            .with_context(|| format!("无法创建目录: {}", dest_dir))?;
+        std::fs::create_dir_all(dest_dir).with_context(|| format!("无法创建目录: {}", dest_dir))?;
 
         let cursor = std::io::Cursor::new(bytes);
         let mut archive = tar::Archive::new(flate2::read::GzDecoder::new(cursor));

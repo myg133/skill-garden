@@ -11,7 +11,7 @@ use crate::db::repositories::{
 use crate::mcp::McpServer;
 use crate::services::admin::{
     ApiKeyService, AuditService, GroupService, IdentityService, RolePermissionService, RoleService,
-    SystemRoleAssignmentService, TenantService,
+    SystemRoleAssignmentService, TenantRoleAssignmentService, TenantService,
 };
 use crate::services::PermissionService;
 use crate::services::{
@@ -95,6 +95,7 @@ pub struct AppRouterState {
     pub api_key: ApiKeyService,
     pub audit: AuditService,
     pub system_role_assignment: SystemRoleAssignmentService,
+    pub tenant_role_assignment: TenantRoleAssignmentService,
     pub role_permission: RolePermissionService,
     pub permission: PermissionService,
     pub login_rate_limiter: RateLimiter,

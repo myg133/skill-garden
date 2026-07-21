@@ -40,6 +40,8 @@ pub struct Skill {
     pub reviewed_at: Option<DateTime<Utc>>,
     pub review_comment: Option<String>,
     pub admin_unpublished: bool,
+    pub marketplace_status: Option<String>,
+    pub pre_marketplace_visibility: Option<String>,
     pub created_at: DateTime<Utc>,
     pub updated_at: DateTime<Utc>,
 }
@@ -64,6 +66,8 @@ pub struct SkillMetadata {
     pub reviewed_at: Option<DateTime<Utc>>,
     pub review_comment: Option<String>,
     pub admin_unpublished: bool,
+    pub marketplace_status: Option<String>,
+    pub pre_marketplace_visibility: Option<String>,
     pub created_at: DateTime<Utc>,
     pub updated_at: DateTime<Utc>,
 }
@@ -116,7 +120,7 @@ impl SkillRepository {
             r#"
             INSERT INTO skills (id, name, description, version, author_agent_id, author_identity_id, owner_type, owner_id, compatibility, content, install_count, status, git_url, visibility, skill_tools)
             VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, 0, $11, $12, $13, $14)
-            RETURNING id, name, description, version, author_agent_id, author_identity_id, owner_type, owner_id, compatibility, content, install_count, status, git_url, visibility, skill_tools, reviewed_by, reviewed_at, review_comment, created_at, updated_at
+            RETURNING id, name, description, version, author_agent_id, author_identity_id, owner_type, owner_id, compatibility, content, install_count, status, git_url, visibility, skill_tools, reviewed_by, reviewed_at, review_comment, admin_unpublished, marketplace_status, pre_marketplace_visibility, created_at, updated_at
             "#,
         )
         .bind(&id)
@@ -185,6 +189,8 @@ impl SkillRepository {
             reviewed_at: skill_row.reviewed_at,
             review_comment: skill_row.review_comment,
             admin_unpublished: skill_row.admin_unpublished,
+            marketplace_status: skill_row.marketplace_status,
+            pre_marketplace_visibility: skill_row.pre_marketplace_visibility,
             created_at: skill_row.created_at,
             updated_at: skill_row.updated_at,
         })
@@ -193,7 +199,7 @@ impl SkillRepository {
     pub async fn find_by_id(&self, skill_id: &str) -> DbResult<Option<Skill>> {
         let skill_row = sqlx::query_as::<_, SkillRow>(
             r#"
-            SELECT id, name, description, version, author_agent_id, author_identity_id, owner_type, owner_id, compatibility, content, install_count, status, git_url, visibility, skill_tools, reviewed_by, reviewed_at, review_comment, admin_unpublished, created_at, updated_at
+            SELECT id, name, description, version, author_agent_id, author_identity_id, owner_type, owner_id, compatibility, content, install_count, status, git_url, visibility, skill_tools, reviewed_by, reviewed_at, review_comment, admin_unpublished, marketplace_status, pre_marketplace_visibility, created_at, updated_at
             FROM skills WHERE id = $1
             "#,
         )
@@ -228,6 +234,8 @@ impl SkillRepository {
                     reviewed_at: row.reviewed_at,
                     review_comment: row.review_comment,
                     admin_unpublished: row.admin_unpublished,
+                    marketplace_status: row.marketplace_status,
+                    pre_marketplace_visibility: row.pre_marketplace_visibility,
                     created_at: row.created_at,
                     updated_at: row.updated_at,
                 }))
@@ -257,7 +265,8 @@ impl SkillRepository {
             r#"
             SELECT s.id, s.name, s.description, s.version, s.author_agent_id, s.author_identity_id,
                    s.owner_type, s.owner_id, s.install_count, s.status, s.git_url, s.visibility,
-                   s.reviewed_by, s.reviewed_at, s.review_comment, s.admin_unpublished, s.created_at, s.updated_at,
+                   s.reviewed_by, s.reviewed_at, s.review_comment, s.admin_unpublished,
+                   s.marketplace_status, s.pre_marketplace_visibility, s.created_at, s.updated_at,
                    COALESCE(i.display_name, i.username, i.name) AS author_name
             FROM skills s
             LEFT JOIN identities i ON i.id = s.author_identity_id
@@ -302,7 +311,8 @@ impl SkillRepository {
             SELECT s.id, s.name, s.description, s.version, s.author_agent_id,
                    s.author_identity_id, s.owner_type, s.owner_id,
                    s.install_count, s.status, s.git_url, s.visibility,
-                   s.reviewed_by, s.reviewed_at, s.review_comment, s.admin_unpublished, s.created_at, s.updated_at,
+                   s.reviewed_by, s.reviewed_at, s.review_comment, s.admin_unpublished,
+                   s.marketplace_status, s.pre_marketplace_visibility, s.created_at, s.updated_at,
                    COALESCE(i.display_name, i.username, i.name) AS author_name
             FROM skills s
             LEFT JOIN identities i ON i.id = s.author_identity_id
@@ -333,7 +343,8 @@ impl SkillRepository {
             SELECT s.id, s.name, s.description, s.version, s.author_agent_id,
                    s.author_identity_id, s.owner_type, s.owner_id,
                    s.install_count, s.status, s.git_url, s.visibility,
-                   s.reviewed_by, s.reviewed_at, s.review_comment, s.admin_unpublished, s.created_at, s.updated_at,
+                   s.reviewed_by, s.reviewed_at, s.review_comment, s.admin_unpublished,
+                   s.marketplace_status, s.pre_marketplace_visibility, s.created_at, s.updated_at,
                    COALESCE(i.display_name, i.username, i.name) AS author_name
             FROM skills s
             LEFT JOIN identities i ON i.id = s.author_identity_id
@@ -439,7 +450,8 @@ impl SkillRepository {
             r#"
             SELECT s.id, s.name, s.description, s.version, s.author_agent_id, s.author_identity_id,
                    s.owner_type, s.owner_id, s.install_count, s.status, s.git_url, s.visibility,
-                   s.reviewed_by, s.reviewed_at, s.review_comment, s.admin_unpublished, s.created_at, s.updated_at,
+                   s.reviewed_by, s.reviewed_at, s.review_comment, s.admin_unpublished,
+                   s.marketplace_status, s.pre_marketplace_visibility, s.created_at, s.updated_at,
                    COALESCE(i.display_name, i.username, i.name) AS author_name
             FROM skills s
             LEFT JOIN identities i ON i.id = s.author_identity_id
@@ -493,7 +505,7 @@ impl SkillRepository {
         Ok(())
     }
 
-    /// 设置 admin 下架标记
+    /// 设置 admin 下架标记（DEPRECATED: 使用 update_marketplace_status 替代）
     pub async fn set_admin_unpublished(&self, skill_id: &str, value: bool) -> DbResult<()> {
         let result = sqlx::query(
             "UPDATE skills SET admin_unpublished = $1, updated_at = NOW() WHERE id = $2",
@@ -510,13 +522,121 @@ impl SkillRepository {
         Ok(())
     }
 
+    /// 更新市场状态
+    pub async fn update_marketplace_status(&self, skill_id: &str, marketplace_status: Option<&str>) -> DbResult<()> {
+        let result = sqlx::query(
+            "UPDATE skills SET marketplace_status = $1, updated_at = NOW() WHERE id = $2",
+        )
+        .bind(marketplace_status)
+        .bind(skill_id)
+        .execute(&self.pool)
+        .await
+        .map_err(|e| DbError::QueryError(e.to_string()))?;
+
+        if result.rows_affected() == 0 {
+            return Err(DbError::NotFound(format!("Skill {} not found", skill_id)));
+        }
+        Ok(())
+    }
+
+    /// 保存提交市场前的原始可见性
+    pub async fn set_pre_marketplace_visibility(&self, skill_id: &str, visibility: Option<&str>) -> DbResult<()> {
+        let result = sqlx::query(
+            "UPDATE skills SET pre_marketplace_visibility = $1, updated_at = NOW() WHERE id = $2",
+        )
+        .bind(visibility)
+        .bind(skill_id)
+        .execute(&self.pool)
+        .await
+        .map_err(|e| DbError::QueryError(e.to_string()))?;
+
+        if result.rows_affected() == 0 {
+            return Err(DbError::NotFound(format!("Skill {} not found", skill_id)));
+        }
+        Ok(())
+    }
+
+    /// 按市场状态列出 Skill（用于市场审核队列等）
+    pub async fn list_by_marketplace_status(
+        &self,
+        marketplace_status: &str,
+        limit: i64,
+        offset: i64,
+    ) -> DbResult<Vec<SkillMetadata>> {
+        let rows = sqlx::query_as::<_, SkillMetadataRow>(
+            r#"
+            SELECT s.id, s.name, s.description, s.version, s.author_agent_id,
+                   s.author_identity_id, s.owner_type, s.owner_id,
+                   s.install_count, s.status, s.git_url, s.visibility,
+                   s.reviewed_by, s.reviewed_at, s.review_comment, s.admin_unpublished,
+                   s.marketplace_status, s.pre_marketplace_visibility, s.created_at, s.updated_at,
+                   COALESCE(i.display_name, i.username, i.name) AS author_name
+            FROM skills s
+            LEFT JOIN identities i ON i.id = s.author_identity_id
+            WHERE s.marketplace_status = $1
+            ORDER BY s.created_at DESC
+            LIMIT $2 OFFSET $3
+            "#,
+        )
+        .bind(marketplace_status)
+        .bind(limit)
+        .bind(offset)
+        .fetch_all(&self.pool)
+        .await
+        .map_err(|e| DbError::QueryError(e.to_string()))?;
+
+        let mut results = Vec::new();
+        for row in rows {
+            let tags = self.get_tags(&row.id).await?;
+            results.push(self.build_metadata(row, tags));
+        }
+        Ok(results)
+    }
+
+    /// 列出市场的上架 Skill（用于公开市场页面）
+    /// 新逻辑：status=published AND marketplace_status='listed'
+    pub async fn list_marketplace_listed(
+        &self,
+        limit: i64,
+        offset: i64,
+    ) -> DbResult<Vec<SkillMetadata>> {
+        let rows = sqlx::query_as::<_, SkillMetadataRow>(
+            r#"
+            SELECT s.id, s.name, s.description, s.version, s.author_agent_id,
+                   s.author_identity_id, s.owner_type, s.owner_id,
+                   s.install_count, s.status, s.git_url, s.visibility,
+                   s.reviewed_by, s.reviewed_at, s.review_comment, s.admin_unpublished,
+                   s.marketplace_status, s.pre_marketplace_visibility, s.created_at, s.updated_at,
+                   COALESCE(i.display_name, i.username, i.name) AS author_name
+            FROM skills s
+            LEFT JOIN identities i ON i.id = s.author_identity_id
+            WHERE s.status = 'published' AND s.marketplace_status = 'listed'
+            ORDER BY s.install_count DESC, s.created_at DESC
+            LIMIT $1 OFFSET $2
+            "#,
+        )
+        .bind(limit)
+        .bind(offset)
+        .fetch_all(&self.pool)
+        .await
+        .map_err(|e| DbError::QueryError(e.to_string()))?;
+
+        let mut results = Vec::new();
+        for row in rows {
+            let tags = self.get_tags(&row.id).await?;
+            results.push(self.build_metadata(row, tags));
+        }
+        Ok(results)
+    }
+
     /// 列出用户自己创建的 Skill（owner_type=user 且 owner_id 或 author_identity_id 匹配）
     pub async fn list_by_owner(&self, identity_id: Uuid) -> DbResult<Vec<SkillMetadata>> {
         let rows = sqlx::query_as::<_, SkillMetadataRow>(
             r#"
             SELECT s.id, s.name, s.description, s.version, s.author_agent_id, s.author_identity_id,
                    s.owner_type, s.owner_id, s.install_count, s.status, s.git_url, s.visibility,
-                   s.reviewed_by, s.reviewed_at, s.review_comment, s.admin_unpublished, s.created_at, s.updated_at,
+                   s.reviewed_by, s.reviewed_at, s.review_comment, s.admin_unpublished,
+                   s.marketplace_status, s.pre_marketplace_visibility, s.created_at, s.updated_at,
                    COALESCE(i.display_name, i.username, i.name) AS author_name
             FROM skills s
             LEFT JOIN identities i ON i.id = s.author_identity_id
@@ -551,7 +671,8 @@ impl SkillRepository {
                 r#"
                 SELECT s.id, s.name, s.description, s.version, s.author_agent_id, s.author_identity_id,
                        s.owner_type, s.owner_id, s.install_count, s.status, s.git_url, s.visibility,
-                       s.reviewed_by, s.reviewed_at, s.review_comment, s.admin_unpublished, s.created_at, s.updated_at,
+                       s.reviewed_by, s.reviewed_at, s.review_comment, s.admin_unpublished,
+                       s.marketplace_status, s.pre_marketplace_visibility, s.created_at, s.updated_at,
                        COALESCE(i.display_name, i.username, i.name) AS author_name
                 FROM skills s
                 LEFT JOIN identities i ON i.id = s.author_identity_id
@@ -581,7 +702,8 @@ impl SkillRepository {
             r#"
             SELECT s.id, s.name, s.description, s.version, s.author_agent_id, s.author_identity_id,
                    s.owner_type, s.owner_id, s.install_count, s.status, s.git_url, s.visibility,
-                   s.reviewed_by, s.reviewed_at, s.review_comment, s.admin_unpublished, s.created_at, s.updated_at,
+                   s.reviewed_by, s.reviewed_at, s.review_comment, s.admin_unpublished,
+                   s.marketplace_status, s.pre_marketplace_visibility, s.created_at, s.updated_at,
                    COALESCE(i.display_name, i.username, i.name) AS author_name
             FROM skills s
             LEFT JOIN identities i ON i.id = s.author_identity_id
@@ -630,6 +752,8 @@ impl SkillRepository {
             reviewed_at: row.reviewed_at,
             review_comment: row.review_comment,
             admin_unpublished: row.admin_unpublished,
+            marketplace_status: row.marketplace_status,
+            pre_marketplace_visibility: row.pre_marketplace_visibility,
             created_at: row.created_at,
             updated_at: row.updated_at,
         }
@@ -678,6 +802,8 @@ struct SkillRow {
     reviewed_at: Option<DateTime<Utc>>,
     review_comment: Option<String>,
     admin_unpublished: bool,
+    marketplace_status: Option<String>,
+    pre_marketplace_visibility: Option<String>,
     created_at: DateTime<Utc>,
     updated_at: DateTime<Utc>,
 }
@@ -701,6 +827,8 @@ struct SkillMetadataRow {
     reviewed_at: Option<DateTime<Utc>>,
     review_comment: Option<String>,
     admin_unpublished: bool,
+    marketplace_status: Option<String>,
+    pre_marketplace_visibility: Option<String>,
     created_at: DateTime<Utc>,
     updated_at: DateTime<Utc>,
 }

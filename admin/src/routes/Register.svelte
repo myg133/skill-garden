@@ -54,40 +54,40 @@
     <div class="bg-white/90 backdrop-blur-xl rounded-2xl shadow-elevated-lg p-8 border border-surface-200/60 ring-1 ring-brand-500/5">
       <form on:submit|preventDefault={handleRegister} class="space-y-4">
         <div>
-          <label for="reg-username" class="block text-xs font-semibold text-surface-500 uppercase tracking-wider mb-2">Username <span class="text-rose-500">*</span></label>
+          <label for="reg-username" class="block text-xs font-semibold text-surface-600 uppercase tracking-wider mb-2">Username <span class="text-rose-500">*</span></label>
           <input
             id="reg-username"
             type="text"
             bind:value={username}
             placeholder="Choose a username"
-            class="w-full px-4 py-3 border border-surface-200 rounded-xl text-sm input-focus outline-none font-medium bg-surface-50/80 placeholder:text-surface-300"
+            class="w-full px-4 py-3 border border-surface-200 rounded-xl text-sm input-focus outline-none font-medium bg-surface-50/80 text-surface-800 placeholder:text-surface-500"
           />
         </div>
 
         <div>
-          <label for="reg-display-name" class="block text-xs font-semibold text-surface-500 uppercase tracking-wider mb-2">Display Name</label>
+          <label for="reg-display-name" class="block text-xs font-semibold text-surface-600 uppercase tracking-wider mb-2">Display Name</label>
           <input
             id="reg-display-name"
             type="text"
             bind:value={displayName}
             placeholder="Your display name (optional)"
-            class="w-full px-4 py-3 border border-surface-200 rounded-xl text-sm input-focus outline-none font-medium bg-surface-50/80 placeholder:text-surface-300"
+            class="w-full px-4 py-3 border border-surface-200 rounded-xl text-sm input-focus outline-none font-medium bg-surface-50/80 text-surface-800 placeholder:text-surface-500"
           />
         </div>
 
         <div>
-          <label for="reg-email" class="block text-xs font-semibold text-surface-500 uppercase tracking-wider mb-2">Email</label>
+          <label for="reg-email" class="block text-xs font-semibold text-surface-600 uppercase tracking-wider mb-2">Email</label>
           <input
             id="reg-email"
             type="email"
             bind:value={email}
             placeholder="Your email (optional)"
-            class="w-full px-4 py-3 border border-surface-200 rounded-xl text-sm input-focus outline-none font-medium bg-surface-50/80 placeholder:text-surface-300"
+            class="w-full px-4 py-3 border border-surface-200 rounded-xl text-sm input-focus outline-none font-medium bg-surface-50/80 text-surface-800 placeholder:text-surface-500"
           />
         </div>
 
         <div>
-          <label for="reg-password" class="block text-xs font-semibold text-surface-500 uppercase tracking-wider mb-2">Password <span class="text-rose-500">*</span></label>
+          <label for="reg-password" class="block text-xs font-semibold text-surface-600 uppercase tracking-wider mb-2">Password <span class="text-rose-500">*</span></label>
           <div class="relative">
             {#if showPassword}
             <input
@@ -95,7 +95,7 @@
               type="text"
               bind:value={password}
               placeholder="At least 6 characters"
-              class="w-full px-4 pr-12 py-3 border border-surface-200 rounded-xl text-sm input-focus outline-none font-medium bg-surface-50/80 placeholder:text-surface-300"
+              class="w-full px-4 pr-12 py-3 border border-surface-200 rounded-xl text-sm input-focus outline-none font-medium bg-surface-50/80 text-surface-800 placeholder:text-surface-500"
             />
             {:else}
             <input
@@ -103,7 +103,7 @@
               type="password"
               bind:value={password}
               placeholder="At least 6 characters"
-              class="w-full px-4 pr-12 py-3 border border-surface-200 rounded-xl text-sm input-focus outline-none font-medium bg-surface-50/80 placeholder:text-surface-300"
+              class="w-full px-4 pr-12 py-3 border border-surface-200 rounded-xl text-sm input-focus outline-none font-medium bg-surface-50/80 text-surface-800 placeholder:text-surface-500"
             />
             {/if}
             <button
@@ -127,14 +127,14 @@
         </div>
 
         <div>
-          <label for="reg-confirm-password" class="block text-xs font-semibold text-surface-500 uppercase tracking-wider mb-2">Confirm Password <span class="text-rose-500">*</span></label>
+          <label for="reg-confirm-password" class="block text-xs font-semibold text-surface-600 uppercase tracking-wider mb-2">Confirm Password <span class="text-rose-500">*</span></label>
           {#if showPassword}
           <input
             id="reg-confirm-password"
             type="text"
             bind:value={confirmPassword}
             placeholder="Re-enter your password"
-            class="w-full px-4 py-3 border border-surface-200 rounded-xl text-sm input-focus outline-none font-medium bg-surface-50/80 placeholder:text-surface-300"
+            class="w-full px-4 py-3 border border-surface-200 rounded-xl text-sm input-focus outline-none font-medium bg-surface-50/80 text-surface-800 placeholder:text-surface-500"
           />
           {:else}
           <input
@@ -142,7 +142,7 @@
             type="password"
             bind:value={confirmPassword}
             placeholder="Re-enter your password"
-            class="w-full px-4 py-3 border border-surface-200 rounded-xl text-sm input-focus outline-none font-medium bg-surface-50/80 placeholder:text-surface-300"
+            class="w-full px-4 py-3 border border-surface-200 rounded-xl text-sm input-focus outline-none font-medium bg-surface-50/80 text-surface-800 placeholder:text-surface-500"
           />
           {/if}
         </div>

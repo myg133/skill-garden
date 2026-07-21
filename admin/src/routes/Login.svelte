@@ -1,5 +1,6 @@
 <script>
   import { auth, selectedNav } from '../stores/auth.js';
+  import { permissionStore } from '../stores/permission.js';
   import { api } from '../lib/api.js';
   import { navigate, link } from 'svelte-routing';
 
@@ -18,9 +19,20 @@
     error = '';
     try {
       const res = await api.adminLogin(username, password);
-      const is_admin_user = res.user?.is_admin || false;
-      auth.login(res.token, res.user?.username || username, is_admin_user);
-      // 检查是否有保存的回跳路径（token 过期后登录回原页面）
+      const user = res.user || {};
+      const is_admin_user = user.is_admin || false;
+      
+      // 初始化权限 store
+      permissionStore.initFromLogin(user);
+      
+      // auth store（token 写入 localStorage，api 模块后续请求会携带）
+      auth.login(res.token, user.username || username, is_admin_user);
+      
+      // 立即从服务端拉取完整权限码（如 org:read、group:read），避免 Nav 因权限不全隐藏菜单
+      // App.svelte 的 onMount 只在首次挂载执行，登录页挂载时尚未认证会跳过 refresh
+      await permissionStore.refresh();
+      
+      // 检查是否有保存的回跳路径
       const redirectPath = localStorage.getItem('login_redirect');
       if (redirectPath) {
         localStorage.removeItem('login_redirect');

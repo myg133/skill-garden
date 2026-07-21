@@ -211,6 +211,24 @@ impl ApiKeyRepository {
         Ok(())
     }
 
+    pub async fn disable(&self, id: Uuid) -> DbResult<()> {
+        sqlx::query("UPDATE api_keys SET status = 'disabled' WHERE id = $1")
+            .bind(id)
+            .execute(&self.pool)
+            .await
+            .map_err(|e| DbError::QueryError(e.to_string()))?;
+        Ok(())
+    }
+
+    pub async fn enable(&self, id: Uuid) -> DbResult<()> {
+        sqlx::query("UPDATE api_keys SET status = 'active' WHERE id = $1")
+            .bind(id)
+            .execute(&self.pool)
+            .await
+            .map_err(|e| DbError::QueryError(e.to_string()))?;
+        Ok(())
+    }
+
     pub async fn update_last_used(&self, id: Uuid) -> DbResult<()> {
         sqlx::query("UPDATE api_keys SET last_used_at = NOW() WHERE id = $1")
             .bind(id)

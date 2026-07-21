@@ -47,7 +47,7 @@
         bind:value={reason}
         placeholder="Explain why this skill is being rejected (min 10 characters)..."
         rows="4"
-        class="w-full px-4 py-3 border border-gray-200 rounded-xl text-sm input-focus outline-none transition-all resize-none font-medium bg-gray-50 text-gray-700 placeholder:text-gray-400"
+        class="w-full px-4 py-3 border border-gray-200 rounded-xl text-sm input-focus outline-none transition-all resize-none font-medium bg-white text-gray-700 placeholder:text-gray-400"
       ></textarea>
       <div class="flex justify-between mt-1.5">
         <span class="text-gray-400 text-[11px]">{reason.length} / 10 min</span>

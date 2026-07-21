@@ -2,9 +2,13 @@
   import { onMount } from 'svelte';
   import { api } from '../lib/api.js';
   import { addToast } from '../stores/app.js';
+  import { hasPermission } from '../stores/permission.js';
+  import { ACTIONS } from '../config/actions.js';
   import LoadingSpinner from '../components/LoadingSpinner.svelte';
   import EmptyState from '../components/EmptyState.svelte';
   import Badge from '../components/Badge.svelte';
+
+  const ACT = ACTIONS.Sessions;
 
   let sessions = [];
   let loading = true;
@@ -121,14 +125,14 @@
                 {new Date(session.created_at).toLocaleString()}
               </td>
               <td class="px-5 py-4 text-right">
-                {#if session.status === 'active'}
+                {#if session.status === 'active' && hasPermission(ACT.end)}
                   <button
                     on:click={() => handleEndSession(session.id)}
                     class="text-rose-500 hover:text-rose-600 text-sm font-semibold transition-colors"
                   >
                     End Session
                   </button>
-                {:else}
+                {:else if session.status !== 'active'}
                   <span class="text-gray-300 text-sm font-medium">Ended</span>
                 {/if}
               </td>

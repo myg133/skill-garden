@@ -120,10 +120,7 @@ impl DownloadTokenRepository {
     }
 
     /// 验证 CLI 下载 token（按 token 字符串查找，不按 skill_name/version 过滤）
-    pub async fn validate_cli_token(
-        &self,
-        token_str: &str,
-    ) -> DbResult<Option<DownloadToken>> {
+    pub async fn validate_cli_token(&self, token_str: &str) -> DbResult<Option<DownloadToken>> {
         let now = Utc::now();
 
         let record = sqlx::query_as::<_, DownloadToken>(
@@ -142,7 +139,9 @@ impl DownloadTokenRepository {
         .bind(now)
         .fetch_optional(&self.pool)
         .await
-        .map_err(|e| DbError::QueryError(format!("Failed to validate CLI download token: {}", e)))?;
+        .map_err(|e| {
+            DbError::QueryError(format!("Failed to validate CLI download token: {}", e))
+        })?;
 
         Ok(record)
     }

@@ -6,6 +6,11 @@
   export let groupTypes = ['team', 'project', 'department'];
   export let orgRoles = ['owner', 'admin', 'reviewer', 'developer', 'member'];
 
+  export let canCreateGroup = false;
+  export let canEditGroup = false;
+  export let canDeleteGroup = false;
+  export let canManageMembers = false;
+
   export let onRefreshGroups = () => {};
   export let onAddMember = () => {};
 
@@ -98,13 +103,15 @@
 <div class="bg-white rounded-2xl border border-gray-200 shadow-card">
   <div class="px-6 py-4 border-b border-gray-100 flex items-center justify-between">
     <h2 class="font-semibold text-gray-800 text-sm">Groups ({groups.length})</h2>
-    <button
-      on:click={() => { showCreateGroupModal = true; newGroup = { name: '', slug: '', description: '', group_type: 'team' }; }}
-      class="btn-primary px-4 py-2 rounded-xl font-semibold text-sm flex items-center gap-2"
-    >
-      <Icon name="plus" size="w-4 h-4" />
-      New Group
-    </button>
+    {#if canCreateGroup}
+      <button
+        on:click={() => { showCreateGroupModal = true; newGroup = { name: '', slug: '', description: '', group_type: 'team' }; }}
+        class="btn-primary px-4 py-2 rounded-xl font-semibold text-sm flex items-center gap-2"
+      >
+        <Icon name="plus" size="w-4 h-4" />
+        New Group
+      </button>
+    {/if}
   </div>
   {#if loadingGroups}
     <div class="p-8 text-center text-gray-400 text-sm">Loading...</div>
@@ -140,12 +147,16 @@
                   <button on:click={() => openGroupMembers(group)} class="p-2 rounded-lg text-gray-400 hover:text-blue-500 hover:bg-blue-50 transition-all" title="Manage members">
                     <Icon name="people" size="w-4 h-4" />
                   </button>
-                  <button on:click={() => startEditGroup(group)} class="p-2 rounded-lg text-gray-400 hover:text-blue-500 hover:bg-blue-50 transition-all" title="Edit">
-                    <Icon name="edit" size="w-4 h-4" />
-                  </button>
-                  <button on:click={() => handleDeleteGroup(group.id)} class="p-2 rounded-lg text-gray-400 hover:text-red-500 hover:bg-red-50 transition-all" title="Delete">
-                    <Icon name="trash" size="w-4 h-4" />
-                  </button>
+                  {#if canEditGroup}
+                    <button on:click={() => startEditGroup(group)} class="p-2 rounded-lg text-gray-400 hover:text-blue-500 hover:bg-blue-50 transition-all" title="Edit">
+                      <Icon name="edit" size="w-4 h-4" />
+                    </button>
+                  {/if}
+                  {#if canDeleteGroup}
+                    <button on:click={() => handleDeleteGroup(group.id)} class="p-2 rounded-lg text-gray-400 hover:text-red-500 hover:bg-red-50 transition-all" title="Delete">
+                      <Icon name="trash" size="w-4 h-4" />
+                    </button>
+                  {/if}
                 </div>
               </td>
             </tr>
@@ -189,21 +200,21 @@
     <div class="space-y-4">
       <div>
         <label for="group-name" class="block text-xs font-semibold text-gray-500 uppercase tracking-wider mb-2">Name</label>
-        <input id="group-name" type="text" bind:value={newGroup.name} placeholder="Group name" class="w-full px-4 py-3 border border-gray-200 rounded-xl text-sm input-focus outline-none font-medium" />
+        <input id="group-name" type="text" bind:value={newGroup.name} placeholder="Group name" class="w-full px-4 py-3 border border-gray-200 rounded-xl text-sm input-focus outline-none font-medium bg-white text-gray-900" />
       </div>
       <div>
         <label for="group-slug" class="block text-xs font-semibold text-gray-500 uppercase tracking-wider mb-2">Slug</label>
-        <input id="group-slug" type="text" bind:value={newGroup.slug} placeholder="group-slug" class="w-full px-4 py-3 border border-gray-200 rounded-xl text-sm input-focus outline-none font-medium" />
+        <input id="group-slug" type="text" bind:value={newGroup.slug} placeholder="group-slug" class="w-full px-4 py-3 border border-gray-200 rounded-xl text-sm input-focus outline-none font-medium bg-white text-gray-900" />
       </div>
       <div>
         <label for="group-type" class="block text-xs font-semibold text-gray-500 uppercase tracking-wider mb-2">Type</label>
-        <select id="group-type" bind:value={newGroup.group_type} class="w-full px-4 py-3 border border-gray-200 rounded-xl text-sm input-focus outline-none font-medium bg-white">
+        <select id="group-type" bind:value={newGroup.group_type} class="w-full px-4 py-3 border border-gray-200 rounded-xl text-sm input-focus outline-none font-medium bg-white text-gray-900">
           {#each groupTypes as gt}<option value={gt}>{gt}</option>{/each}
         </select>
       </div>
       <div>
         <label for="group-desc" class="block text-xs font-semibold text-gray-500 uppercase tracking-wider mb-2">Description</label>
-        <input id="group-desc" type="text" bind:value={newGroup.description} placeholder="Optional description" class="w-full px-4 py-3 border border-gray-200 rounded-xl text-sm input-focus outline-none font-medium" />
+        <input id="group-desc" type="text" bind:value={newGroup.description} placeholder="Optional description" class="w-full px-4 py-3 border border-gray-200 rounded-xl text-sm input-focus outline-none font-medium bg-white text-gray-900" />
       </div>
       <div class="flex gap-3 justify-end pt-1">
         <button on:click={() => { showCreateGroupModal = false; }} class="px-4 py-2.5 text-gray-500 hover:text-gray-800 font-semibold text-sm transition-all rounded-lg hover:bg-gray-50">Cancel</button>
@@ -218,13 +229,15 @@
 {#if showGroupMembersModal}
 <div class="fixed inset-0 bg-black/40 flex items-center justify-center z-50 modal-overlay">
   <div class="bg-white rounded-2xl p-6 w-full max-w-2xl shadow-elevated-lg border border-gray-200 modal-content">
-    <div class="flex items-center justify-between mb-5">
+      <div class="flex items-center justify-between mb-5">
       <h2 class="text-lg font-bold text-gray-800">Group Members: {selectedGroup?.name}</h2>
       <div class="flex items-center gap-2">
-        <button on:click={handleAddGroupMember} class="btn-primary px-3 py-1.5 rounded-lg text-xs font-semibold flex items-center gap-1.5">
-          <Icon name="plus" size="w-3.5 h-3.5" />
-          Add Member
-        </button>
+        {#if canManageMembers}
+          <button on:click={handleAddGroupMember} class="btn-primary px-3 py-1.5 rounded-lg text-xs font-semibold flex items-center gap-1.5">
+            <Icon name="plus" size="w-3.5 h-3.5" />
+            Add Member
+          </button>
+        {/if}
         <button on:click={() => { showGroupMembersModal = false; selectedGroup = null; }} class="p-2 rounded-lg text-gray-400 hover:text-gray-600 hover:bg-gray-100 transition-all">
           <Icon name="close" size="w-5 h-5" />
         </button>
@@ -270,14 +283,16 @@
                 </td>
                 <td class="px-4 py-3 text-right">
                   <div class="flex items-center justify-end gap-1">
-                    {#if editingGroupMember !== (member.username || member.agent_id)}
+                    {#if editingGroupMember !== (member.username || member.agent_id) && canManageMembers}
                       <button on:click={() => { editingGroupMember = (member.username || member.agent_id); editGroupMemberRole = member.role; }} class="p-2 rounded-lg text-gray-400 hover:text-blue-500 hover:bg-blue-50 transition-all" title="Edit role">
                         <Icon name="edit" size="w-4 h-4" />
                       </button>
                     {/if}
-                    <button on:click={() => handleRemoveGroupMember(member.username || member.agent_id)} class="p-2 rounded-lg text-gray-400 hover:text-red-500 hover:bg-red-50 transition-all" title="Remove from group">
-                      <Icon name="trash" size="w-4 h-4" />
-                    </button>
+                    {#if canManageMembers}
+                      <button on:click={() => handleRemoveGroupMember(member.username || member.agent_id)} class="p-2 rounded-lg text-gray-400 hover:text-red-500 hover:bg-red-50 transition-all" title="Remove from group">
+                        <Icon name="trash" size="w-4 h-4" />
+                      </button>
+                    {/if}
                   </div>
                 </td>
               </tr>

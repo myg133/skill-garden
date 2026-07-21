@@ -194,14 +194,19 @@ fn resolve_client_from_config(
     config: &aion_hive::cli::config::CliConfig,
     cli: &Cli,
 ) -> Result<aion_hive::cli::client::ApiClient> {
-    let server = cli.server.clone().or_else(|| config.server.clone()).ok_or_else(|| {
-        anyhow::anyhow!("未配置服务端地址。请先运行: skill-garden login <server>")
-    })?;
-
-    let token =
-        cli.token.clone().or_else(|| config.token.clone()).ok_or_else(|| {
-            anyhow::anyhow!("未配置 API Key。请先运行: skill-garden login <server>")
+    let server = cli
+        .server
+        .clone()
+        .or_else(|| config.server.clone())
+        .ok_or_else(|| {
+            anyhow::anyhow!("未配置服务端地址。请先运行: skill-garden login <server>")
         })?;
+
+    let token = cli
+        .token
+        .clone()
+        .or_else(|| config.token.clone())
+        .ok_or_else(|| anyhow::anyhow!("未配置 API Key。请先运行: skill-garden login <server>"))?;
 
     Ok(aion_hive::cli::client::ApiClient::new(server, token))
 }

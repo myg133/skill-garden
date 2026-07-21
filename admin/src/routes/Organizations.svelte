@@ -3,9 +3,12 @@
   import { Link } from 'svelte-routing';
   import { api } from '../lib/api.js';
   import { addToast } from '../stores/app.js';
+  import { hasPermission } from '../stores/permission.js';
+  import { ACTIONS } from '../config/actions.js';
   import LoadingSpinner from '../components/LoadingSpinner.svelte';
   import EmptyState from '../components/EmptyState.svelte';
 
+  const ACT = ACTIONS.Organizations;
   let organizations = [];
   let tenants = [];
   let tenantFilter = '';
@@ -113,6 +116,7 @@
             Clear filter
           </button>
         {/if}
+        {#if hasPermission(ACT.create)}
         <button
           on:click={() => showCreateModal = true}
           class="btn-primary px-5 py-2.5 rounded-xl font-semibold text-sm flex items-center gap-2"
@@ -120,6 +124,7 @@
           <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 4v16m8-8H4"/></svg>
           New Organization
         </button>
+        {/if}
       </div>
     </div>
   </div>
@@ -131,12 +136,14 @@
   {:else if organizations.length === 0}
     <div class="bg-white rounded-xl border border-gray-200 shadow-card">
       <EmptyState message="No organizations yet">
+        {#if hasPermission(ACT.create)}
         <button
           on:click={() => showCreateModal = true}
           class="mt-4 btn-primary px-5 py-2.5 rounded-lg font-semibold text-sm"
         >
           Create your first organization
         </button>
+        {/if}
       </EmptyState>
     </div>
   {:else}
@@ -184,7 +191,7 @@
           type="text"
           bind:value={newOrgName}
           placeholder="Organization name"
-          class="w-full px-4 py-3 border border-gray-200 rounded-xl text-sm input-focus outline-none font-medium"
+          class="w-full px-4 py-3 border border-gray-200 rounded-xl text-sm input-focus outline-none font-medium bg-white text-gray-900"
         />
       </div>
       <div>
@@ -192,7 +199,7 @@
         <select
           id="org-tenant"
           bind:value={newOrgTenantId}
-          class="w-full px-4 py-3 border border-gray-200 rounded-xl text-sm input-focus outline-none font-medium bg-white"
+          class="w-full px-4 py-3 border border-gray-200 rounded-xl text-sm input-focus outline-none font-medium bg-white text-gray-900"
         >
           <option value="" disabled selected hidden>Select tenant (optional)</option>
           {#each tenants as tenant}

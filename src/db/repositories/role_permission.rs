@@ -36,6 +36,33 @@ impl RolePermissionRepository {
         Ok(perms.into_iter().map(|p| p.into()).collect())
     }
 
+    /// 批量查询多个 (role_level, role_name) 组合的权限
+    pub async fn list_by_roles_batch(
+        &self,
+        entries: &[(String, String)],
+    ) -> DbResult<Vec<RolePermission>> {
+        if entries.is_empty() {
+            return Ok(Vec::new());
+        }
+        let perms = sqlx::query_as::<_, RolePermissionRow>(
+            r#"
+            SELECT id, role_level, role_name, permission_code, scope_restriction, created_at
+            FROM role_permissions
+            WHERE (role_level, role_name) IN (
+                SELECT * FROM UNNEST($1::text[], $2::text[])
+            )
+            ORDER BY permission_code
+            "#,
+        )
+        .bind(entries.iter().map(|(l, _)| l.clone()).collect::<Vec<_>>())
+        .bind(entries.iter().map(|(_, n)| n.clone()).collect::<Vec<_>>())
+        .fetch_all(&self.pool)
+        .await
+        .map_err(|e| DbError::QueryError(e.to_string()))?;
+
+        Ok(perms.into_iter().map(|p| p.into()).collect())
+    }
+
     pub async fn list_all(&self) -> DbResult<Vec<RolePermission>> {
         let perms = sqlx::query_as::<_, RolePermissionRow>(
             r#"

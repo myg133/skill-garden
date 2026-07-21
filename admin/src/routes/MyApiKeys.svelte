@@ -44,7 +44,6 @@
 
   async function handleCreate() {
     if (!newKeyForm.name.trim()) return;
-    if (organizations.length > 0 && !newKeyForm.organization_id) return;
     creating = true;
     newlyCreatedKey = '';
     try {
@@ -90,9 +89,30 @@
   function getStatusColor(status) {
     switch (status) {
       case 'active': return 'bg-emerald-100 text-emerald-700';
+      case 'disabled': return 'bg-gray-100 text-gray-500';
       case 'expired': return 'bg-amber-100 text-amber-700';
       case 'revoked': return 'bg-rose-100 text-rose-700';
       default: return 'bg-gray-100 text-gray-700';
+    }
+  }
+
+  async function handleDisable(id) {
+    try {
+      await api.disableMyApiKey(id);
+      addToast('API Key disabled', 'success');
+      await loadApiKeys();
+    } catch (e) {
+      addToast(e.message, 'error');
+    }
+  }
+
+  async function handleEnable(id) {
+    try {
+      await api.enableMyApiKey(id);
+      addToast('API Key enabled', 'success');
+      await loadApiKeys();
+    } catch (e) {
+      addToast(e.message, 'error');
     }
   }
 
@@ -176,6 +196,23 @@
                     {/if}
                   </td>
                   <td class="px-6 py-4 text-right">
+                    {#if key.status === 'disabled'}
+                      <button
+                        on:click={() => handleEnable(key.id)}
+                        class="p-2 rounded-lg text-gray-400 hover:text-emerald-500 hover:bg-emerald-50 transition-all"
+                        title="Enable"
+                      >
+                        <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7"/></svg>
+                      </button>
+                    {:else if key.status !== 'revoked' && key.status !== 'expired'}
+                      <button
+                        on:click={() => handleDisable(key.id)}
+                        class="p-2 rounded-lg text-gray-400 hover:text-amber-500 hover:bg-amber-50 transition-all"
+                        title="Disable"
+                      >
+                        <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M18.364 18.364A9 9 0 005.636 5.636m12.728 12.728A9 9 0 015.636 5.636m12.728 12.728L5.636 5.636"/></svg>
+                      </button>
+                    {/if}
                     <button
                       on:click={() => handleRevoke(key.id)}
                       disabled={revoking === key.id || key.status === 'revoked'}
@@ -223,21 +260,19 @@
       </div>
     {:else}
       <div class="space-y-4">
-        {#if organizations.length > 0}
         <div>
           <label for="myapikey-org" class="block text-xs font-semibold text-gray-500 uppercase tracking-wider mb-2">Organization</label>
           <select
             id="myapikey-org"
             bind:value={newKeyForm.organization_id}
-            class="w-full px-4 py-3 border border-gray-200 rounded-xl text-sm input-focus outline-none font-medium bg-white"
+            class="w-full px-4 py-3 border border-gray-200 rounded-xl text-sm input-focus outline-none font-medium bg-white text-gray-900"
           >
-            <option value="" disabled selected hidden>Select organization</option>
+            <option value="">Personal（个人）</option>
             {#each organizations as org}
               <option value={org.id}>{org.name}</option>
             {/each}
           </select>
         </div>
-        {/if}
         <div>
           <label for="myapikey-name" class="block text-xs font-semibold text-gray-500 uppercase tracking-wider mb-2">Name</label>
           <input
@@ -245,7 +280,7 @@
             type="text"
             bind:value={newKeyForm.name}
             placeholder="e.g. Production API Key"
-            class="w-full px-4 py-3 border border-gray-200 rounded-xl text-sm input-focus outline-none font-medium"
+            class="w-full px-4 py-3 border border-gray-200 rounded-xl text-sm input-focus outline-none font-medium bg-white text-gray-900"
           />
         </div>
         <div>
@@ -256,7 +291,7 @@
             bind:value={newKeyForm.expires_in_days}
             placeholder="Leave empty for no expiration"
             min="1"
-            class="w-full px-4 py-3 border border-gray-200 rounded-xl text-sm input-focus outline-none font-medium"
+            class="w-full px-4 py-3 border border-gray-200 rounded-xl text-sm input-focus outline-none font-medium bg-white text-gray-900"
           />
         </div>
         <div class="flex gap-3 justify-end pt-1">
@@ -268,7 +303,7 @@
           </button>
           <button
             on:click={handleCreate}
-            disabled={creating || !newKeyForm.name.trim() || (organizations.length > 0 && !newKeyForm.organization_id)}
+            disabled={creating || !newKeyForm.name.trim()}
             class="btn-primary px-5 py-2.5 rounded-xl font-semibold text-sm disabled:opacity-50 disabled:cursor-not-allowed"
           >
             {creating ? 'Creating...' : 'Create'}

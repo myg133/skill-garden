@@ -175,6 +175,8 @@ impl SkillDependencyService {
                 reviewed_by: s.reviewed_by,
                 reviewed_at: s.reviewed_at,
                 review_comment: s.review_comment,
+                marketplace_status: s.marketplace_status,
+                pre_marketplace_visibility: s.pre_marketplace_visibility,
             });
 
             resolved.push(ResolvedSkill {

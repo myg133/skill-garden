@@ -3,9 +3,12 @@
   import { Link } from 'svelte-routing';
   import { api } from '../lib/api.js';
   import { addToast } from '../stores/app.js';
+  import { hasPermission } from '../stores/permission.js';
+  import { ACTIONS } from '../config/actions.js';
   import LoadingSpinner from '../components/LoadingSpinner.svelte';
   import EmptyState from '../components/EmptyState.svelte';
 
+  const ACT = ACTIONS.Groups;
   let groups = [];
   let organizations = [];
   let loading = true;
@@ -163,6 +166,7 @@
         <h1 class="text-[28px] font-extrabold text-gray-800 tracking-tight">Groups</h1>
         <p class="text-gray-500 text-sm mt-1.5 font-medium">Manage teams, projects and departments within organizations</p>
       </div>
+      {#if hasPermission(ACT.create)}
       <button
         on:click={openCreateModal}
         class="btn-primary px-5 py-2.5 rounded-xl font-semibold text-sm flex items-center gap-2"
@@ -170,6 +174,7 @@
         <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 4v16m8-8H4"/></svg>
         New Group
       </button>
+      {/if}
     </div>
   </div>
 
@@ -180,12 +185,14 @@
   {:else if groups.length === 0}
     <div class="bg-white rounded-xl border border-gray-200 shadow-card">
       <EmptyState message="No groups yet">
+        {#if hasPermission(ACT.create)}
         <button
           on:click={openCreateModal}
           class="mt-4 btn-primary px-5 py-2.5 rounded-lg font-semibold text-sm"
         >
           Create your first group
         </button>
+        {/if}
       </EmptyState>
     </div>
   {:else}
@@ -215,6 +222,7 @@
               {/if}
             </div>
           </Link>
+          {#if hasPermission(ACT.delete)}
           <button
             on:click={() => handleDelete(group.id)}
             class="absolute top-3 right-3 p-2 rounded-lg text-gray-400 hover:text-red-500 hover:bg-red-50 transition-all z-10"
@@ -222,6 +230,7 @@
           >
             <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16"/></svg>
           </button>
+          {/if}
         </div>
       {/each}
     </div>
@@ -238,7 +247,7 @@
         <select
           id="group-org"
           bind:value={newGroup.organization_id}
-          class="w-full px-4 py-3 border border-gray-200 rounded-xl text-sm input-focus outline-none font-medium bg-white"
+          class="w-full px-4 py-3 border border-gray-200 rounded-xl text-sm input-focus outline-none font-medium bg-white text-gray-900"
         >
           <option value="" disabled selected hidden>Select organization</option>
           {#each organizations as org}
@@ -253,7 +262,7 @@
           type="text"
           bind:value={newGroup.name}
           placeholder="Group name"
-          class="w-full px-4 py-3 border border-gray-200 rounded-xl text-sm input-focus outline-none font-medium"
+          class="w-full px-4 py-3 border border-gray-200 rounded-xl text-sm input-focus outline-none font-medium bg-white text-gray-900"
         />
       </div>
       <div>
@@ -263,7 +272,7 @@
           type="text"
           bind:value={newGroup.slug}
           placeholder="group-slug"
-          class="w-full px-4 py-3 border border-gray-200 rounded-xl text-sm input-focus outline-none font-medium"
+          class="w-full px-4 py-3 border border-gray-200 rounded-xl text-sm input-focus outline-none font-medium bg-white text-gray-900"
         />
       </div>
       <div>
@@ -271,7 +280,7 @@
         <select
           id="group-type"
           bind:value={newGroup.group_type}
-          class="w-full px-4 py-3 border border-gray-200 rounded-xl text-sm input-focus outline-none font-medium bg-white"
+          class="w-full px-4 py-3 border border-gray-200 rounded-xl text-sm input-focus outline-none font-medium bg-white text-gray-900"
         >
           {#each groupTypes as type}
             <option value={type}>{type}</option>
@@ -285,7 +294,7 @@
           bind:value={newGroup.description}
           placeholder="Group description"
           rows="2"
-          class="w-full px-4 py-3 border border-gray-200 rounded-xl text-sm input-focus outline-none font-medium resize-none"
+          class="w-full px-4 py-3 border border-gray-200 rounded-xl text-sm input-focus outline-none font-medium bg-white text-gray-900 resize-none"
         ></textarea>
       </div>
 

@@ -1,5 +1,7 @@
 //! Tenant Repository
 
+use std::collections::HashMap;
+
 use chrono::Utc;
 use sqlx::PgPool;
 use uuid::Uuid;
@@ -69,6 +71,22 @@ impl TenantRepository {
         .map_err(|e| DbError::QueryError(e.to_string()))?;
 
         Ok(tenant.map(|t| t.into()))
+    }
+
+    /// 批量根据 ID 列表查询租户名称（避免 N+1 查询）
+    pub async fn find_names_by_ids(&self, ids: &[Uuid]) -> DbResult<HashMap<Uuid, String>> {
+        if ids.is_empty() {
+            return Ok(HashMap::new());
+        }
+        let rows = sqlx::query_as::<_, TenantNameRow>(
+            "SELECT id, name FROM tenants WHERE id = ANY($1)",
+        )
+        .bind(ids)
+        .fetch_all(&self.pool)
+        .await
+        .map_err(|e| DbError::QueryError(e.to_string()))?;
+
+        Ok(rows.into_iter().map(|r| (r.id, r.name)).collect())
     }
 
     pub async fn list_all(&self, limit: i64, offset: i64) -> DbResult<Vec<Tenant>> {
@@ -146,6 +164,12 @@ struct TenantRow {
     created_by: Option<Uuid>,
     created_at: chrono::DateTime<Utc>,
     updated_at: chrono::DateTime<Utc>,
+}
+
+#[derive(sqlx::FromRow)]
+struct TenantNameRow {
+    id: Uuid,
+    name: String,
 }
 
 impl From<TenantRow> for Tenant {

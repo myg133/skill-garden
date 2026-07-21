@@ -302,6 +302,8 @@ mod tests {
             reviewed_by: None,
             reviewed_at: None,
             review_comment: None,
+            marketplace_status: None,
+            pre_marketplace_visibility: None,
         }
     }
 

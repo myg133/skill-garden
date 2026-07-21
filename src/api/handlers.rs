@@ -100,6 +100,107 @@ async fn check_skill_perm_raw(
     Ok(())
 }
 
+/// 辅助函数：批量解析 tenant_roles 中的租户名称（避免 N+1 循环查询）
+/// 一次 SQL 查询替代 N 次逐个查询
+async fn build_tenant_role_infos(
+    state: &ApiState,
+    tenant_roles: &[(uuid::Uuid, String)],
+) -> Vec<crate::api::models::TenantRoleInfo> {
+    if tenant_roles.is_empty() {
+        return Vec::new();
+    }
+    let ids: Vec<uuid::Uuid> = tenant_roles.iter().map(|(id, _)| *id).collect();
+    let name_map = state
+        .tenant
+        .get_names_by_ids(&ids)
+        .await
+        .unwrap_or_default();
+
+    tenant_roles
+        .iter()
+        .map(|(tenant_id, role_name)| crate::api::models::TenantRoleInfo {
+            tenant_id: *tenant_id,
+            tenant_name: name_map
+                .get(tenant_id)
+                .cloned()
+                .unwrap_or_else(|| "Unknown".to_string()),
+            role_name: role_name.clone(),
+        })
+        .collect()
+}
+
+// ============================================================
+// Phase 1-3: Unified auth entry points - delegate to PermissionService
+// ============================================================
+
+/// 统一的管理员权限检查，替代 agent_context.require_admin()
+/// 允许 super_admin 以及任意租户的 tenant_admin 访问 /admin/* 路由
+/// 快速路径：JWT claims 含 "admin" → 直接通过（向后兼容，无需查 DB）
+/// 慢路径：通过 PermissionService 检查管理员角色（单表/双表查询，不做完整 build_context）
+async fn require_admin(state: &ApiState, agent_context: &AgentContext) -> Result<uuid::Uuid, ApiError> {
+    // Fast path: JWT claim check (backward compatible for existing tokens)
+    if agent_context.roles.iter().any(|r| r == "admin") {
+        return agent_context.require_identity();
+    }
+
+    let identity_id = agent_context.require_identity()?;
+    let is_admin = state
+        .permission
+        .is_any_admin(identity_id)
+        .await
+        .map_err(|e| ApiError::InternalError(e.to_string()))?;
+
+    if is_admin {
+        return Ok(identity_id);
+    }
+
+    Err(ApiError::Unauthorized("Admin access required".to_string()))
+}
+
+/// 市场管理员权限检查（super_admin / marketplace_admin / marketplace_reviewer）
+/// Phase 3: marketplace_admin 可访问市场管理相关路由
+/// marketplace_reviewer 拥有审核队列的审批/驳回权限
+async fn require_marketplace_admin(state: &ApiState, agent_context: &AgentContext) -> Result<uuid::Uuid, ApiError> {
+    // Fast path: JWT claim check (backward compatible for existing tokens)
+    if agent_context.roles.iter().any(|r| r == "admin") {
+        return agent_context.require_identity();
+    }
+
+    let identity_id = agent_context.require_identity()?;
+    let has_role = state
+        .permission
+        .has_any_system_role(identity_id, &["super_admin", "marketplace_admin", "marketplace_reviewer"])
+        .await
+        .map_err(|e| ApiError::InternalError(e.to_string()))?;
+
+    if has_role {
+        return Ok(identity_id);
+    }
+
+    Err(ApiError::Unauthorized("Marketplace admin access required".to_string()))
+}
+
+/// 市场管理员权限检查（仅 super_admin / marketplace_admin，不含 marketplace_reviewer）
+/// 用于 market 上下架/重新上架等需要全权的操作
+async fn require_marketplace_admin_only(state: &ApiState, agent_context: &AgentContext) -> Result<uuid::Uuid, ApiError> {
+    if agent_context.roles.iter().any(|r| r == "admin") {
+        return agent_context.require_identity();
+    }
+
+    let identity_id = agent_context.require_identity()?;
+    let has_role = state
+        .permission
+        .has_any_system_role(identity_id, &["super_admin", "marketplace_admin"])
+        .await
+        .map_err(|e| ApiError::InternalError(e.to_string()))?;
+
+    if has_role {
+        return Ok(identity_id);
+    }
+
+    Err(ApiError::Unauthorized("Marketplace admin (full) access required".to_string()))
+}
+
 pub async fn health_handler(State(state): State<ApiState>) -> Result<impl IntoResponse, ApiError> {
     let skills_count = state
         .registry
@@ -121,14 +222,42 @@ pub async fn list_tenants_handler(
     agent_context: AgentContext,
     Query(query): Query<crate::api::models::PaginationQuery>,
 ) -> Result<impl IntoResponse, ApiError> {
-    agent_context.require_admin()?;
+    let identity_id = require_admin(&state, &agent_context).await?;
     let limit = query.limit.unwrap_or(20).min(100);
     let offset = query.offset.unwrap_or(0);
-    let tenants = state
-        .tenant
-        .list(limit, offset)
+    let is_super = state
+        .permission
+        .is_super_admin(identity_id)
         .await
         .map_err(|e| ApiError::InternalError(e.to_string()))?;
+
+    let tenants = if is_super {
+        state
+            .tenant
+            .list(limit, offset)
+            .await
+            .map_err(|e| ApiError::InternalError(e.to_string()))?
+    } else {
+        // tenant_admin: only return tenants they administer
+        let tenant_ids = state
+            .permission
+            .get_tenant_admin_tenant_ids(identity_id)
+            .await
+            .map_err(|e| ApiError::InternalError(e.to_string()))?;
+        if tenant_ids.is_empty() {
+            Vec::new()
+        } else {
+            state
+                .tenant
+                .list(limit, offset)
+                .await
+                .map_err(|e| ApiError::InternalError(e.to_string()))?
+                .into_iter()
+                .filter(|t| tenant_ids.contains(&t.id))
+                .collect()
+        }
+    };
+
     Ok((StatusCode::OK, Json(serde_json::json!({ "data": tenants }))))
 }
 
@@ -137,7 +266,16 @@ pub async fn create_tenant_handler(
     agent_context: AgentContext,
     Json(body): Json<crate::api::models::CreateTenantBody>,
 ) -> Result<impl IntoResponse, ApiError> {
-    agent_context.require_admin()?;
+    let identity_id = require_admin(&state, &agent_context).await?;
+    // Only super_admin can create tenants
+    let is_super = state
+        .permission
+        .is_super_admin(identity_id)
+        .await
+        .map_err(|e| ApiError::InternalError(e.to_string()))?;
+    if !is_super {
+        return Err(ApiError::Unauthorized("Super admin access required".to_string()));
+    }
     let tenant = state
         .tenant
         .create(body.into())
@@ -154,7 +292,23 @@ pub async fn get_tenant_handler(
     agent_context: AgentContext,
     Path(id): Path<Uuid>,
 ) -> Result<impl IntoResponse, ApiError> {
-    agent_context.require_admin()?;
+    let identity_id = require_admin(&state, &agent_context).await?;
+    // tenant_admin can only access their own tenants
+    let is_super = state
+        .permission
+        .is_super_admin(identity_id)
+        .await
+        .map_err(|e| ApiError::InternalError(e.to_string()))?;
+    if !is_super {
+        let tenant_ids = state
+            .permission
+            .get_tenant_admin_tenant_ids(identity_id)
+            .await
+            .map_err(|e| ApiError::InternalError(e.to_string()))?;
+        if !tenant_ids.contains(&id) {
+            return Err(ApiError::NotFound("Tenant not found".to_string()));
+        }
+    }
     let tenant = state
         .tenant
         .get(id)
@@ -170,7 +324,23 @@ pub async fn update_tenant_handler(
     Path(id): Path<Uuid>,
     Json(body): Json<crate::api::models::UpdateTenantBody>,
 ) -> Result<impl IntoResponse, ApiError> {
-    agent_context.require_admin()?;
+    let identity_id = require_admin(&state, &agent_context).await?;
+    // tenant_admin can only update their own tenants
+    let is_super = state
+        .permission
+        .is_super_admin(identity_id)
+        .await
+        .map_err(|e| ApiError::InternalError(e.to_string()))?;
+    if !is_super {
+        let tenant_ids = state
+            .permission
+            .get_tenant_admin_tenant_ids(identity_id)
+            .await
+            .map_err(|e| ApiError::InternalError(e.to_string()))?;
+        if !tenant_ids.contains(&id) {
+            return Err(ApiError::NotFound("Tenant not found".to_string()));
+        }
+    }
     let tenant = state
         .tenant
         .update(id, body.into())
@@ -184,7 +354,16 @@ pub async fn delete_tenant_handler(
     agent_context: AgentContext,
     Path(id): Path<Uuid>,
 ) -> Result<impl IntoResponse, ApiError> {
-    agent_context.require_admin()?;
+    let identity_id = require_admin(&state, &agent_context).await?;
+    // Only super_admin can delete tenants
+    let is_super = state
+        .permission
+        .is_super_admin(identity_id)
+        .await
+        .map_err(|e| ApiError::InternalError(e.to_string()))?;
+    if !is_super {
+        return Err(ApiError::Unauthorized("Super admin access required".to_string()));
+    }
     state
         .tenant
         .delete(id)
@@ -200,7 +379,7 @@ pub async fn list_identities_handler(
     agent_context: AgentContext,
     Query(query): Query<crate::api::models::PaginationQuery>,
 ) -> Result<impl IntoResponse, ApiError> {
-    agent_context.require_admin()?;
+    require_admin(&state, &agent_context).await?;
     let limit = query.limit.unwrap_or(20).min(100);
     let offset = query.offset.unwrap_or(0);
     let identities = state
@@ -219,7 +398,7 @@ pub async fn create_identity_handler(
     agent_context: AgentContext,
     Json(body): Json<crate::api::models::CreateIdentityBody>,
 ) -> Result<impl IntoResponse, ApiError> {
-    agent_context.require_admin()?;
+    require_admin(&state, &agent_context).await?;
     let identity = state
         .identity
         .create(body.into())
@@ -236,7 +415,7 @@ pub async fn get_identity_handler(
     agent_context: AgentContext,
     Path(id): Path<Uuid>,
 ) -> Result<impl IntoResponse, ApiError> {
-    agent_context.require_admin()?;
+    require_admin(&state, &agent_context).await?;
     let identity = state
         .identity
         .get(id)
@@ -255,7 +434,7 @@ pub async fn update_identity_handler(
     Path(id): Path<Uuid>,
     Json(body): Json<crate::api::models::UpdateIdentityBody>,
 ) -> Result<impl IntoResponse, ApiError> {
-    agent_context.require_admin()?;
+    require_admin(&state, &agent_context).await?;
     let identity = state
         .identity
         .update(id, body.into())
@@ -272,7 +451,7 @@ pub async fn delete_identity_handler(
     agent_context: AgentContext,
     Path(id): Path<Uuid>,
 ) -> Result<impl IntoResponse, ApiError> {
-    agent_context.require_admin()?;
+    require_admin(&state, &agent_context).await?;
     state
         .identity
         .delete(id)
@@ -288,7 +467,7 @@ pub async fn list_groups_handler(
     agent_context: AgentContext,
     Query(query): Query<crate::api::models::ListGroupsQuery>,
 ) -> Result<impl IntoResponse, ApiError> {
-    agent_context.require_admin()?;
+    require_admin(&state, &agent_context).await?;
     let org_id = query.organization_id;
     let groups = if let Some(org_id) = org_id {
         state
@@ -311,7 +490,7 @@ pub async fn create_group_handler(
     agent_context: AgentContext,
     Json(body): Json<crate::api::models::CreateGroupBody>,
 ) -> Result<impl IntoResponse, ApiError> {
-    agent_context.require_admin()?;
+    require_admin(&state, &agent_context).await?;
     let subject = agent_context.subject;
     let permission_overrides = body.permission_overrides.clone();
     let new_group: crate::models::group::NewGroup = body.into();
@@ -366,7 +545,7 @@ pub async fn get_group_handler(
     agent_context: AgentContext,
     Path(id): Path<Uuid>,
 ) -> Result<impl IntoResponse, ApiError> {
-    agent_context.require_admin()?;
+    require_admin(&state, &agent_context).await?;
     let group = state
         .group
         .get(id)
@@ -382,7 +561,7 @@ pub async fn update_group_handler(
     Path(id): Path<Uuid>,
     Json(body): Json<crate::api::models::UpdateGroupBody>,
 ) -> Result<impl IntoResponse, ApiError> {
-    agent_context.require_admin()?;
+    require_admin(&state, &agent_context).await?;
     let group = state
         .group
         .update(id, body.into())
@@ -396,7 +575,7 @@ pub async fn delete_group_handler(
     agent_context: AgentContext,
     Path(id): Path<Uuid>,
 ) -> Result<impl IntoResponse, ApiError> {
-    agent_context.require_admin()?;
+    require_admin(&state, &agent_context).await?;
     state
         .group
         .delete(id)
@@ -411,7 +590,7 @@ pub async fn list_roles_handler(
     State(state): State<ApiState>,
     agent_context: AgentContext,
 ) -> Result<impl IntoResponse, ApiError> {
-    agent_context.require_admin()?;
+    require_admin(&state, &agent_context).await?;
     let roles = state
         .role
         .list()
@@ -425,7 +604,7 @@ pub async fn get_role_handler(
     agent_context: AgentContext,
     Path(id): Path<Uuid>,
 ) -> Result<impl IntoResponse, ApiError> {
-    agent_context.require_admin()?;
+    require_admin(&state, &agent_context).await?;
     let role = state
         .role
         .get(id)
@@ -442,7 +621,7 @@ pub async fn list_api_keys_handler(
     agent_context: AgentContext,
     Query(query): Query<crate::api::models::ListApiKeysQuery>,
 ) -> Result<impl IntoResponse, ApiError> {
-    agent_context.require_admin()?;
+    require_admin(&state, &agent_context).await?;
     let keys = if let Some(identity_id) = query.identity_id {
         state
             .api_key
@@ -470,8 +649,16 @@ pub async fn create_api_key_handler(
     agent_context: AgentContext,
     Json(body): Json<crate::api::models::CreateApiKeyBody>,
 ) -> Result<impl IntoResponse, ApiError> {
-    agent_context.require_admin()?;
-    let request: crate::models::api_key::CreateApiKeyRequest = body.into();
+    require_admin(&state, &agent_context).await?;
+    let expires_at = body.effective_expires_at();
+    let request: crate::models::api_key::CreateApiKeyRequest = crate::models::api_key::CreateApiKeyRequest {
+        identity_id: body.identity_id,
+        organization_id: body.organization_id,
+        name: body.name,
+        scopes: body.scopes.unwrap_or_default(),
+        rate_limit: body.rate_limit.unwrap_or(1000),
+        expires_at,
+    };
     let key = state
         .api_key
         .create(request)
@@ -488,13 +675,45 @@ pub async fn delete_api_key_handler(
     agent_context: AgentContext,
     Path(id): Path<Uuid>,
 ) -> Result<impl IntoResponse, ApiError> {
-    agent_context.require_admin()?;
+    require_admin(&state, &agent_context).await?;
     state
         .api_key
         .delete(id)
         .await
         .map_err(|e| ApiError::BadRequest(e.to_string()))?;
     Ok((StatusCode::OK, Json(serde_json::json!({"deleted": id}))))
+}
+
+pub async fn update_api_key_status_handler(
+    State(state): State<ApiState>,
+    agent_context: AgentContext,
+    Path(id): Path<Uuid>,
+    Json(body): Json<crate::api::models::UpdateApiKeyStatusBody>,
+) -> Result<impl IntoResponse, ApiError> {
+    require_admin(&state, &agent_context).await?;
+
+    match body.status.to_lowercase().as_str() {
+        "disabled" => {
+            state
+                .api_key
+                .disable(id)
+                .await
+                .map_err(|e| ApiError::BadRequest(e.to_string()))?;
+        }
+        "active" => {
+            state
+                .api_key
+                .enable(id)
+                .await
+                .map_err(|e| ApiError::BadRequest(e.to_string()))?;
+        }
+        _ => {
+            return Err(ApiError::BadRequest(
+                "status must be 'disabled' or 'active'".to_string(),
+            ));
+        }
+    }
+    Ok((StatusCode::OK, Json(serde_json::json!({"status": body.status}))))
 }
 
 // User-facing self-service API Key handlers (6.5)
@@ -536,12 +755,13 @@ pub async fn create_my_api_key_handler(
         }
     }
 
+    let expires_at = body.effective_expires_at();
     let user_req = crate::models::api_key::UserCreateApiKeyRequest {
         organization_id: body.organization_id,
         name: body.name,
         scopes: body.scopes.unwrap_or_default(),
         rate_limit: body.rate_limit.unwrap_or(1000),
-        expires_at: body.expires_at,
+        expires_at,
     };
     let key = state
         .api_key
@@ -584,6 +804,52 @@ pub async fn revoke_my_api_key_handler(
     Ok((StatusCode::OK, Json(serde_json::json!({"revoked": id}))))
 }
 
+pub async fn update_my_api_key_status_handler(
+    State(state): State<ApiState>,
+    Path(id): Path<Uuid>,
+    AgentContext { subject, .. }: AgentContext,
+    Json(body): Json<crate::api::models::UpdateApiKeyStatusBody>,
+) -> Result<impl IntoResponse, ApiError> {
+    let identity_id = uuid::Uuid::parse_str(&subject)
+        .map_err(|_| ApiError::BadRequest("Invalid subject".to_string()))?;
+
+    let key = state
+        .api_key
+        .get(id)
+        .await
+        .map_err(|e| ApiError::InternalError(e.to_string()))?
+        .ok_or_else(|| ApiError::NotFound("API Key not found".to_string()))?;
+
+    if key.identity_id != identity_id {
+        return Err(ApiError::Forbidden(
+            "Cannot modify another user's API key".to_string(),
+        ));
+    }
+
+    match body.status.to_lowercase().as_str() {
+        "disabled" => {
+            state
+                .api_key
+                .disable(id)
+                .await
+                .map_err(|e| ApiError::BadRequest(e.to_string()))?;
+        }
+        "active" => {
+            state
+                .api_key
+                .enable(id)
+                .await
+                .map_err(|e| ApiError::BadRequest(e.to_string()))?;
+        }
+        _ => {
+            return Err(ApiError::BadRequest(
+                "status must be 'disabled' or 'active'".to_string(),
+            ));
+        }
+    }
+    Ok((StatusCode::OK, Json(serde_json::json!({"status": body.status}))))
+}
+
 // Audit entries handler
 
 pub async fn list_audit_entries_handler(
@@ -591,7 +857,7 @@ pub async fn list_audit_entries_handler(
     agent_context: AgentContext,
     Query(query): Query<crate::api::models::ListAuditEntriesQuery>,
 ) -> Result<impl IntoResponse, ApiError> {
-    agent_context.require_admin()?;
+    require_admin(&state, &agent_context).await?;
     let limit = query.limit.unwrap_or(50).min(200);
     let offset = query.offset.unwrap_or(0);
     let audit_query = crate::models::api_key::AuditLogQuery {
@@ -618,7 +884,7 @@ pub async fn create_role_handler(
     agent_context: AgentContext,
     Json(body): Json<crate::api::models::CreateRoleBody>,
 ) -> Result<impl IntoResponse, ApiError> {
-    agent_context.require_admin()?;
+    require_admin(&state, &agent_context).await?;
     let new_role = crate::models::role::NewRole {
         name: body.name,
         role_type: crate::models::role::RoleType::from(body.role_type.as_str()),
@@ -644,7 +910,7 @@ pub async fn update_role_handler(
     Path(id): Path<Uuid>,
     Json(body): Json<crate::api::models::UpdateRoleBody>,
 ) -> Result<impl IntoResponse, ApiError> {
-    agent_context.require_admin()?;
+    require_admin(&state, &agent_context).await?;
     let update = crate::models::role::RoleUpdate {
         name: body.name,
         permissions: body.permissions,
@@ -663,7 +929,7 @@ pub async fn delete_role_handler(
     agent_context: AgentContext,
     Path(id): Path<Uuid>,
 ) -> Result<impl IntoResponse, ApiError> {
-    agent_context.require_admin()?;
+    require_admin(&state, &agent_context).await?;
     state
         .role
         .delete(id)
@@ -679,7 +945,7 @@ pub async fn get_identity_roles_handler(
     agent_context: AgentContext,
     Path(id): Path<Uuid>,
 ) -> Result<impl IntoResponse, ApiError> {
-    agent_context.require_admin()?;
+    require_admin(&state, &agent_context).await?;
     let roles = state
         .role
         .get_identity_roles(id)
@@ -694,7 +960,7 @@ pub async fn grant_identity_role_handler(
     Path(id): Path<Uuid>,
     Json(body): Json<crate::api::models::GrantRoleBody>,
 ) -> Result<impl IntoResponse, ApiError> {
-    agent_context.require_admin()?;
+    require_admin(&state, &agent_context).await?;
     let admin_id = uuid::Uuid::parse_str(&agent_context.subject)
         .map_err(|_| ApiError::BadRequest("Invalid admin subject".to_string()))?;
     let request = crate::models::role::GrantRoleRequest {
@@ -720,7 +986,7 @@ pub async fn revoke_identity_role_handler(
     Path((identity_id, role_id)): Path<(Uuid, Uuid)>,
     Query(query): Query<crate::api::models::RevokeRoleQuery>,
 ) -> Result<impl IntoResponse, ApiError> {
-    agent_context.require_admin()?;
+    require_admin(&state, &agent_context).await?;
     state
         .role
         .revoke_role(identity_id, role_id, query.scope_id)
@@ -737,7 +1003,7 @@ pub async fn get_identity_permissions_handler(
     agent_context: AgentContext,
     Path(id): Path<Uuid>,
 ) -> Result<impl IntoResponse, ApiError> {
-    agent_context.require_admin()?;
+    require_admin(&state, &agent_context).await?;
     let permissions = state
         .role
         .get_identity_permissions(id)
@@ -756,12 +1022,12 @@ pub async fn assign_system_role_handler(
     agent_context: AgentContext,
     Json(body): Json<crate::api::models::AssignSystemRoleBody>,
 ) -> Result<impl IntoResponse, ApiError> {
-    agent_context.require_admin()?;
+    require_admin(&state, &agent_context).await?;
     let admin_id = uuid::Uuid::parse_str(&agent_context.subject)
         .map_err(|_| ApiError::BadRequest("Invalid admin subject".to_string()))?;
-    if !crate::models::system_role_assignment::SystemRole::is_valid(&body.role_name) {
+    if !crate::models::system_role_assignment::SystemRole::is_valid_super_admin_role(&body.role_name) {
         return Err(ApiError::BadRequest(format!(
-            "Invalid system role: {}",
+            "Invalid system role for super admin assignment: {}. Only super_admin/marketplace_admin allowed.",
             body.role_name
         )));
     }
@@ -781,7 +1047,7 @@ pub async fn revoke_system_role_handler(
     agent_context: AgentContext,
     Json(body): Json<crate::api::models::RevokeSystemRoleBody>,
 ) -> Result<impl IntoResponse, ApiError> {
-    agent_context.require_admin()?;
+    require_admin(&state, &agent_context).await?;
     state
         .system_role_assignment
         .revoke(body.identity_id, &body.role_name)
@@ -795,7 +1061,7 @@ pub async fn list_system_role_assignments_handler(
     agent_context: AgentContext,
     Query(query): Query<crate::api::models::ListSystemRoleAssignmentsQuery>,
 ) -> Result<impl IntoResponse, ApiError> {
-    agent_context.require_admin()?;
+    require_admin(&state, &agent_context).await?;
     let assignments = if let Some(identity_id) = query.identity_id {
         state
             .system_role_assignment
@@ -809,9 +1075,11 @@ pub async fn list_system_role_assignments_handler(
             .await
             .map_err(|e| ApiError::InternalError(e.to_string()))?
     } else {
-        return Err(ApiError::BadRequest(
-            "Provide identity_id or role_name query parameter".to_string(),
-        ));
+        state
+            .system_role_assignment
+            .list_all()
+            .await
+            .map_err(|e| ApiError::InternalError(e.to_string()))?
     };
     Ok((
         StatusCode::OK,
@@ -824,12 +1092,142 @@ pub async fn get_identity_system_roles_handler(
     agent_context: AgentContext,
     Path(id): Path<Uuid>,
 ) -> Result<impl IntoResponse, ApiError> {
-    agent_context.require_admin()?;
+    require_admin(&state, &agent_context).await?;
     let assignments = state
         .system_role_assignment
         .find_by_identity(id)
         .await
         .map_err(|e| ApiError::InternalError(e.to_string()))?;
+    Ok((
+        StatusCode::OK,
+        Json(serde_json::json!({ "data": assignments })),
+    ))
+}
+
+// Marketplace reviewer assignment handlers (marketplace_admin assigns marketplace_reviewer)
+
+pub async fn assign_marketplace_reviewer_handler(
+    State(state): State<ApiState>,
+    agent_context: AgentContext,
+    Json(body): Json<crate::api::models::AssignMarketplaceReviewerBody>,
+) -> Result<impl IntoResponse, ApiError> {
+    require_marketplace_admin_only(&state, &agent_context).await?;
+    let admin_id = uuid::Uuid::parse_str(&agent_context.subject)
+        .map_err(|_| ApiError::BadRequest("Invalid admin subject".to_string()))?;
+    // Prevent self-assignment
+    if body.identity_id == admin_id {
+        return Err(ApiError::BadRequest("Cannot modify your own role".to_string()));
+    }
+    let role_name = "marketplace_reviewer";
+    let assignment = state
+        .system_role_assignment
+        .assign(body.identity_id, role_name, Some(admin_id))
+        .await
+        .map_err(|e| ApiError::BadRequest(e.to_string()))?;
+    Ok((
+        StatusCode::CREATED,
+        Json(serde_json::to_value(assignment).unwrap()),
+    ))
+}
+
+pub async fn revoke_marketplace_reviewer_handler(
+    State(state): State<ApiState>,
+    agent_context: AgentContext,
+    Json(body): Json<crate::api::models::RevokeMarketplaceReviewerBody>,
+) -> Result<impl IntoResponse, ApiError> {
+    require_marketplace_admin_only(&state, &agent_context).await?;
+    let admin_id = uuid::Uuid::parse_str(&agent_context.subject)
+        .map_err(|_| ApiError::BadRequest("Invalid admin subject".to_string()))?;
+    if body.identity_id == admin_id {
+        return Err(ApiError::BadRequest("Cannot modify your own role".to_string()));
+    }
+    state
+        .system_role_assignment
+        .revoke(body.identity_id, "marketplace_reviewer")
+        .await
+        .map_err(|e| ApiError::BadRequest(e.to_string()))?;
+    Ok((StatusCode::OK, Json(serde_json::json!({"revoked": true}))))
+}
+
+pub async fn list_marketplace_reviewers_handler(
+    State(state): State<ApiState>,
+    agent_context: AgentContext,
+) -> Result<impl IntoResponse, ApiError> {
+    require_marketplace_admin(&state, &agent_context).await?;
+    let assignments = state
+        .system_role_assignment
+        .list_by_role("marketplace_reviewer")
+        .await
+        .map_err(|e| ApiError::InternalError(e.to_string()))?;
+    Ok((
+        StatusCode::OK,
+        Json(serde_json::json!({ "data": assignments })),
+    ))
+}
+
+// Tenant role assignment handlers (tenant_admin assigns org owner/admin)
+
+pub async fn assign_tenant_role_handler(
+    State(state): State<ApiState>,
+    agent_context: AgentContext,
+    Json(body): Json<crate::api::models::AssignTenantRoleBody>,
+) -> Result<impl IntoResponse, ApiError> {
+    require_admin(&state, &agent_context).await?;
+    let admin_id = uuid::Uuid::parse_str(&agent_context.subject)
+        .map_err(|_| ApiError::BadRequest("Invalid admin subject".to_string()))?;
+    if !matches!(body.role_name.as_str(), "tenant_admin") {
+        return Err(ApiError::BadRequest(
+            "Only tenant_admin role can be assigned at tenant level".to_string(),
+        ));
+    }
+    let assignment = state
+        .tenant_role_assignment
+        .assign(body.identity_id, body.tenant_id, &body.role_name, Some(admin_id))
+        .await
+        .map_err(|e| ApiError::BadRequest(e.to_string()))?;
+    Ok((
+        StatusCode::CREATED,
+        Json(serde_json::to_value(assignment).unwrap()),
+    ))
+}
+
+pub async fn revoke_tenant_role_handler(
+    State(state): State<ApiState>,
+    agent_context: AgentContext,
+    Json(body): Json<crate::api::models::RevokeTenantRoleBody>,
+) -> Result<impl IntoResponse, ApiError> {
+    require_admin(&state, &agent_context).await?;
+    state
+        .tenant_role_assignment
+        .revoke(body.identity_id, body.tenant_id, &body.role_name)
+        .await
+        .map_err(|e| ApiError::BadRequest(e.to_string()))?;
+    Ok((StatusCode::OK, Json(serde_json::json!({"revoked": true}))))
+}
+
+pub async fn list_tenant_role_assignments_handler(
+    State(state): State<ApiState>,
+    agent_context: AgentContext,
+    Query(query): Query<crate::api::models::ListTenantRoleAssignmentsQuery>,
+) -> Result<impl IntoResponse, ApiError> {
+    require_admin(&state, &agent_context).await?;
+    let assignments = if let Some(tenant_id) = query.tenant_id {
+        state
+            .tenant_role_assignment
+            .list_by_tenant(tenant_id)
+            .await
+            .map_err(|e| ApiError::InternalError(e.to_string()))?
+    } else if let Some(identity_id) = query.identity_id {
+        state
+            .tenant_role_assignment
+            .find_by_identity(identity_id)
+            .await
+            .map_err(|e| ApiError::InternalError(e.to_string()))?
+    } else {
+        return Err(ApiError::BadRequest(
+            "Must provide tenant_id or identity_id".to_string(),
+        ));
+    };
     Ok((
         StatusCode::OK,
         Json(serde_json::json!({ "data": assignments })),
@@ -843,7 +1241,7 @@ pub async fn list_role_permissions_handler(
     agent_context: AgentContext,
     Query(query): Query<std::collections::HashMap<String, String>>,
 ) -> Result<impl IntoResponse, ApiError> {
-    agent_context.require_admin()?;
+    require_admin(&state, &agent_context).await?;
     let permissions = if let (Some(role_level), Some(role_name)) =
         (query.get("role_level"), query.get("role_name"))
     {
@@ -870,7 +1268,7 @@ pub async fn create_role_permission_handler(
     agent_context: AgentContext,
     Json(body): Json<crate::api::models::CreateRolePermissionBody>,
 ) -> Result<impl IntoResponse, ApiError> {
-    agent_context.require_admin()?;
+    require_admin(&state, &agent_context).await?;
     let new_perm = crate::models::role_permission::NewRolePermission {
         role_level: body.role_level,
         role_name: body.role_name,
@@ -893,7 +1291,7 @@ pub async fn delete_role_permission_handler(
     agent_context: AgentContext,
     Query(query): Query<crate::api::models::DeleteRolePermissionQuery>,
 ) -> Result<impl IntoResponse, ApiError> {
-    agent_context.require_admin()?;
+    require_admin(&state, &agent_context).await?;
     state
         .role_permission
         .remove_permission(&query.role_level, &query.role_name, &query.permission_code)
@@ -920,6 +1318,7 @@ pub async fn check_permission_handler(
         owner_type: body.owner_type,
         owner_id: body.owner_id,
         author_identity_id: body.author_identity_id,
+        tenant_id: body.tenant_id,
         organization_id: body.organization_id,
         group_id: body.group_id,
     };
@@ -939,7 +1338,7 @@ pub async fn get_permission_context_handler(
     agent_context: AgentContext,
     Path(id): Path<Uuid>,
 ) -> Result<impl IntoResponse, ApiError> {
-    agent_context.require_admin()?;
+    require_admin(&state, &agent_context).await?;
     let ctx = state
         .permission
         .build_context(id)
@@ -962,7 +1361,7 @@ pub async fn list_sandboxes_handler(
     State(state): State<ApiState>,
     agent_context: AgentContext,
 ) -> Result<impl IntoResponse, ApiError> {
-    agent_context.require_admin()?;
+    require_admin(&state, &agent_context).await?;
 
     let sandboxes = state
         .sandbox
@@ -980,7 +1379,7 @@ pub async fn get_sandbox_health_handler(
     State(state): State<ApiState>,
     agent_context: AgentContext,
 ) -> Result<impl IntoResponse, ApiError> {
-    agent_context.require_admin()?;
+    require_admin(&state, &agent_context).await?;
 
     let docker_healthy = state.sandbox.health_check().await.unwrap_or(false);
     let containers = state.sandbox.list_containers().await.unwrap_or_default();
@@ -1096,7 +1495,7 @@ pub async fn remove_sandbox_handler(
     agent_context: AgentContext,
     Path(key): Path<String>,
 ) -> Result<impl IntoResponse, ApiError> {
-    agent_context.require_admin()?;
+    require_admin(&state, &agent_context).await?;
 
     state
         .sandbox
@@ -1168,7 +1567,7 @@ pub async fn list_git_branches_handler(
     agent_context: AgentContext,
     Path(repo_id): Path<String>,
 ) -> Result<impl IntoResponse, ApiError> {
-    agent_context.require_admin()?;
+    require_admin(&state, &agent_context).await?;
 
     let branches = state
         .git_proxy
@@ -1187,7 +1586,7 @@ pub async fn get_git_commits_handler(
     agent_context: AgentContext,
     Path((repo_id, limit)): Path<(String, u32)>,
 ) -> Result<impl IntoResponse, ApiError> {
-    agent_context.require_admin()?;
+    require_admin(&state, &agent_context).await?;
 
     let commits = state
         .git_proxy
@@ -1203,7 +1602,7 @@ pub async fn get_git_file_handler(
     agent_context: AgentContext,
     Path((repo_id, path, commit)): Path<(String, String, String)>,
 ) -> Result<impl IntoResponse, ApiError> {
-    agent_context.require_admin()?;
+    require_admin(&state, &agent_context).await?;
 
     let file = state
         .git_proxy
@@ -1226,7 +1625,7 @@ pub async fn get_git_diff_handler(
     agent_context: AgentContext,
     Path((repo_id, from, to)): Path<(String, String, String)>,
 ) -> Result<impl IntoResponse, ApiError> {
-    agent_context.require_admin()?;
+    require_admin(&state, &agent_context).await?;
 
     let diff = state
         .git_proxy
@@ -1251,7 +1650,7 @@ pub async fn validate_git_url_handler(
     agent_context: AgentContext,
     Json(body): Json<crate::api::models::ValidateGitUrlBody>,
 ) -> Result<impl IntoResponse, ApiError> {
-    agent_context.require_admin()?;
+    require_admin(&state, &agent_context).await?;
 
     let valid = state
         .git_proxy
@@ -1266,7 +1665,7 @@ pub async fn get_git_proxy_health_handler(
     State(state): State<ApiState>,
     agent_context: AgentContext,
 ) -> Result<impl IntoResponse, ApiError> {
-    agent_context.require_admin()?;
+    require_admin(&state, &agent_context).await?;
 
     let healthy = state.git_proxy.health_check().await.unwrap_or(false);
 
@@ -1293,30 +1692,58 @@ pub async fn list_skills_handler(
         .await
         .map_err(|e| ApiError::InternalError(e.to_string()))?;
 
-    // RBAC 过滤：管理员看全部，普通用户看 marketplace + 自己的 Skill
-    let is_admin = if let Some(id_id) = identity_id {
+    // RBAC: build permission context
+    let is_super = if let Some(id_id) = identity_id {
         state
             .permission
-            .is_system_admin(id_id)
+            .is_super_admin(id_id)
             .await
             .unwrap_or(false)
     } else {
         false
     };
 
-    let mut filtered: Vec<_> = if is_admin {
+    // Apply scope filters (Phase 6: role-based views)
+    let mut filtered: Vec<_> = if let Some(org_id) = query.org_id {
+        // Org member view: only skills owned by this org
+        skills
+            .into_iter()
+            .filter(|s| s.owner_type == "organization" && s.owner_id == Some(org_id))
+            .collect()
+    } else if let Some(ref mkt_status) = query.marketplace_status {
+        // Marketplace admin view: filter by marketplace_status
+        skills
+            .into_iter()
+            .filter(|s| {
+                s.marketplace_status
+                    .as_ref()
+                    .map(|ms| ms == mkt_status)
+                    .unwrap_or(false)
+            })
+            .collect()
+    } else if query.scope_personal.unwrap_or(false) {
+        // Personal scope view
+        skills
+            .into_iter()
+            .filter(|s| {
+                s.owner_type == "user"
+                    && identity_id.is_some()
+                    && (s.owner_id == identity_id || s.author_identity_id == identity_id)
+            })
+            .collect()
+    } else if is_super {
         skills
     } else {
         skills
             .into_iter()
             .filter(|s| {
-                // 已发布的 marketplace Skill 对所有人可见
+                // Published marketplace skills visible to all
                 let is_marketplace_published = s.status == "published"
                     && matches!(
                         s.visibility,
                         crate::models::skill_policy::Visibility::Marketplace
                     );
-                // 用户自己的 Skill（owner_type="user" 且 owner_id 匹配）
+                // User's own skills
                 let is_own = s.owner_type == "user"
                     && identity_id.is_some()
                     && (s.owner_id == identity_id || s.author_identity_id == identity_id);
@@ -1392,22 +1819,27 @@ pub async fn create_skill_handler(
     }: AgentContext,
     Json(body): Json<crate::api::models::CreateSkillBody>,
 ) -> Result<impl IntoResponse, ApiError> {
-    let identity_id = identity_id
-        .ok_or_else(|| ApiError::Unauthorized("identity_id required".to_string()))?;
+    let identity_id =
+        identity_id.ok_or_else(|| ApiError::Unauthorized("identity_id required".to_string()))?;
 
     let is_admin = roles.iter().any(|r| r == "admin");
 
     // owner_type: body 显式指定 > 自动推断（agent_org_id 存在 → organization，否则 user）
     let effective_owner_type = body.owner_type.as_deref().unwrap_or_else(|| {
-        if agent_org_id.is_some() { "organization" } else { "user" }
+        if agent_org_id.is_some() {
+            "organization"
+        } else {
+            "user"
+        }
     });
 
     let (owner_type, owner_id, default_visibility) = if effective_owner_type == "organization" {
         // organization_id: body 显式指定 > 调用者关联的组织
-        let org_id = body
-            .organization_id
-            .or(agent_org_id)
-            .ok_or_else(|| ApiError::BadRequest("organization_id is required when owner_type is organization".to_string()))?;
+        let org_id = body.organization_id.or(agent_org_id).ok_or_else(|| {
+            ApiError::BadRequest(
+                "organization_id is required when owner_type is organization".to_string(),
+            )
+        })?;
 
         // 验证用户属于该组织（admin 跳过组织成员校验）
         if !is_admin {
@@ -1476,26 +1908,30 @@ pub async fn create_skill_handler(
 pub async fn update_skill_handler(
     State(state): State<ApiState>,
     Path(skill_id): Path<String>,
-    AgentContext {
-        subject,
-        identity_id,
-        ..
-    }: AgentContext,
+    agent_context: AgentContext,
     Json(body): Json<crate::api::models::UpdateSkillBody>,
 ) -> Result<impl IntoResponse, ApiError> {
-    // 权限校验
+    // 权限校验：先检查是否为市场管理员（可编辑任意 Skill 的 tags/content/description）
+    let is_market_admin = require_marketplace_admin(&state, &agent_context).await.is_ok();
+
     let skill = state
         .registry
         .get_skill(&skill_id)
         .await
         .map_err(|e| ApiError::NotFound(format!("Skill {} not found: {}", skill_id, e)))?;
-    check_skill_perm(
-        &state,
-        identity_id,
-        &skill,
-        crate::services::SkillAction::Update,
-    )
-    .await?;
+
+    let identity_id = agent_context.require_identity()?;
+    let subject = agent_context.subject.clone();
+
+    if !is_market_admin {
+        check_skill_perm(
+            &state,
+            Some(identity_id),
+            &skill,
+            crate::services::SkillAction::Update,
+        )
+        .await?;
+    }
 
     let visibility = body.visibility.as_ref().map(|v| match v.as_str() {
         "private" => crate::models::skill_policy::Visibility::Private,
@@ -1544,6 +1980,13 @@ pub async fn delete_skill_handler(
         crate::services::SkillAction::Delete,
     )
     .await?;
+
+    // 上架中的市场 Skill 不允许直接删除，必须先下架
+    if skill.marketplace_status.as_deref() == Some("listed") {
+        return Err(ApiError::BadRequest(
+            "Cannot delete a listed marketplace skill. Please delist it first.".to_string(),
+        ));
+    }
 
     state
         .registry
@@ -1822,31 +2265,13 @@ pub async fn user_login_handler(
         ));
     }
 
-    let valid = state
-        .identity
-        .verify_password(&body.username, &body.password)
-        .await
-        .map_err(|e| ApiError::Unauthorized(format!("Authentication error: {}", e)))?;
-
-    if !valid {
-        return Err(ApiError::Unauthorized("Invalid credentials".to_string()));
-    }
-
+    // 合并 verify + get 为一次 DB 查询
     let user = state
         .identity
-        .get_by_username(&body.username)
+        .verify_password_and_get_user(&body.username, &body.password)
         .await
-        .map_err(|e| ApiError::Unauthorized(format!("Failed to get user: {}", e)))?
-        .ok_or_else(|| ApiError::Unauthorized("User not found".to_string()))?;
-
-    let is_admin = user.is_system_admin;
-    let roles: &[&str] = if is_admin {
-        &["admin", "user"]
-    } else {
-        &["user"]
-    };
-    let token = crate::api::jwt::generate_identity_token(user.id, roles, &[])
-        .map_err(|e| ApiError::Unauthorized(format!("{:?}", e)))?;
+        .map_err(|e| ApiError::Unauthorized(format!("Authentication error: {}", e)))?
+        .ok_or_else(|| ApiError::Unauthorized("Invalid credentials".to_string()))?;
 
     // 获取用户所在组织
     let orgs = state
@@ -1864,10 +2289,40 @@ pub async fn user_login_handler(
         })
         .collect();
 
+    // 构建权限上下文，获取 system_roles 和 tenant_roles（必须在 JWT 生成之前，以判断 is_admin）
+    let perm_ctx = state
+        .permission
+        .build_context(user.id)
+        .await
+        .unwrap_or(crate::services::permission::PermissionContext {
+            identity_id: user.id,
+            system_roles: std::collections::HashSet::new(),
+            tenant_roles: Vec::new(),
+            org_roles: Vec::new(),
+            group_roles: Vec::new(),
+        });
+
+    let system_roles: Vec<String> = perm_ctx.system_roles.into_iter().collect();
+
+    let tenant_roles = build_tenant_role_infos(&state, &perm_ctx.tenant_roles).await;
+
+    // is_admin: 同时检查 is_system_admin 列、system_role_assignments 和 tenant_admin
+    let is_admin = user.is_system_admin
+        || system_roles.iter().any(|r| r == "super_admin" || r == "marketplace_admin")
+        || tenant_roles.iter().any(|r| r.role_name == "tenant_admin");
+
+    // JWT roles: admin 用户需包含 "admin" 角色以启用 require_admin 快速路径
+    let jwt_roles: Vec<&str> = if is_admin {
+        vec!["user", "admin"]
+    } else {
+        vec!["user"]
+    };
+    let token = crate::api::jwt::generate_identity_token(user.id, &jwt_roles, &[])
+        .map_err(|e| ApiError::Unauthorized(format!("{:?}", e)))?;
+
     tracing::info!(
-        "Login success for username: {} (admin={})",
+        "Login success for username: {}",
         body.username,
-        is_admin
     );
 
     Ok((
@@ -1883,8 +2338,10 @@ pub async fn user_login_handler(
                 email: user.email,
                 avatar_url: user.avatar_url,
                 identity_type: user.identity_type.to_string(),
-                is_admin: user.is_system_admin,
+                is_admin,
                 organizations,
+                system_roles,
+                tenant_roles,
                 created_at: user.created_at,
             },
         }),
@@ -1954,6 +2411,8 @@ pub async fn user_register_handler(
                 identity_type: user.identity_type.to_string(),
                 is_admin: false,
                 organizations: vec![],
+                system_roles: vec![],
+                tenant_roles: vec![],
                 created_at: user.created_at,
             },
         }),
@@ -2083,6 +2542,21 @@ pub async fn get_user_me_handler(
         })
         .collect();
 
+    // 构建权限上下文
+    let perm_ctx = state
+        .permission
+        .build_context(user.id)
+        .await
+        .unwrap_or(crate::services::permission::PermissionContext {
+            identity_id: user.id,
+            system_roles: std::collections::HashSet::new(),
+            tenant_roles: Vec::new(),
+            org_roles: Vec::new(),
+            group_roles: Vec::new(),
+        });
+    let system_roles: Vec<String> = perm_ctx.system_roles.into_iter().collect();
+    let tenant_roles = build_tenant_role_infos(&state, &perm_ctx.tenant_roles).await;
+
     Ok((
         StatusCode::OK,
         Json(crate::api::models::UserInfoResponse {
@@ -2091,14 +2565,81 @@ pub async fn get_user_me_handler(
             display_name: user.display_name,
             email: user.email,
             avatar_url: user.avatar_url,
-            identity_type: if user.is_system_admin {
+            identity_type: if user.is_system_admin
+                || system_roles.iter().any(|r| r == "super_admin" || r == "marketplace_admin")
+                || tenant_roles.iter().any(|r| r.role_name == "tenant_admin")
+            {
                 "admin".to_string()
             } else {
                 user.identity_type.to_string()
             },
-            is_admin: user.is_system_admin,
+            is_admin: user.is_system_admin
+                || system_roles.iter().any(|r| r == "super_admin" || r == "marketplace_admin")
+                || tenant_roles.iter().any(|r| r.role_name == "tenant_admin"),
             organizations,
+            system_roles,
+            tenant_roles,
             created_at: user.created_at,
+        }),
+    ))
+}
+
+/// GET /users/me/permissions — 权限刷新端点
+/// 返回当前用户在各级别的角色及所有可用权限码
+pub async fn get_my_permissions_handler(
+    State(state): State<ApiState>,
+    AgentContext { subject, .. }: AgentContext,
+) -> Result<impl IntoResponse, ApiError> {
+    let id = uuid::Uuid::parse_str(&subject)
+        .map_err(|_| ApiError::BadRequest("Invalid subject in token".to_string()))?;
+
+    let perm_ctx = state
+        .permission
+        .build_context(id)
+        .await
+        .map_err(|e| ApiError::InternalError(e.to_string()))?;
+
+    let system_roles: Vec<String> = perm_ctx.system_roles.clone().into_iter().collect();
+
+    // tenant roles with names (batch query)
+    let tenant_roles = build_tenant_role_infos(&state, &perm_ctx.tenant_roles).await;
+
+    // org roles (from PermissionContext which already has names from org_membership)
+    let org_roles: Vec<crate::api::models::OrgRoleInfo> = perm_ctx
+        .org_roles
+        .iter()
+        .map(|(org_id, role_name)| crate::api::models::OrgRoleInfo {
+            org_id: *org_id,
+            org_name: String::new(), // org name not in PermissionContext; will be empty here
+            role_name: role_name.clone(),
+        })
+        .collect();
+
+    // group roles
+    let group_roles: Vec<crate::api::models::GroupRoleInfo> = perm_ctx
+        .group_roles
+        .iter()
+        .map(|(group_id, role_name)| crate::api::models::GroupRoleInfo {
+            group_id: *group_id,
+            group_name: String::new(), // group name not in PermissionContext
+            role_name: role_name.clone(),
+        })
+        .collect();
+
+    let permissions = state
+        .permission
+        .collect_all_permissions(&perm_ctx)
+        .await
+        .unwrap_or_default();
+
+    Ok((
+        StatusCode::OK,
+        Json(crate::api::models::MyPermissionsResponse {
+            system_roles,
+            tenant_roles,
+            org_roles,
+            group_roles,
+            permissions,
         }),
     ))
 }
@@ -2151,6 +2692,21 @@ pub async fn update_user_me_handler(
         })
         .collect();
 
+    // 构建权限上下文
+    let perm_ctx = state
+        .permission
+        .build_context(user.id)
+        .await
+        .unwrap_or(crate::services::permission::PermissionContext {
+            identity_id: user.id,
+            system_roles: std::collections::HashSet::new(),
+            tenant_roles: Vec::new(),
+            org_roles: Vec::new(),
+            group_roles: Vec::new(),
+        });
+    let system_roles: Vec<String> = perm_ctx.system_roles.into_iter().collect();
+    let tenant_roles = build_tenant_role_infos(&state, &perm_ctx.tenant_roles).await;
+
     Ok((
         StatusCode::OK,
         Json(crate::api::models::UserInfoResponse {
@@ -2160,8 +2716,12 @@ pub async fn update_user_me_handler(
             email: user.email,
             avatar_url: user.avatar_url,
             identity_type: user.identity_type.to_string(),
-            is_admin: user.is_system_admin,
+            is_admin: user.is_system_admin
+                || system_roles.iter().any(|r| r == "super_admin" || r == "marketplace_admin")
+                || tenant_roles.iter().any(|r| r.role_name == "tenant_admin"),
             organizations,
+            system_roles,
+            tenant_roles,
             created_at: user.created_at,
         }),
     ))
@@ -2169,45 +2729,88 @@ pub async fn update_user_me_handler(
 
 pub async fn get_user_orgs_handler(
     State(state): State<ApiState>,
-    AgentContext { identity_id, roles, .. }: AgentContext,
+    AgentContext {
+        identity_id, ..
+    }: AgentContext,
 ) -> Result<impl IntoResponse, ApiError> {
-    let identity_id =
-        identity_id.ok_or_else(|| ApiError::Unauthorized("Identity required".to_string()))?;
+    let uuid_id = identity_id
+        .ok_or_else(|| ApiError::Unauthorized("Identity required".to_string()))?;
 
-    let is_admin = roles.iter().any(|r| r == "admin");
+    // Build permission context for RBAC-based org visibility
+    let perm_ctx = state
+        .permission
+        .build_context(uuid_id)
+        .await
+        .unwrap_or_else(|_| crate::services::permission::PermissionContext {
+            identity_id: uuid_id,
+            system_roles: std::collections::HashSet::new(),
+            tenant_roles: Vec::new(),
+            org_roles: Vec::new(),
+            group_roles: Vec::new(),
+        });
 
-    let result: Vec<crate::api::models::UserOrgResponse> = if is_admin {
-        // admin 用户可以看到全部组织，用于创建 Skill 时选择归属
+    let is_super_admin = perm_ctx.system_roles.contains("super_admin");
+    let tenant_admin_ids: Vec<uuid::Uuid> = perm_ctx
+        .tenant_roles
+        .iter()
+        .filter(|(_, role)| role == "tenant_admin")
+        .map(|(tid, _)| *tid)
+        .collect();
+
+    let mut result_set: std::collections::HashMap<uuid::Uuid, crate::api::models::UserOrgResponse> = std::collections::HashMap::new();
+
+    if is_super_admin {
+        // super_admin sees all orgs
         let orgs = state
             .organization
             .list_orgs(1000, 0)
             .await
             .map_err(|e| ApiError::BadRequest(format!("Failed to list orgs: {}", e)))?;
-
-        orgs.into_iter()
-            .map(|o| crate::api::models::UserOrgResponse {
+        for o in orgs {
+            result_set.entry(o.id).or_insert(crate::api::models::UserOrgResponse {
                 id: o.id,
                 name: o.name,
                 slug: o.slug,
                 role: "admin".to_string(),
-            })
-            .collect()
+            });
+        }
     } else {
-        let orgs = state
+        // Add personal org memberships
+        let user_orgs = state
             .permission
-            .get_user_orgs(identity_id)
+            .get_user_orgs(uuid_id)
             .await
-            .map_err(|e| ApiError::BadRequest(format!("Failed to list orgs: {}", e)))?;
-
-        orgs.into_iter()
-            .map(|o| crate::api::models::UserOrgResponse {
+            .map_err(|e| ApiError::BadRequest(format!("Failed to list user orgs: {}", e)))?;
+        for o in user_orgs {
+            result_set.entry(o.id).or_insert(crate::api::models::UserOrgResponse {
                 id: o.id,
                 name: o.name,
                 slug: o.slug,
                 role: o.role,
-            })
-            .collect()
-    };
+            });
+        }
+
+        // If tenant_admin, also add all orgs under the user's tenants
+        for tenant_id in tenant_admin_ids {
+            let tenant_orgs = state
+                .organization
+                .list_orgs_by_tenant(tenant_id, 1000, 0)
+                .await
+                .map_err(|e| ApiError::BadRequest(format!("Failed to list tenant orgs: {}", e)))?;
+            for o in tenant_orgs {
+                result_set.entry(o.id).or_insert(crate::api::models::UserOrgResponse {
+                    id: o.id,
+                    name: o.name,
+                    slug: o.slug,
+                    role: "admin".to_string(),
+                });
+            }
+        }
+    }
+
+    let mut result: Vec<crate::api::models::UserOrgResponse> = result_set.into_values().collect();
+    // Sort by name for stable UI
+    result.sort_by(|a, b| a.name.cmp(&b.name));
 
     Ok((StatusCode::OK, Json(result)))
 }
@@ -2259,6 +2862,21 @@ pub async fn get_user_by_username_handler(
         })
         .collect();
 
+    // Load system_roles for accurate is_admin determination
+    let perm_ctx = state
+        .permission
+        .build_context(user.id)
+        .await
+        .unwrap_or(crate::services::permission::PermissionContext {
+            identity_id: user.id,
+            system_roles: std::collections::HashSet::new(),
+            tenant_roles: Vec::new(),
+            org_roles: Vec::new(),
+            group_roles: Vec::new(),
+        });
+    let system_roles: Vec<String> = perm_ctx.system_roles.into_iter().collect();
+    let tenant_roles = build_tenant_role_infos(&state, &perm_ctx.tenant_roles).await;
+
     Ok((
         StatusCode::OK,
         Json(crate::api::models::UserInfoResponse {
@@ -2268,8 +2886,12 @@ pub async fn get_user_by_username_handler(
             email: None,
             avatar_url: user.avatar_url,
             identity_type: user.identity_type.to_string(),
-            is_admin: user.is_system_admin,
+            is_admin: user.is_system_admin
+                || system_roles.iter().any(|r| r == "super_admin" || r == "marketplace_admin")
+                || tenant_roles.iter().any(|r| r.role_name == "tenant_admin"),
             organizations,
+            system_roles,
+            tenant_roles,
             created_at: user.created_at,
         }),
     ))
@@ -2280,7 +2902,7 @@ pub async fn list_audit_logs_handler(
     agent_context: AgentContext,
     Query(query): Query<crate::api::models::AuditLogQuery>,
 ) -> Result<impl IntoResponse, ApiError> {
-    agent_context.require_admin()?;
+    require_admin(&state, &agent_context).await?;
 
     let limit = query.limit.unwrap_or(50).min(100);
     let offset = query.offset.unwrap_or(0);
@@ -2466,7 +3088,7 @@ pub async fn publish_skill_handler(
         .map_err(|e| ApiError::BadRequest(e.to_string()))?
         .ok_or_else(|| ApiError::NotFound(format!("Skill {} not found", skill_id)))?;
 
-    // RBAC 权限校验：需要 Publish 权限
+    // RBAC 权限校验：需要 Publish 权限（仅做内部发布）
     check_skill_perm_db(
         &state,
         identity_id,
@@ -2481,23 +3103,12 @@ pub async fn publish_skill_handler(
         ));
     }
 
-    // 被 admin 下架的 skill，作者/组织不能自行上架，必须由 admin 重新上架
-    if skill.admin_unpublished {
-        return Err(ApiError::BadRequest(
-            "This skill was unpublished by an admin and can only be republished by an admin".to_string(),
-        ));
-    }
-
+    // 内部发布：仅设置 status 为 published，不操作 visibility
+    // visibility 由创建时决定，提交市场由 skill:publish_to_marketplace 单独控制
     skill_repo
         .update_status(&skill_id, "published", None, None)
         .await
         .map_err(|e| ApiError::BadRequest(format!("Failed to publish skill: {}", e)))?;
-
-    // 发布时自动将 visibility 设为 marketplace，使所有用户可见
-    skill_repo
-        .update(&skill_id, None, None, None, Some("marketplace"))
-        .await
-        .map_err(|e| ApiError::BadRequest(format!("Failed to set marketplace visibility: {}", e)))?;
 
     state
         .audit_repo
@@ -2506,7 +3117,7 @@ pub async fn publish_skill_handler(
             action: "skill_published".to_string(),
             resource_type: "skill".to_string(),
             resource_id: Some(skill_id.clone()),
-            details: serde_json::json!({}),
+            details: serde_json::json!({"visibility": skill.visibility}),
         })
         .await
         .map_err(|e| ApiError::InternalError(e.to_string()))?;
@@ -2520,14 +3131,14 @@ pub async fn publish_skill_handler(
     ))
 }
 
-/// POST /api/v1/admin/skills/:skill_name/rollback — 超级管理员版本回退
+/// POST /api/v1/admin/skills/:skill_name/rollback — 管理员版本回退
 pub async fn rollback_skill_handler(
     State(state): State<ApiState>,
     agent_context: AgentContext,
     axum::extract::Path((skill_name,)): axum::extract::Path<(String,)>,
     Json(body): Json<crate::api::models::RollbackSkillBody>,
 ) -> Result<impl IntoResponse, ApiError> {
-    agent_context.require_admin()?;
+    require_marketplace_admin_only(&state, &agent_context).await?;
     let identity_id = agent_context.require_identity()?;
 
     let pool = state.agent_repo.pool().clone();
@@ -2548,9 +3159,10 @@ pub async fn rollback_skill_handler(
         .skill_git
         .rollback_version(&skill_name, &body.version, identity_id, &version_repo)
         .map_err(|e| match e {
-            crate::models::error::AppError::SkillNotFound(_) => {
-                ApiError::NotFound(format!("Version {} not found for skill {}", body.version, skill_name))
-            }
+            crate::models::error::AppError::SkillNotFound(_) => ApiError::NotFound(format!(
+                "Version {} not found for skill {}",
+                body.version, skill_name
+            )),
             other => ApiError::BadRequest(format!("Rollback failed: {}", other)),
         })?;
 
@@ -2569,15 +3181,18 @@ pub async fn rollback_skill_handler(
         content: skill_md_content,
         version: result.new_version.clone(),
         git_url: None,
-        visibility: Some(skill_list.iter().find_map(|s| {
-            match s.visibility.as_str() {
-                "private" => Some(crate::models::skill_policy::Visibility::Private),
-                "org_visible" => Some(crate::models::skill_policy::Visibility::OrgVisible),
-                "marketplace" => Some(crate::models::skill_policy::Visibility::Marketplace),
-                "shared" => Some(crate::models::skill_policy::Visibility::Shared),
-                _ => None,
-            }
-        }).unwrap_or(crate::models::skill_policy::Visibility::OrgVisible)),
+        visibility: Some(
+            skill_list
+                .iter()
+                .find_map(|s| match s.visibility.as_str() {
+                    "private" => Some(crate::models::skill_policy::Visibility::Private),
+                    "org_visible" => Some(crate::models::skill_policy::Visibility::OrgVisible),
+                    "marketplace" => Some(crate::models::skill_policy::Visibility::Marketplace),
+                    "shared" => Some(crate::models::skill_policy::Visibility::Shared),
+                    _ => None,
+                })
+                .unwrap_or(crate::models::skill_policy::Visibility::OrgVisible),
+        ),
         tools: None,
         owner_type: latest.owner_type.clone(),
         owner_id: latest.owner_id,
@@ -2597,7 +3212,9 @@ pub async fn rollback_skill_handler(
     skill_repo
         .update(&skill.id, None, None, None, Some("marketplace"))
         .await
-        .map_err(|e| ApiError::BadRequest(format!("Failed to set marketplace visibility: {}", e)))?;
+        .map_err(|e| {
+            ApiError::BadRequest(format!("Failed to set marketplace visibility: {}", e))
+        })?;
 
     // 6. 从 Git 仓库同步文件到 skills_dir（覆盖 create_skill 写入的 SKILL.md）
     state
@@ -2639,13 +3256,14 @@ pub async fn rollback_skill_handler(
     ))
 }
 
-/// POST /api/v1/admin/skills/:id/unpublish — 超级管理员下架已发布的 Skill
+/// POST /api/v1/admin/skills/:id/unpublish — 管理员下架已发布的 Skill
+/// 新逻辑: 将 marketplace_status 设为 'delisted'，保留 internal status 不变
 pub async fn admin_unpublish_skill_handler(
     State(state): State<ApiState>,
     Path(skill_id): Path<String>,
     agent_context: AgentContext,
 ) -> Result<impl IntoResponse, ApiError> {
-    agent_context.require_admin()?;
+    require_marketplace_admin_only(&state, &agent_context).await?;
     let _ = agent_context.require_identity()?;
 
     use crate::db::repositories::skill::SkillRepository;
@@ -2658,27 +3276,31 @@ pub async fn admin_unpublish_skill_handler(
         .map_err(|e| ApiError::BadRequest(e.to_string()))?
         .ok_or_else(|| ApiError::NotFound(format!("Skill {} not found", skill_id)))?;
 
-    if skill.status != "published" {
+    if skill.marketplace_status.as_deref() != Some("listed") {
         return Err(ApiError::BadRequest(
-            "Only published skills can be unpublished".to_string(),
+            "Only listed marketplace skills can be delisted".to_string(),
         ));
     }
 
-    // 下架：状态改为 approved，可见性改为 private，设置 admin_unpublished 标记
+    // 下架: 改 marketplace_status 为 delisted，恢复原始 visibility
+    let pre_visibility = skill.pre_marketplace_visibility.as_deref().unwrap_or("private");
     skill_repo
-        .update_status(&skill_id, "approved", None, None)
+        .update_marketplace_status(&skill_id, Some("delisted"))
         .await
-        .map_err(|e| ApiError::BadRequest(format!("Failed to unpublish skill: {}", e)))?;
+        .map_err(|e| ApiError::BadRequest(format!("Failed to delist skill: {}", e)))?;
 
     skill_repo
-        .update(&skill_id, None, None, None, Some("private"))
+        .update(&skill_id, None, None, None, Some(pre_visibility))
         .await
-        .map_err(|e| ApiError::BadRequest(format!("Failed to set visibility: {}", e)))?;
+        .map_err(|e| ApiError::BadRequest(format!("Failed to restore visibility: {}", e)))?;
 
+    // 向后兼容：同时设置 admin_unpublished 标记
     skill_repo
         .set_admin_unpublished(&skill_id, true)
         .await
-        .map_err(|e| ApiError::BadRequest(format!("Failed to set admin unpublished flag: {}", e)))?;
+        .map_err(|e| {
+            ApiError::BadRequest(format!("Failed to set admin unpublished flag: {}", e))
+        })?;
 
     state
         .audit_repo
@@ -2689,8 +3311,9 @@ pub async fn admin_unpublish_skill_handler(
             resource_id: Some(skill_id.clone()),
             details: serde_json::json!({
                 "skill_name": skill.name,
-                "previous_status": "published",
-                "new_status": "approved",
+                "previous_marketplace_status": "listed",
+                "new_marketplace_status": "delisted",
+                "restored_visibility": pre_visibility,
             }),
         })
         .await
@@ -2699,20 +3322,21 @@ pub async fn admin_unpublish_skill_handler(
     Ok((
         StatusCode::OK,
         Json(serde_json::json!({
-            "message": format!("Skill {} unpublished successfully", skill.name),
+            "message": format!("Skill {} delisted from marketplace", skill.name),
             "skill_id": skill_id,
-            "status": "approved",
+            "marketplace_status": "delisted",
         })),
     ))
 }
 
-/// POST /api/v1/admin/skills/:id/publish — 超级管理员上架 Skill 到市场
+/// POST /api/v1/admin/skills/:id/publish — 管理员直接上架 Skill 到市场（绕过审核）
+/// 新逻辑: 使用 marketplace_status 而不是 visibility
 pub async fn admin_publish_skill_handler(
     State(state): State<ApiState>,
     Path(skill_id): Path<String>,
     agent_context: AgentContext,
 ) -> Result<impl IntoResponse, ApiError> {
-    agent_context.require_admin()?;
+    require_marketplace_admin_only(&state, &agent_context).await?;
     let _ = agent_context.require_identity()?;
 
     use crate::db::repositories::skill::SkillRepository;
@@ -2725,27 +3349,50 @@ pub async fn admin_publish_skill_handler(
         .map_err(|e| ApiError::BadRequest(e.to_string()))?
         .ok_or_else(|| ApiError::NotFound(format!("Skill {} not found", skill_id)))?;
 
-    if skill.status == "published" && skill.visibility == "marketplace" {
+    if skill.marketplace_status.as_deref() == Some("listed") {
         return Err(ApiError::BadRequest(
-            "Skill is already published to marketplace".to_string(),
+            "Skill is already listed on marketplace".to_string(),
         ));
     }
 
-    // 上架：状态改为 published，可见性改为 marketplace，清除 admin_unpublished 标记
-    skill_repo
-        .update_status(&skill_id, "published", None, None)
-        .await
-        .map_err(|e| ApiError::BadRequest(format!("Failed to publish skill: {}", e)))?;
+    // 只在未 published 时更新状态
+    if skill.status != "published" {
+        skill_repo
+            .update_status(&skill_id, "published", None, None)
+            .await
+            .map_err(|e| ApiError::BadRequest(format!("Failed to publish skill: {}", e)))?;
+    }
 
+    // 保存当前 visibility 作为 pre_marketplace_visibility
+    let current_visibility = skill.visibility.clone();
+    skill_repo
+        .set_pre_marketplace_visibility(&skill_id, Some(&current_visibility))
+        .await
+        .map_err(|e| ApiError::BadRequest(format!("Failed to save pre-marketplace visibility: {}", e)))?;
+
+    // 设置为 marketplace 可见性
     skill_repo
         .update(&skill_id, None, None, None, Some("marketplace"))
         .await
-        .map_err(|e| ApiError::BadRequest(format!("Failed to set marketplace visibility: {}", e)))?;
+        .map_err(|e| {
+            ApiError::BadRequest(format!("Failed to set marketplace visibility: {}", e))
+        })?;
 
+    // 设置 marketplace_status 为 listed
+    skill_repo
+        .update_marketplace_status(&skill_id, Some("listed"))
+        .await
+        .map_err(|e| {
+            ApiError::BadRequest(format!("Failed to set marketplace status: {}", e))
+        })?;
+
+    // 清除 admin_unpublished 标记
     skill_repo
         .set_admin_unpublished(&skill_id, false)
         .await
-        .map_err(|e| ApiError::BadRequest(format!("Failed to clear admin unpublished flag: {}", e)))?;
+        .map_err(|e| {
+            ApiError::BadRequest(format!("Failed to clear admin unpublished flag: {}", e))
+        })?;
 
     state
         .audit_repo
@@ -2756,8 +3403,8 @@ pub async fn admin_publish_skill_handler(
             resource_id: Some(skill_id.clone()),
             details: serde_json::json!({
                 "skill_name": skill.name,
-                "previous_status": skill.status,
-                "new_status": "published",
+                "previous_marketplace_status": skill.marketplace_status,
+                "new_marketplace_status": "listed",
             }),
         })
         .await
@@ -2766,9 +3413,368 @@ pub async fn admin_publish_skill_handler(
     Ok((
         StatusCode::OK,
         Json(serde_json::json!({
-            "message": format!("Skill {} published to marketplace", skill.name),
+            "message": format!("Skill {} listed on marketplace", skill.name),
             "skill_id": skill_id,
             "status": "published",
+            "marketplace_status": "listed",
+        })),
+    ))
+}
+
+/// POST /api/v1/skills/:id/submit-to-marketplace — 提交已发布 Skill 到市场审核
+pub async fn submit_to_marketplace_handler(
+    State(state): State<ApiState>,
+    Path(skill_id): Path<String>,
+    AgentContext {
+        subject,
+        identity_id,
+        ..
+    }: AgentContext,
+) -> Result<impl IntoResponse, ApiError> {
+    use crate::db::repositories::skill::SkillRepository;
+    let pool = state.agent_repo.pool().clone();
+    let skill_repo = SkillRepository::new(pool);
+
+    let skill = skill_repo
+        .find_by_id(&skill_id)
+        .await
+        .map_err(|e| ApiError::BadRequest(e.to_string()))?
+        .ok_or_else(|| ApiError::NotFound(format!("Skill {} not found", skill_id)))?;
+
+    // RBAC 权限校验：需要 PublishToMarketplace 权限
+    check_skill_perm_db(
+        &state,
+        identity_id,
+        &skill,
+        crate::services::SkillAction::PublishToMarketplace,
+    )
+    .await?;
+
+    // 必须是已发布状态
+    if skill.status != "published" {
+        return Err(ApiError::BadRequest(
+            "Only published skills can be submitted to marketplace".to_string(),
+        ));
+    }
+
+    // 不能重复提交
+    if skill.marketplace_status.as_deref() == Some("pending_review") {
+        return Err(ApiError::BadRequest(
+            "Skill is already pending marketplace review".to_string(),
+        ));
+    }
+
+    if skill.marketplace_status.as_deref() == Some("listed") {
+        return Err(ApiError::BadRequest(
+            "Skill is already listed on marketplace".to_string(),
+        ));
+    }
+
+    // 保存提交前的 visibility
+    skill_repo
+        .set_pre_marketplace_visibility(&skill_id, Some(&skill.visibility))
+        .await
+        .map_err(|e| ApiError::BadRequest(format!("Failed to save pre-marketplace visibility: {}", e)))?;
+
+    // 设置 marketplace_status 为 pending_review
+    skill_repo
+        .update_marketplace_status(&skill_id, Some("pending_review"))
+        .await
+        .map_err(|e| {
+            ApiError::BadRequest(format!("Failed to submit to marketplace: {}", e))
+        })?;
+
+    state
+        .audit_repo
+        .create(crate::db::repositories::audit::NewAuditLog {
+            agent_id: Some(subject),
+            action: "skill_submitted_to_marketplace".to_string(),
+            resource_type: "skill".to_string(),
+            resource_id: Some(skill_id.clone()),
+            details: serde_json::json!({
+                "skill_name": skill.name,
+                "previous_visibility": skill.visibility,
+            }),
+        })
+        .await
+        .map_err(|e| ApiError::InternalError(e.to_string()))?;
+
+    Ok((
+        StatusCode::OK,
+        Json(serde_json::json!({
+            "message": "Skill submitted to marketplace review".to_string(),
+            "skill_id": skill_id,
+            "marketplace_status": "pending_review",
+        })),
+    ))
+}
+
+/// POST /api/v1/admin/marketplace/:id/approve — 市场审核通过
+pub async fn marketplace_review_approve_handler(
+    State(state): State<ApiState>,
+    Path(skill_id): Path<String>,
+    agent_context: AgentContext,
+) -> Result<impl IntoResponse, ApiError> {
+    require_marketplace_admin(&state, &agent_context).await?;
+    let _ = agent_context.require_identity()?;
+
+    use crate::db::repositories::skill::SkillRepository;
+    let pool = state.agent_repo.pool().clone();
+    let skill_repo = SkillRepository::new(pool);
+
+    let skill = skill_repo
+        .find_by_id(&skill_id)
+        .await
+        .map_err(|e| ApiError::BadRequest(e.to_string()))?
+        .ok_or_else(|| ApiError::NotFound(format!("Skill {} not found", skill_id)))?;
+
+    if skill.marketplace_status.as_deref() != Some("pending_review") {
+        return Err(ApiError::BadRequest(
+            "Skill is not pending marketplace review".to_string(),
+        ));
+    }
+
+    // 审核通过: 设置 marketplace_status=listed, visibility=marketplace
+    skill_repo
+        .update_marketplace_status(&skill_id, Some("listed"))
+        .await
+        .map_err(|e| ApiError::BadRequest(format!("Failed to approve: {}", e)))?;
+
+    skill_repo
+        .update(&skill_id, None, None, None, Some("marketplace"))
+        .await
+        .map_err(|e| {
+            ApiError::BadRequest(format!("Failed to set marketplace visibility: {}", e))
+        })?;
+
+    state
+        .audit_repo
+        .create(crate::db::repositories::audit::NewAuditLog {
+            agent_id: Some(agent_context.subject),
+            action: "marketplace_review_approved".to_string(),
+            resource_type: "skill".to_string(),
+            resource_id: Some(skill_id.clone()),
+            details: serde_json::json!({
+                "skill_name": skill.name,
+                "new_marketplace_status": "listed",
+            }),
+        })
+        .await
+        .map_err(|e| ApiError::InternalError(e.to_string()))?;
+
+    Ok((
+        StatusCode::OK,
+        Json(serde_json::json!({
+            "message": "Marketplace review approved".to_string(),
+            "skill_id": skill_id,
+            "marketplace_status": "listed",
+        })),
+    ))
+}
+
+/// POST /api/v1/admin/marketplace/:id/reject — 市场审核驳回
+pub async fn marketplace_review_reject_handler(
+    State(state): State<ApiState>,
+    Path(skill_id): Path<String>,
+    agent_context: AgentContext,
+) -> Result<impl IntoResponse, ApiError> {
+    require_marketplace_admin(&state, &agent_context).await?;
+    let _ = agent_context.require_identity()?;
+
+    use crate::db::repositories::skill::SkillRepository;
+    let pool = state.agent_repo.pool().clone();
+    let skill_repo = SkillRepository::new(pool);
+
+    let skill = skill_repo
+        .find_by_id(&skill_id)
+        .await
+        .map_err(|e| ApiError::BadRequest(e.to_string()))?
+        .ok_or_else(|| ApiError::NotFound(format!("Skill {} not found", skill_id)))?;
+
+    if skill.marketplace_status.as_deref() != Some("pending_review") {
+        return Err(ApiError::BadRequest(
+            "Skill is not pending marketplace review".to_string(),
+        ));
+    }
+
+    // 驳回: 设置 marketplace_status=rejected, 恢复原始 visibility
+    let pre_visibility = skill.pre_marketplace_visibility.as_deref().unwrap_or("private");
+    skill_repo
+        .update_marketplace_status(&skill_id, Some("rejected"))
+        .await
+        .map_err(|e| ApiError::BadRequest(format!("Failed to reject: {}", e)))?;
+
+    skill_repo
+        .update(&skill_id, None, None, None, Some(pre_visibility))
+        .await
+        .map_err(|e| {
+            ApiError::BadRequest(format!("Failed to restore visibility: {}", e))
+        })?;
+
+    state
+        .audit_repo
+        .create(crate::db::repositories::audit::NewAuditLog {
+            agent_id: Some(agent_context.subject),
+            action: "marketplace_review_rejected".to_string(),
+            resource_type: "skill".to_string(),
+            resource_id: Some(skill_id.clone()),
+            details: serde_json::json!({
+                "skill_name": skill.name,
+                "new_marketplace_status": "rejected",
+            }),
+        })
+        .await
+        .map_err(|e| ApiError::InternalError(e.to_string()))?;
+
+    Ok((
+        StatusCode::OK,
+        Json(serde_json::json!({
+            "message": "Marketplace review rejected".to_string(),
+            "skill_id": skill_id,
+            "marketplace_status": "rejected",
+        })),
+    ))
+}
+
+/// POST /api/v1/admin/marketplace/:id/relist — 重新上架已下架的 Skill
+pub async fn marketplace_relist_handler(
+    State(state): State<ApiState>,
+    Path(skill_id): Path<String>,
+    agent_context: AgentContext,
+) -> Result<impl IntoResponse, ApiError> {
+    require_marketplace_admin_only(&state, &agent_context).await?;
+    let _ = agent_context.require_identity()?;
+
+    use crate::db::repositories::skill::SkillRepository;
+    let pool = state.agent_repo.pool().clone();
+    let skill_repo = SkillRepository::new(pool);
+
+    let skill = skill_repo
+        .find_by_id(&skill_id)
+        .await
+        .map_err(|e| ApiError::BadRequest(e.to_string()))?
+        .ok_or_else(|| ApiError::NotFound(format!("Skill {} not found", skill_id)))?;
+
+    if skill.marketplace_status.as_deref() != Some("delisted") {
+        return Err(ApiError::BadRequest(
+            "Only delisted skills can be relisted".to_string(),
+        ));
+    }
+
+    // 重新上架: 设置 marketplace_status=listed, visibility=marketplace
+    skill_repo
+        .update_marketplace_status(&skill_id, Some("listed"))
+        .await
+        .map_err(|e| ApiError::BadRequest(format!("Failed to relist: {}", e)))?;
+
+    skill_repo
+        .update(&skill_id, None, None, None, Some("marketplace"))
+        .await
+        .map_err(|e| {
+            ApiError::BadRequest(format!("Failed to set marketplace visibility: {}", e))
+        })?;
+
+    skill_repo
+        .set_admin_unpublished(&skill_id, false)
+        .await
+        .map_err(|e| {
+            ApiError::BadRequest(format!("Failed to clear admin unpublished flag: {}", e))
+        })?;
+
+    state
+        .audit_repo
+        .create(crate::db::repositories::audit::NewAuditLog {
+            agent_id: Some(agent_context.subject),
+            action: "marketplace_skill_relisted".to_string(),
+            resource_type: "skill".to_string(),
+            resource_id: Some(skill_id.clone()),
+            details: serde_json::json!({
+                "skill_name": skill.name,
+                "new_marketplace_status": "listed",
+            }),
+        })
+        .await
+        .map_err(|e| ApiError::InternalError(e.to_string()))?;
+
+    Ok((
+        StatusCode::OK,
+        Json(serde_json::json!({
+            "message": "Skill relisted on marketplace".to_string(),
+            "skill_id": skill_id,
+            "marketplace_status": "listed",
+        })),
+    ))
+}
+
+pub async fn marketplace_delist_handler(
+    State(state): State<ApiState>,
+    Path(skill_id): Path<String>,
+    agent_context: AgentContext,
+) -> Result<impl IntoResponse, ApiError> {
+    // marketplace_admin and marketplace_reviewer can both delist
+    require_marketplace_admin(&state, &agent_context).await?;
+    let _ = agent_context.require_identity()?;
+
+    use crate::db::repositories::skill::SkillRepository;
+    let pool = state.agent_repo.pool().clone();
+    let skill_repo = SkillRepository::new(pool);
+
+    let skill = skill_repo
+        .find_by_id(&skill_id)
+        .await
+        .map_err(|e| ApiError::BadRequest(e.to_string()))?
+        .ok_or_else(|| ApiError::NotFound(format!("Skill {} not found", skill_id)))?;
+
+    if skill.marketplace_status.as_deref() != Some("listed") {
+        return Err(ApiError::BadRequest(
+            "Only currently listed skills can be delisted".to_string(),
+        ));
+    }
+
+    // 下架: 设置 marketplace_status=delisted, visibility 回退到 pre_marketplace_visibility
+    let pre_visibility = skill.pre_marketplace_visibility.as_deref().unwrap_or("private");
+    skill_repo
+        .update_marketplace_status(&skill_id, Some("delisted"))
+        .await
+        .map_err(|e| ApiError::BadRequest(format!("Failed to delist: {}", e)))?;
+
+    // Revert visibility from marketplace using pre_marketplace_visibility
+    skill_repo
+        .update(&skill_id, None, None, None, Some(pre_visibility))
+        .await
+        .map_err(|e| {
+            ApiError::BadRequest(format!("Failed to revert visibility: {}", e))
+        })?;
+
+    skill_repo
+        .set_admin_unpublished(&skill_id, true)
+        .await
+        .map_err(|e| {
+            ApiError::BadRequest(format!("Failed to set admin unpublished flag: {}", e))
+        })?;
+
+    state
+        .audit_repo
+        .create(crate::db::repositories::audit::NewAuditLog {
+            agent_id: Some(agent_context.subject),
+            action: "marketplace_skill_delisted".to_string(),
+            resource_type: "skill".to_string(),
+            resource_id: Some(skill_id.clone()),
+            details: serde_json::json!({
+                "skill_name": skill.name,
+                "new_marketplace_status": "delisted",
+                "restored_visibility": pre_visibility,
+            }),
+        })
+        .await
+        .map_err(|e| ApiError::InternalError(e.to_string()))?;
+
+    Ok((
+        StatusCode::OK,
+        Json(serde_json::json!({
+            "message": "Skill delisted from marketplace".to_string(),
+            "skill_id": skill_id,
+            "marketplace_status": "delisted",
         })),
     ))
 }
@@ -2910,51 +3916,13 @@ pub async fn marketplace_handler(
     let limit = query.limit.unwrap_or(20).min(100);
     let offset = query.offset.unwrap_or(0);
 
+    // 使用新的双轨模型查询：status=published AND marketplace_status='listed'
     let skills = skill_repo
-        .list_by_visibility("marketplace", limit, offset)
+        .list_marketplace_listed(limit, offset)
         .await
         .map_err(|e| ApiError::InternalError(e.to_string()))?;
 
     Ok((StatusCode::OK, Json(skills)))
-}
-
-pub async fn install_skill_handler(
-    State(state): State<ApiState>,
-    AgentContext { identity_id, .. }: AgentContext,
-    Path(skill_id): Path<String>,
-) -> Result<impl IntoResponse, ApiError> {
-    use crate::db::repositories::skill::SkillRepository;
-    let pool = state.agent_repo.pool().clone();
-    let skill_repo = SkillRepository::new(pool);
-
-    let skill = skill_repo
-        .find_by_id(&skill_id)
-        .await
-        .map_err(|e| ApiError::BadRequest(e.to_string()))?
-        .ok_or_else(|| ApiError::NotFound(format!("Skill {} not found", skill_id)))?;
-
-    // RBAC 权限校验：需要 Read 权限
-    check_skill_perm_db(
-        &state,
-        identity_id,
-        &skill,
-        crate::services::SkillAction::Read,
-    )
-    .await?;
-
-    skill_repo
-        .increment_install_count(&skill_id)
-        .await
-        .map_err(|e| ApiError::BadRequest(format!("Failed to install skill: {}", e)))?;
-
-    Ok((
-        StatusCode::OK,
-        Json(crate::api::models::InstallSkillResponse {
-            message: "Skill installed successfully".to_string(),
-            skill_id: skill.id.clone(),
-            install_count: skill.install_count + 1,
-        }),
-    ))
 }
 
 /// GET /api/v1/skills/:name/download/:version?token=...
@@ -3050,10 +4018,16 @@ pub async fn download_cli_handler(
     Query(query): Query<DownloadSkillQuery>,
 ) -> Result<impl IntoResponse, ApiError> {
     // 1. 防止路径遍历
-    if version.contains("..") || version.contains('/') || version.contains('\\')
-        || target.contains("..") || target.contains('/') || target.contains('\\')
+    if version.contains("..")
+        || version.contains('/')
+        || version.contains('\\')
+        || target.contains("..")
+        || target.contains('/')
+        || target.contains('\\')
     {
-        return Err(ApiError::BadRequest("Invalid version or target".to_string()));
+        return Err(ApiError::BadRequest(
+            "Invalid version or target".to_string(),
+        ));
     }
 
     // 2. 验证 CLI 下载凭证
@@ -3154,7 +4128,9 @@ pub async fn download_cli_handler(
             mode: u32,
         ) -> Result<(), String> {
             let mut header = tar::Header::new_gnu();
-            header.set_path(path).map_err(|e| format!("tar path error: {}", e))?;
+            header
+                .set_path(path)
+                .map_err(|e| format!("tar path error: {}", e))?;
             header.set_size(data.len() as u64);
             header.set_mode(mode);
             header.set_cksum();
@@ -3282,14 +4258,24 @@ pub async fn list_skill_groups_handler(
 pub async fn add_skill_to_group_handler(
     State(state): State<ApiState>,
     Path(skill_id): Path<String>,
-    AgentContext { subject, .. }: AgentContext,
+    agent_context: AgentContext,
     Json(body): Json<crate::api::models::AddSkillToGroupBody>,
 ) -> Result<impl IntoResponse, ApiError> {
+    use crate::db::repositories::group::GroupRepository;
     use crate::db::repositories::group_skill::GroupSkillRepository;
     use crate::models::group_skill::NewGroupSkill;
     let pool = state.agent_repo.pool().clone();
-    let repo = GroupSkillRepository::new(pool);
+    let group_repo = GroupRepository::new(pool.clone());
 
+    // Verify group exists and check org membership
+    let group = group_repo
+        .find_by_id(body.group_id)
+        .await
+        .map_err(|e| ApiError::BadRequest(e.to_string()))?
+        .ok_or_else(|| ApiError::NotFound(format!("Group {} not found", body.group_id)))?;
+    require_org_member(&state, &agent_context, group.organization_id, None).await?;
+
+    let repo = GroupSkillRepository::new(pool);
     repo.associate_skill(NewGroupSkill {
         group_id: body.group_id,
         skill_id: skill_id.clone(),
@@ -3301,7 +4287,7 @@ pub async fn add_skill_to_group_handler(
     state
         .audit_repo
         .create(crate::db::repositories::audit::NewAuditLog {
-            agent_id: Some(subject),
+            agent_id: Some(agent_context.subject),
             action: "skill_added_to_group".to_string(),
             resource_type: "skill".to_string(),
             resource_id: Some(skill_id.clone()),
@@ -3323,12 +4309,22 @@ pub async fn add_skill_to_group_handler(
 pub async fn remove_skill_from_group_handler(
     State(state): State<ApiState>,
     Path((skill_id, group_id)): Path<(String, Uuid)>,
-    AgentContext { subject, .. }: AgentContext,
+    agent_context: AgentContext,
 ) -> Result<impl IntoResponse, ApiError> {
+    use crate::db::repositories::group::GroupRepository;
     use crate::db::repositories::group_skill::GroupSkillRepository;
     let pool = state.agent_repo.pool().clone();
-    let repo = GroupSkillRepository::new(pool);
+    let group_repo = GroupRepository::new(pool.clone());
 
+    // Verify group exists and check org membership
+    let group = group_repo
+        .find_by_id(group_id)
+        .await
+        .map_err(|e| ApiError::BadRequest(e.to_string()))?
+        .ok_or_else(|| ApiError::NotFound(format!("Group {} not found", group_id)))?;
+    require_org_member(&state, &agent_context, group.organization_id, None).await?;
+
+    let repo = GroupSkillRepository::new(pool);
     repo.dissociate_skill(group_id, &skill_id)
         .await
         .map_err(|e| ApiError::BadRequest(format!("Failed to remove skill from group: {}", e)))?;
@@ -3336,7 +4332,7 @@ pub async fn remove_skill_from_group_handler(
     state
         .audit_repo
         .create(crate::db::repositories::audit::NewAuditLog {
-            agent_id: Some(subject),
+            agent_id: Some(agent_context.subject),
             action: "skill_removed_from_group".to_string(),
             resource_type: "skill".to_string(),
             resource_id: Some(skill_id.clone()),
@@ -3361,11 +4357,103 @@ use uuid::Uuid;
 
 /// Organization handlers
 
+/// 验证当前用户是指定组织的成员，可选最低角色要求
+/// super_admin 全局通过；tenant_admin 对其租户下所有组织通过。
+/// 非管理员用户回退到 build_context 的 org_roles 检查。
+async fn require_org_member(
+    state: &ApiState,
+    agent_context: &AgentContext,
+    org_id: uuid::Uuid,
+    min_role: Option<crate::models::org_membership::OrgRole>,
+) -> Result<uuid::Uuid, ApiError> {
+    let identity_id = agent_context.require_identity()?;
+
+    // 1) Fast path: super_admin 拥有所有组织权限
+    let is_super = state
+        .permission
+        .is_super_admin(identity_id)
+        .await
+        .map_err(|e| ApiError::InternalError(e.to_string()))?;
+    if is_super {
+        return Ok(identity_id);
+    }
+
+    // 2) Fast path: tenant_admin 对其租户下所有组织有完全管理权
+    //    先查出组织所属租户，再检查用户是否是该租户的 tenant_admin
+    let tenant_ids = state
+        .permission
+        .get_tenant_admin_tenant_ids(identity_id)
+        .await
+        .map_err(|e| ApiError::InternalError(e.to_string()))?;
+    if !tenant_ids.is_empty() {
+        use crate::db::repositories::organization::OrganizationRepository;
+        let pool = state.agent_repo.pool().clone();
+        let org_repo = OrganizationRepository::new(pool);
+        if let Ok(Some(org)) = org_repo.find_by_id(org_id).await {
+            if let Some(tid) = org.tenant_id {
+                if tenant_ids.contains(&tid) {
+                    return Ok(identity_id);
+                }
+            }
+        }
+    }
+
+    // 3) 普通用户：通过 build_context 检查是否是该组织成员
+    let ctx = state
+        .permission
+        .build_context(identity_id)
+        .await
+        .map_err(|e| ApiError::InternalError(e.to_string()))?;
+
+    let role_str = ctx
+        .org_roles
+        .iter()
+        .find(|(id, _)| *id == org_id)
+        .map(|(_, role)| role.clone())
+        .ok_or_else(|| ApiError::Forbidden("Not a member of this organization".to_string()))?;
+
+    let role = crate::models::org_membership::OrgRole::from(role_str.as_str());
+
+    if let Some(min_role) = min_role {
+        if role < min_role {
+            return Err(ApiError::Forbidden(format!(
+                "Requires at least {} role in this organization",
+                min_role
+            )));
+        }
+    }
+
+    Ok(identity_id)
+}
+
+/// 通过 slug 或 UUID 解析组织 ID，返回 (org_id, org_slug)
+async fn resolve_org_id(pool: &sqlx::PgPool, slug_or_id: &str) -> Result<(uuid::Uuid, String), ApiError> {
+    use crate::db::repositories::organization::OrganizationRepository;
+    let org_repo = OrganizationRepository::new(pool.clone());
+
+    // 先尝试 slug 查找
+    if let Ok(Some(org)) = org_repo.find_by_slug(slug_or_id).await {
+        let slug = org.slug.unwrap_or_else(|| org.id.to_string());
+        return Ok((org.id, slug));
+    }
+
+    // 尝试解析为 UUID 并按 ID 查找
+    if let Ok(id) = uuid::Uuid::parse_str(slug_or_id) {
+        if let Ok(Some(org)) = org_repo.find_by_id(id).await {
+            let slug = org.slug.unwrap_or_else(|| org.id.to_string());
+            return Ok((org.id, slug));
+        }
+    }
+
+    Err(ApiError::NotFound(format!("Organization '{}' not found", slug_or_id)))
+}
+
 pub async fn create_org_handler(
     State(state): State<ApiState>,
-    AgentContext { subject: _, .. }: AgentContext,
+    agent_context: AgentContext,
     Json(body): Json<crate::api::models::CreateOrgBody>,
 ) -> Result<impl IntoResponse, ApiError> {
+    require_admin(&state, &agent_context).await?;
     let org = state
         .organization
         .create_org(
@@ -3425,10 +4513,18 @@ pub async fn list_orgs_handler(
 
 pub async fn update_org_handler(
     State(state): State<ApiState>,
-    AgentContext { subject: _, .. }: AgentContext,
+    agent_context: AgentContext,
     Path(org_id): Path<Uuid>,
     Json(body): Json<crate::api::models::UpdateOrgBody>,
 ) -> Result<impl IntoResponse, ApiError> {
+    require_org_member(
+        &state,
+        &agent_context,
+        org_id,
+        Some(crate::models::org_membership::OrgRole::Admin),
+    )
+    .await?;
+
     let org = state
         .organization
         .update_org(org_id, body.name, body.display_name, body.description)
@@ -3440,9 +4536,11 @@ pub async fn update_org_handler(
 
 pub async fn delete_org_handler(
     State(state): State<ApiState>,
-    AgentContext { subject: _, .. }: AgentContext,
+    agent_context: AgentContext,
     Path(org_id): Path<Uuid>,
 ) -> Result<impl IntoResponse, ApiError> {
+    require_admin(&state, &agent_context).await?;
+
     state
         .organization
         .delete_org(org_id)
@@ -3459,7 +4557,7 @@ pub async fn list_org_members_handler(
     Path(org_id): Path<Uuid>,
     agent_context: AgentContext,
 ) -> Result<impl IntoResponse, ApiError> {
-    agent_context.require_admin()?;
+    require_admin(&state, &agent_context).await?;
 
     let agents = state
         .agent_repo
@@ -3489,7 +4587,7 @@ pub async fn add_org_member_handler(
     agent_context: AgentContext,
     Json(body): Json<crate::api::models::AddOrgMemberBody>,
 ) -> Result<impl IntoResponse, ApiError> {
-    agent_context.require_admin()?;
+    require_admin(&state, &agent_context).await?;
 
     use crate::db::repositories::agent::NewAgent;
 
@@ -3523,7 +4621,7 @@ pub async fn remove_org_member_handler(
     Path((_org_id, subject)): Path<(Uuid, String)>,
     agent_context: AgentContext,
 ) -> Result<impl IntoResponse, ApiError> {
-    agent_context.require_admin()?;
+    require_admin(&state, &agent_context).await?;
 
     state
         .agent_repo
@@ -3542,7 +4640,7 @@ pub async fn get_org_stats_handler(
     Path(org_id): Path<Uuid>,
     agent_context: AgentContext,
 ) -> Result<impl IntoResponse, ApiError> {
-    agent_context.require_admin()?;
+    require_admin(&state, &agent_context).await?;
 
     let pool = state.agent_repo.pool();
 
@@ -3629,7 +4727,7 @@ pub async fn create_org_skill_handler(
         .get_member(identity_id, org.id)
         .await
         .map_err(|e| ApiError::BadRequest(e.to_string()))?
-        .ok_or_else(|| ApiError::Unauthorized("Not a member of this organization".to_string()))?;
+        .ok_or_else(|| ApiError::Forbidden("Not a member of this organization".to_string()))?;
 
     let owner_type = body
         .owner_type
@@ -3681,7 +4779,7 @@ pub async fn create_org_skill_handler(
 pub async fn invite_org_member_handler(
     State(state): State<ApiState>,
     Path(slug): Path<String>,
-    AgentContext { subject, .. }: AgentContext,
+    agent_context: AgentContext,
     Json(body): Json<crate::api::models::InviteOrgMemberBody>,
 ) -> Result<impl IntoResponse, ApiError> {
     use crate::db::repositories::org_membership::OrgMembershipRepository;
@@ -3695,6 +4793,14 @@ pub async fn invite_org_member_handler(
         .map_err(|e| ApiError::BadRequest(e.to_string()))?
         .ok_or_else(|| ApiError::NotFound(format!("Organization '{}' not found", slug)))?;
 
+    require_org_member(
+        &state,
+        &agent_context,
+        org.id,
+        Some(crate::models::org_membership::OrgRole::Admin),
+    )
+    .await?;
+
     let target_identity = state
         .identity
         .get_by_email(&body.email)
@@ -3702,8 +4808,7 @@ pub async fn invite_org_member_handler(
         .map_err(|e| ApiError::BadRequest(e.to_string()))?
         .ok_or_else(|| ApiError::NotFound(format!("User with email '{}' not found", body.email)))?;
 
-    let inviter_id = uuid::Uuid::parse_str(&subject)
-        .map_err(|_| ApiError::BadRequest("Invalid inviter subject".to_string()))?;
+    let inviter_id = agent_context.require_identity()?;
 
     let org_membership_repo = OrgMembershipRepository::new(pool.clone());
     org_membership_repo
@@ -3730,7 +4835,7 @@ pub async fn invite_org_member_handler(
 pub async fn invite_org_member_by_id_handler(
     State(state): State<ApiState>,
     Path(org_id): Path<uuid::Uuid>,
-    AgentContext { subject, .. }: AgentContext,
+    agent_context: AgentContext,
     Json(body): Json<crate::api::models::InviteOrgMemberBody>,
 ) -> Result<impl IntoResponse, ApiError> {
     use crate::db::repositories::org_membership::OrgMembershipRepository;
@@ -3744,6 +4849,14 @@ pub async fn invite_org_member_by_id_handler(
         .map_err(|e| ApiError::BadRequest(e.to_string()))?
         .ok_or_else(|| ApiError::NotFound(format!("Organization '{}' not found", org_id)))?;
 
+    require_org_member(
+        &state,
+        &agent_context,
+        org.id,
+        Some(crate::models::org_membership::OrgRole::Admin),
+    )
+    .await?;
+
     let target_identity = state
         .identity
         .get_by_email(&body.email)
@@ -3751,8 +4864,7 @@ pub async fn invite_org_member_by_id_handler(
         .map_err(|e| ApiError::BadRequest(e.to_string()))?
         .ok_or_else(|| ApiError::NotFound(format!("User with email '{}' not found", body.email)))?;
 
-    let inviter_id = uuid::Uuid::parse_str(&subject)
-        .map_err(|_| ApiError::BadRequest("Invalid inviter subject".to_string()))?;
+    let inviter_id = agent_context.require_identity()?;
 
     let org_membership_repo = OrgMembershipRepository::new(pool.clone());
     org_membership_repo
@@ -3778,7 +4890,7 @@ pub async fn invite_org_member_by_id_handler(
 
 pub async fn update_org_member_handler(
     State(state): State<ApiState>,
-    AgentContext { subject: _, .. }: AgentContext,
+    agent_context: AgentContext,
     Path((slug, username)): Path<(String, String)>,
     Json(body): Json<crate::api::models::UpdateOrgMemberBody>,
 ) -> Result<impl IntoResponse, ApiError> {
@@ -3792,6 +4904,14 @@ pub async fn update_org_member_handler(
         .await
         .map_err(|e| ApiError::BadRequest(e.to_string()))?
         .ok_or_else(|| ApiError::NotFound(format!("Organization '{}' not found", slug)))?;
+
+    require_org_member(
+        &state,
+        &agent_context,
+        org.id,
+        Some(crate::models::org_membership::OrgRole::Admin),
+    )
+    .await?;
 
     let identity = state
         .identity
@@ -3817,7 +4937,7 @@ pub async fn update_org_member_handler(
 
 pub async fn remove_org_member_by_slug_handler(
     State(state): State<ApiState>,
-    AgentContext { subject: _, .. }: AgentContext,
+    agent_context: AgentContext,
     Path((slug, username)): Path<(String, String)>,
 ) -> Result<impl IntoResponse, ApiError> {
     use crate::db::repositories::org_membership::OrgMembershipRepository;
@@ -3830,6 +4950,14 @@ pub async fn remove_org_member_by_slug_handler(
         .await
         .map_err(|e| ApiError::BadRequest(e.to_string()))?
         .ok_or_else(|| ApiError::NotFound(format!("Organization '{}' not found", slug)))?;
+
+    require_org_member(
+        &state,
+        &agent_context,
+        org.id,
+        Some(crate::models::org_membership::OrgRole::Admin),
+    )
+    .await?;
 
     let identity = state
         .identity
@@ -3854,7 +4982,7 @@ pub async fn remove_org_member_by_slug_handler(
 
 pub async fn update_org_member_by_id_handler(
     State(state): State<ApiState>,
-    AgentContext { subject: _, .. }: AgentContext,
+    agent_context: AgentContext,
     Path((org_id, username)): Path<(uuid::Uuid, String)>,
     Json(body): Json<crate::api::models::UpdateOrgMemberBody>,
 ) -> Result<impl IntoResponse, ApiError> {
@@ -3868,6 +4996,14 @@ pub async fn update_org_member_by_id_handler(
         .await
         .map_err(|e| ApiError::BadRequest(e.to_string()))?
         .ok_or_else(|| ApiError::NotFound(format!("Organization '{}' not found", org_id)))?;
+
+    require_org_member(
+        &state,
+        &agent_context,
+        org.id,
+        Some(crate::models::org_membership::OrgRole::Admin),
+    )
+    .await?;
 
     let identity = state
         .identity
@@ -3893,7 +5029,7 @@ pub async fn update_org_member_by_id_handler(
 
 pub async fn remove_org_member_by_id_handler(
     State(state): State<ApiState>,
-    AgentContext { subject: _, .. }: AgentContext,
+    agent_context: AgentContext,
     Path((org_id, username)): Path<(uuid::Uuid, String)>,
 ) -> Result<impl IntoResponse, ApiError> {
     use crate::db::repositories::org_membership::OrgMembershipRepository;
@@ -3906,6 +5042,14 @@ pub async fn remove_org_member_by_id_handler(
         .await
         .map_err(|e| ApiError::BadRequest(e.to_string()))?
         .ok_or_else(|| ApiError::NotFound(format!("Organization '{}' not found", org_id)))?;
+
+    require_org_member(
+        &state,
+        &agent_context,
+        org.id,
+        Some(crate::models::org_membership::OrgRole::Admin),
+    )
+    .await?;
 
     let identity = state
         .identity
@@ -3930,7 +5074,7 @@ pub async fn remove_org_member_by_id_handler(
 
 pub async fn list_org_members_by_slug_handler(
     State(state): State<ApiState>,
-    AgentContext { subject: _, .. }: AgentContext,
+    agent_context: AgentContext,
     Path(slug): Path<String>,
 ) -> Result<impl IntoResponse, ApiError> {
     use crate::db::repositories::org_membership::OrgMembershipRepository;
@@ -3944,6 +5088,8 @@ pub async fn list_org_members_by_slug_handler(
         .map_err(|e| ApiError::BadRequest(e.to_string()))?
         .ok_or_else(|| ApiError::NotFound(format!("Organization '{}' not found", slug)))?;
 
+    require_org_member(&state, &agent_context, org.id, None).await?;
+
     let org_membership_repo = OrgMembershipRepository::new(pool);
     let members = org_membership_repo
         .list_members(org.id)
@@ -3955,7 +5101,7 @@ pub async fn list_org_members_by_slug_handler(
 
 pub async fn list_org_members_by_id_handler(
     State(state): State<ApiState>,
-    AgentContext { subject: _, .. }: AgentContext,
+    agent_context: AgentContext,
     Path(org_id): Path<uuid::Uuid>,
 ) -> Result<impl IntoResponse, ApiError> {
     use crate::db::repositories::org_membership::OrgMembershipRepository;
@@ -3969,6 +5115,8 @@ pub async fn list_org_members_by_id_handler(
         .map_err(|e| ApiError::BadRequest(e.to_string()))?
         .ok_or_else(|| ApiError::NotFound(format!("Organization '{}' not found", org_id)))?;
 
+    require_org_member(&state, &agent_context, org.id, None).await?;
+
     let org_membership_repo = OrgMembershipRepository::new(pool);
     let members = org_membership_repo
         .list_members(org.id)
@@ -3980,7 +5128,7 @@ pub async fn list_org_members_by_id_handler(
 
 pub async fn list_org_skills_handler(
     State(state): State<ApiState>,
-    AgentContext { subject: _, .. }: AgentContext,
+    agent_context: AgentContext,
     Path(slug): Path<String>,
 ) -> Result<impl IntoResponse, ApiError> {
     use crate::db::repositories::organization::OrganizationRepository;
@@ -3993,6 +5141,8 @@ pub async fn list_org_skills_handler(
         .await
         .map_err(|e| ApiError::BadRequest(e.to_string()))?
         .ok_or_else(|| ApiError::NotFound(format!("Organization '{}' not found", slug)))?;
+
+    require_org_member(&state, &agent_context, org.id, None).await?;
 
     let skill_repo = SkillRepository::new(pool);
     let skills = skill_repo
@@ -4005,7 +5155,7 @@ pub async fn list_org_skills_handler(
 
 pub async fn list_org_reviews_handler(
     State(state): State<ApiState>,
-    AgentContext { subject: _, .. }: AgentContext,
+    agent_context: AgentContext,
     Path(slug): Path<String>,
 ) -> Result<impl IntoResponse, ApiError> {
     use crate::db::repositories::organization::OrganizationRepository;
@@ -4018,6 +5168,8 @@ pub async fn list_org_reviews_handler(
         .await
         .map_err(|e| ApiError::BadRequest(e.to_string()))?
         .ok_or_else(|| ApiError::NotFound(format!("Organization '{}' not found", slug)))?;
+
+    require_org_member(&state, &agent_context, org.id, None).await?;
 
     let skill_repo = SkillRepository::new(pool);
     let skills = skill_repo
@@ -4037,7 +5189,7 @@ pub async fn list_org_reviews_handler(
 
 pub async fn get_session_handler(
     State(state): State<ApiState>,
-    AgentContext { subject: _, .. }: AgentContext,
+    agent_context: AgentContext,
     Path(session_id): Path<Uuid>,
 ) -> Result<impl IntoResponse, ApiError> {
     let session = state
@@ -4048,6 +5200,17 @@ pub async fn get_session_handler(
 
     match session {
         Some(s) => {
+            // Check ownership: only the session owner or admin can view
+            let is_admin = require_admin(&state, &agent_context).await.is_ok();
+            if !is_admin {
+                let identity_id = agent_context.require_identity()?;
+                if s.identity_id != identity_id {
+                    return Err(ApiError::Unauthorized(
+                        "Not authorized to view this session".to_string(),
+                    ));
+                }
+            }
+
             let enriched = enrich_session_with_meta(&state, s).await?;
             Ok((
                 StatusCode::OK,
@@ -4063,12 +5226,19 @@ pub async fn get_session_handler(
 
 pub async fn list_sessions_handler(
     State(state): State<ApiState>,
-    AgentContext { subject: _, .. }: AgentContext,
+    agent_context: AgentContext,
     Query(query): Query<crate::api::models::ListSessionsQuery>,
 ) -> Result<impl IntoResponse, ApiError> {
     let limit = query.limit.unwrap_or(100);
     let offset = query.offset.unwrap_or(0);
     let status = query.status.as_deref();
+
+    let is_admin = require_admin(&state, &agent_context).await.is_ok();
+    let own_identity_id = if !is_admin {
+        Some(agent_context.require_identity()?)
+    } else {
+        None
+    };
 
     let sessions = state
         .session
@@ -4076,9 +5246,19 @@ pub async fn list_sessions_handler(
         .await
         .map_err(|e| ApiError::InternalError(e.to_string()))?;
 
+    // Non-admin users can only see their own sessions
+    let filtered: Vec<_> = if let Some(identity_id) = own_identity_id {
+        sessions
+            .into_iter()
+            .filter(|s| s.identity_id == identity_id)
+            .collect()
+    } else {
+        sessions
+    };
+
     // Enrich each session with identity & org names (concurrent lookups per session)
     let enriched: Vec<crate::models::session::SessionWithMeta> = futures_util::future::join_all(
-        sessions
+        filtered
             .into_iter()
             .map(|s| enrich_session_with_meta(&state, s)),
     )
@@ -4094,9 +5274,27 @@ pub async fn list_sessions_handler(
 
 pub async fn end_session_handler(
     State(state): State<ApiState>,
-    AgentContext { subject: _, .. }: AgentContext,
+    agent_context: AgentContext,
     Path(session_id): Path<Uuid>,
 ) -> Result<impl IntoResponse, ApiError> {
+    // Check ownership: only session owner or admin can end a session
+    let session = state
+        .session
+        .get_session(session_id)
+        .await
+        .map_err(|e| ApiError::InternalError(e.to_string()))?
+        .ok_or_else(|| ApiError::NotFound(format!("Session {} not found", session_id)))?;
+
+    let is_admin = require_admin(&state, &agent_context).await.is_ok();
+    if !is_admin {
+        let identity_id = agent_context.require_identity()?;
+        if session.identity_id != identity_id {
+            return Err(ApiError::Unauthorized(
+                "Not authorized to end this session".to_string(),
+            ));
+        }
+    }
+
     state
         .session
         .end_session(session_id)
@@ -4166,9 +5364,17 @@ async fn enrich_session_with_meta(
 
 pub async fn register_org_tool_handler(
     State(state): State<ApiState>,
-    AgentContext { subject: _, .. }: AgentContext,
+    agent_context: AgentContext,
     Json(body): Json<crate::api::models::RegisterOrgToolBody>,
 ) -> Result<impl IntoResponse, ApiError> {
+    require_org_member(
+        &state,
+        &agent_context,
+        body.org_id,
+        Some(crate::models::org_membership::OrgRole::Admin),
+    )
+    .await?;
+
     let tool = state
         .org_tool
         .register_tool(
@@ -4225,9 +5431,25 @@ pub async fn list_all_org_tools_handler(
 
 pub async fn approve_org_tool_handler(
     State(state): State<ApiState>,
-    AgentContext { subject: _, .. }: AgentContext,
+    agent_context: AgentContext,
     Path(tool_id): Path<Uuid>,
 ) -> Result<impl IntoResponse, ApiError> {
+    // Get the tool to find its org_id, then check org membership
+    let tool = state
+        .org_tool
+        .get_tool(tool_id)
+        .await
+        .map_err(|e| ApiError::BadRequest(e.to_string()))?
+        .ok_or_else(|| ApiError::NotFound(format!("Tool {} not found", tool_id)))?;
+
+    require_org_member(
+        &state,
+        &agent_context,
+        tool.org_id,
+        Some(crate::models::org_membership::OrgRole::Admin),
+    )
+    .await?;
+
     state
         .org_tool
         .approve_tool(tool_id)
@@ -4274,12 +5496,26 @@ pub async fn list_group_members_handler(
 pub async fn add_group_member_handler(
     State(state): State<ApiState>,
     Path(group_id): Path<Uuid>,
-    AgentContext { subject, .. }: AgentContext,
+    agent_context: AgentContext,
     Json(body): Json<crate::api::models::AddGroupMemberBody>,
 ) -> Result<impl IntoResponse, ApiError> {
     use crate::db::repositories::group::GroupRepository;
     let pool = state.agent_repo.pool().clone();
-    let repo = GroupRepository::new(pool);
+    let repo = GroupRepository::new(pool.clone());
+
+    // Verify group exists and check org membership
+    let group = repo
+        .find_by_id(group_id)
+        .await
+        .map_err(|e| ApiError::BadRequest(e.to_string()))?
+        .ok_or_else(|| ApiError::NotFound(format!("Group {} not found", group_id)))?;
+    require_org_member(
+        &state,
+        &agent_context,
+        group.organization_id,
+        Some(crate::models::org_membership::OrgRole::Admin),
+    )
+    .await?;
 
     let target_id = uuid::Uuid::parse_str(&body.agent_id)
         .map_err(|_| ApiError::BadRequest("Invalid subject".to_string()))?;
@@ -4293,7 +5529,7 @@ pub async fn add_group_member_handler(
     state
         .audit_repo
         .create(crate::db::repositories::audit::NewAuditLog {
-            agent_id: Some(subject),
+            agent_id: Some(agent_context.subject),
             action: "group_member_added".to_string(),
             resource_type: "group".to_string(),
             resource_id: Some(group_id.to_string()),
@@ -4315,12 +5551,26 @@ pub async fn add_group_member_handler(
 pub async fn update_group_member_handler(
     State(state): State<ApiState>,
     Path((group_id, member_subject)): Path<(Uuid, String)>,
-    AgentContext { subject, .. }: AgentContext,
+    agent_context: AgentContext,
     Json(body): Json<crate::api::models::UpdateGroupMemberBody>,
 ) -> Result<impl IntoResponse, ApiError> {
     use crate::db::repositories::group::GroupRepository;
     let pool = state.agent_repo.pool().clone();
-    let repo = GroupRepository::new(pool);
+    let repo = GroupRepository::new(pool.clone());
+
+    // Verify group exists and check org membership
+    let group = repo
+        .find_by_id(group_id)
+        .await
+        .map_err(|e| ApiError::BadRequest(e.to_string()))?
+        .ok_or_else(|| ApiError::NotFound(format!("Group {} not found", group_id)))?;
+    require_org_member(
+        &state,
+        &agent_context,
+        group.organization_id,
+        Some(crate::models::org_membership::OrgRole::Admin),
+    )
+    .await?;
 
     let target_id = uuid::Uuid::parse_str(&member_subject)
         .map_err(|_| ApiError::BadRequest("Invalid member subject".to_string()))?;
@@ -4332,7 +5582,7 @@ pub async fn update_group_member_handler(
     state
         .audit_repo
         .create(crate::db::repositories::audit::NewAuditLog {
-            agent_id: Some(subject),
+            agent_id: Some(agent_context.subject),
             action: "group_member_updated".to_string(),
             resource_type: "group".to_string(),
             resource_id: Some(group_id.to_string()),
@@ -4354,11 +5604,25 @@ pub async fn update_group_member_handler(
 pub async fn remove_group_member_handler(
     State(state): State<ApiState>,
     Path((group_id, member_subject)): Path<(Uuid, String)>,
-    AgentContext { subject, .. }: AgentContext,
+    agent_context: AgentContext,
 ) -> Result<impl IntoResponse, ApiError> {
     use crate::db::repositories::group::GroupRepository;
     let pool = state.agent_repo.pool().clone();
-    let repo = GroupRepository::new(pool);
+    let repo = GroupRepository::new(pool.clone());
+
+    // Verify group exists and check org membership
+    let group = repo
+        .find_by_id(group_id)
+        .await
+        .map_err(|e| ApiError::BadRequest(e.to_string()))?
+        .ok_or_else(|| ApiError::NotFound(format!("Group {} not found", group_id)))?;
+    require_org_member(
+        &state,
+        &agent_context,
+        group.organization_id,
+        Some(crate::models::org_membership::OrgRole::Admin),
+    )
+    .await?;
 
     let target_id = uuid::Uuid::parse_str(&member_subject)
         .map_err(|_| ApiError::BadRequest("Invalid member subject".to_string()))?;
@@ -4370,7 +5634,7 @@ pub async fn remove_group_member_handler(
     state
         .audit_repo
         .create(crate::db::repositories::audit::NewAuditLog {
-            agent_id: Some(subject),
+            agent_id: Some(agent_context.subject),
             action: "group_member_removed".to_string(),
             resource_type: "group".to_string(),
             resource_id: Some(group_id.to_string()),
@@ -4393,21 +5657,23 @@ pub async fn remove_group_member_handler(
 
 pub async fn create_org_group_handler(
     State(state): State<ApiState>,
-    Path(slug): Path<String>,
-    AgentContext { subject, .. }: AgentContext,
+    Path(slug_or_id): Path<String>,
+    agent_context: AgentContext,
     Json(body): Json<crate::api::models::CreateGroupBody>,
 ) -> Result<impl IntoResponse, ApiError> {
-    use crate::db::repositories::organization::OrganizationRepository;
     let pool = state.agent_repo.pool().clone();
-    let org_repo = OrganizationRepository::new(pool);
-    let org = org_repo
-        .find_by_slug(&slug)
-        .await
-        .map_err(|e| ApiError::BadRequest(e.to_string()))?
-        .ok_or_else(|| ApiError::NotFound(format!("Organization '{}' not found", slug)))?;
+    let (org_id, slug) = resolve_org_id(&pool, &slug_or_id).await?;
+
+    require_org_member(
+        &state,
+        &agent_context,
+        org_id,
+        Some(crate::models::org_membership::OrgRole::Admin),
+    )
+    .await?;
 
     let mut new_group: crate::models::group::NewGroup = body.into();
-    new_group.organization_id = org.id;
+    new_group.organization_id = org_id;
 
     let group = state
         .group
@@ -4418,7 +5684,7 @@ pub async fn create_org_group_handler(
     state
         .audit_repo
         .create(crate::db::repositories::audit::NewAuditLog {
-            agent_id: Some(subject),
+            agent_id: Some(agent_context.subject),
             action: "group_created".to_string(),
             resource_type: "group".to_string(),
             resource_id: Some(group.id.to_string()),
@@ -4435,21 +5701,17 @@ pub async fn create_org_group_handler(
 
 pub async fn list_org_groups_handler(
     State(state): State<ApiState>,
-    AgentContext { subject: _, .. }: AgentContext,
-    Path(slug): Path<String>,
+    agent_context: AgentContext,
+    Path(slug_or_id): Path<String>,
 ) -> Result<impl IntoResponse, ApiError> {
-    use crate::db::repositories::organization::OrganizationRepository;
     let pool = state.agent_repo.pool().clone();
-    let org_repo = OrganizationRepository::new(pool);
-    let org = org_repo
-        .find_by_slug(&slug)
-        .await
-        .map_err(|e| ApiError::BadRequest(e.to_string()))?
-        .ok_or_else(|| ApiError::NotFound(format!("Organization '{}' not found", slug)))?;
+    let (org_id, _slug) = resolve_org_id(&pool, &slug_or_id).await?;
+
+    require_org_member(&state, &agent_context, org_id, None).await?;
 
     let groups = state
         .group
-        .list_by_organization(org.id)
+        .list_by_organization(org_id)
         .await
         .map_err(|e| ApiError::InternalError(e.to_string()))?;
 
@@ -4459,16 +5721,10 @@ pub async fn list_org_groups_handler(
 pub async fn get_org_group_handler(
     State(state): State<ApiState>,
     AgentContext { subject: _, .. }: AgentContext,
-    Path((slug, group_id)): Path<(String, Uuid)>,
+    Path((slug_or_id, group_id)): Path<(String, Uuid)>,
 ) -> Result<impl IntoResponse, ApiError> {
-    use crate::db::repositories::organization::OrganizationRepository;
     let pool = state.agent_repo.pool().clone();
-    let org_repo = OrganizationRepository::new(pool);
-    org_repo
-        .find_by_slug(&slug)
-        .await
-        .map_err(|e| ApiError::BadRequest(e.to_string()))?
-        .ok_or_else(|| ApiError::NotFound(format!("Organization '{}' not found", slug)))?;
+    let (_org_id, _slug) = resolve_org_id(&pool, &slug_or_id).await?;
 
     let group = state
         .group
@@ -4482,18 +5738,12 @@ pub async fn get_org_group_handler(
 
 pub async fn update_org_group_handler(
     State(state): State<ApiState>,
-    Path((slug, group_id)): Path<(String, Uuid)>,
+    Path((slug_or_id, group_id)): Path<(String, Uuid)>,
     AgentContext { subject, .. }: AgentContext,
     Json(body): Json<crate::api::models::UpdateGroupBody>,
 ) -> Result<impl IntoResponse, ApiError> {
-    use crate::db::repositories::organization::OrganizationRepository;
     let pool = state.agent_repo.pool().clone();
-    let org_repo = OrganizationRepository::new(pool);
-    org_repo
-        .find_by_slug(&slug)
-        .await
-        .map_err(|e| ApiError::BadRequest(e.to_string()))?
-        .ok_or_else(|| ApiError::NotFound(format!("Organization '{}' not found", slug)))?;
+    let (_org_id, slug) = resolve_org_id(&pool, &slug_or_id).await?;
 
     let group = state
         .group
@@ -4518,17 +5768,11 @@ pub async fn update_org_group_handler(
 
 pub async fn delete_org_group_handler(
     State(state): State<ApiState>,
-    Path((slug, group_id)): Path<(String, Uuid)>,
+    Path((slug_or_id, group_id)): Path<(String, Uuid)>,
     AgentContext { subject, .. }: AgentContext,
 ) -> Result<impl IntoResponse, ApiError> {
-    use crate::db::repositories::organization::OrganizationRepository;
     let pool = state.agent_repo.pool().clone();
-    let org_repo = OrganizationRepository::new(pool);
-    org_repo
-        .find_by_slug(&slug)
-        .await
-        .map_err(|e| ApiError::BadRequest(e.to_string()))?
-        .ok_or_else(|| ApiError::NotFound(format!("Organization '{}' not found", slug)))?;
+    let (_org_id, slug) = resolve_org_id(&pool, &slug_or_id).await?;
 
     state
         .group
@@ -4554,22 +5798,16 @@ pub async fn delete_org_group_handler(
     ))
 }
 
-// Org slug-based Group member management (6.6)
+// Org slug/id-based Group member management (6.6)
 
 pub async fn list_org_group_members_handler(
     State(state): State<ApiState>,
     AgentContext { subject: _, .. }: AgentContext,
-    Path((slug, group_id)): Path<(String, Uuid)>,
+    Path((slug_or_id, group_id)): Path<(String, Uuid)>,
 ) -> Result<impl IntoResponse, ApiError> {
     use crate::db::repositories::group::GroupRepository;
-    use crate::db::repositories::organization::OrganizationRepository;
     let pool = state.agent_repo.pool().clone();
-    let org_repo = OrganizationRepository::new(pool.clone());
-    org_repo
-        .find_by_slug(&slug)
-        .await
-        .map_err(|e| ApiError::BadRequest(e.to_string()))?
-        .ok_or_else(|| ApiError::NotFound(format!("Organization '{}' not found", slug)))?;
+    let (_org_id, _slug) = resolve_org_id(&pool, &slug_or_id).await?;
 
     let repo = GroupRepository::new(pool);
     let members = repo
@@ -4597,19 +5835,13 @@ pub async fn list_org_group_members_handler(
 
 pub async fn update_org_group_member_handler(
     State(state): State<ApiState>,
-    Path((slug, group_id, username)): Path<(String, Uuid, String)>,
+    Path((slug_or_id, group_id, username)): Path<(String, Uuid, String)>,
     AgentContext { subject, .. }: AgentContext,
     Json(body): Json<crate::api::models::UpdateGroupMemberBody>,
 ) -> Result<impl IntoResponse, ApiError> {
     use crate::db::repositories::group::GroupRepository;
-    use crate::db::repositories::organization::OrganizationRepository;
     let pool = state.agent_repo.pool().clone();
-    let org_repo = OrganizationRepository::new(pool.clone());
-    org_repo
-        .find_by_slug(&slug)
-        .await
-        .map_err(|e| ApiError::BadRequest(e.to_string()))?
-        .ok_or_else(|| ApiError::NotFound(format!("Organization '{}' not found", slug)))?;
+    let (_org_id, slug) = resolve_org_id(&pool, &slug_or_id).await?;
 
     let target_id = uuid::Uuid::parse_str(&username)
         .map_err(|_| ApiError::BadRequest("Invalid member id".to_string()))?;
@@ -4642,18 +5874,12 @@ pub async fn update_org_group_member_handler(
 
 pub async fn remove_org_group_member_handler(
     State(state): State<ApiState>,
-    Path((slug, group_id, username)): Path<(String, Uuid, String)>,
+    Path((slug_or_id, group_id, username)): Path<(String, Uuid, String)>,
     AgentContext { subject, .. }: AgentContext,
 ) -> Result<impl IntoResponse, ApiError> {
     use crate::db::repositories::group::GroupRepository;
-    use crate::db::repositories::organization::OrganizationRepository;
     let pool = state.agent_repo.pool().clone();
-    let org_repo = OrganizationRepository::new(pool.clone());
-    org_repo
-        .find_by_slug(&slug)
-        .await
-        .map_err(|e| ApiError::BadRequest(e.to_string()))?
-        .ok_or_else(|| ApiError::NotFound(format!("Organization '{}' not found", slug)))?;
+    let (_org_id, slug) = resolve_org_id(&pool, &slug_or_id).await?;
 
     let target_id = uuid::Uuid::parse_str(&username)
         .map_err(|_| ApiError::BadRequest("Invalid member id".to_string()))?;
@@ -4685,22 +5911,16 @@ pub async fn remove_org_group_member_handler(
     ))
 }
 
-// Org slug-based Group-Skill association (6.6)
+// Org slug/id-based Group-Skill association (6.6)
 
 pub async fn list_org_group_skills_handler(
     State(state): State<ApiState>,
     AgentContext { subject: _, .. }: AgentContext,
-    Path((slug, group_id)): Path<(String, Uuid)>,
+    Path((slug_or_id, group_id)): Path<(String, Uuid)>,
 ) -> Result<impl IntoResponse, ApiError> {
     use crate::db::repositories::group_skill::GroupSkillRepository;
-    use crate::db::repositories::organization::OrganizationRepository;
     let pool = state.agent_repo.pool().clone();
-    let org_repo = OrganizationRepository::new(pool.clone());
-    org_repo
-        .find_by_slug(&slug)
-        .await
-        .map_err(|e| ApiError::BadRequest(e.to_string()))?
-        .ok_or_else(|| ApiError::NotFound(format!("Organization '{}' not found", slug)))?;
+    let (_org_id, _slug) = resolve_org_id(&pool, &slug_or_id).await?;
 
     let repo = GroupSkillRepository::new(pool);
     let skills = repo
@@ -4713,19 +5933,13 @@ pub async fn list_org_group_skills_handler(
 
 pub async fn add_org_group_skill_handler(
     State(state): State<ApiState>,
-    Path((slug, group_id)): Path<(String, Uuid)>,
+    Path((slug_or_id, group_id)): Path<(String, Uuid)>,
     AgentContext { subject, .. }: AgentContext,
     Json(body): Json<crate::api::models::AddSkillToGroupBody>,
 ) -> Result<impl IntoResponse, ApiError> {
     use crate::db::repositories::group_skill::GroupSkillRepository;
-    use crate::db::repositories::organization::OrganizationRepository;
     let pool = state.agent_repo.pool().clone();
-    let org_repo = OrganizationRepository::new(pool.clone());
-    org_repo
-        .find_by_slug(&slug)
-        .await
-        .map_err(|e| ApiError::BadRequest(e.to_string()))?
-        .ok_or_else(|| ApiError::NotFound(format!("Organization '{}' not found", slug)))?;
+    let (_org_id, slug) = resolve_org_id(&pool, &slug_or_id).await?;
 
     let skill_id = body
         .skill_id
@@ -4765,18 +5979,12 @@ pub async fn add_org_group_skill_handler(
 
 pub async fn remove_org_group_skill_handler(
     State(state): State<ApiState>,
-    Path((slug, group_id, skill_id)): Path<(String, Uuid, String)>,
+    Path((slug_or_id, group_id, skill_id)): Path<(String, Uuid, String)>,
     AgentContext { subject, .. }: AgentContext,
 ) -> Result<impl IntoResponse, ApiError> {
     use crate::db::repositories::group_skill::GroupSkillRepository;
-    use crate::db::repositories::organization::OrganizationRepository;
     let pool = state.agent_repo.pool().clone();
-    let org_repo = OrganizationRepository::new(pool.clone());
-    org_repo
-        .find_by_slug(&slug)
-        .await
-        .map_err(|e| ApiError::BadRequest(e.to_string()))?
-        .ok_or_else(|| ApiError::NotFound(format!("Organization '{}' not found", slug)))?;
+    let (_org_id, slug) = resolve_org_id(&pool, &slug_or_id).await?;
 
     let repo = GroupSkillRepository::new(pool);
     repo.dissociate_skill(group_id, &skill_id)
@@ -4827,7 +6035,7 @@ pub async fn delete_org_tool_handler(
     Path(tool_id): Path<Uuid>,
     agent_context: AgentContext,
 ) -> Result<impl IntoResponse, ApiError> {
-    agent_context.require_admin()?;
+    require_admin(&state, &agent_context).await?;
 
     state
         .org_tool
@@ -4845,7 +6053,7 @@ pub async fn get_admin_stats_handler(
     State(state): State<ApiState>,
     agent_context: AgentContext,
 ) -> Result<impl IntoResponse, ApiError> {
-    agent_context.require_admin()?;
+    require_admin(&state, &agent_context).await?;
 
     let pool = state.agent_repo.pool();
 
@@ -4891,7 +6099,7 @@ pub async fn get_admin_status_handler(
     State(state): State<ApiState>,
     agent_context: AgentContext,
 ) -> Result<impl IntoResponse, ApiError> {
-    agent_context.require_admin()?;
+    require_admin(&state, &agent_context).await?;
 
     let pool = state.agent_repo.pool();
     let db_connected = sqlx::query("SELECT 1").execute(pool).await.is_ok();
@@ -5318,9 +6526,32 @@ pub async fn get_evaluation_handler(
 
 pub async fn delete_evaluation_handler(
     State(state): State<ApiState>,
-    AgentContext { subject, .. }: AgentContext,
+    agent_context: AgentContext,
     Path(eval_id): Path<uuid::Uuid>,
 ) -> Result<impl IntoResponse, ApiError> {
+    // Check ownership: only evaluation creator or admin can delete
+    let eval = state
+        .evaluator
+        .get_evaluation(eval_id)
+        .await
+        .map_err(|e| ApiError::InternalError(e.to_string()))?
+        .ok_or_else(|| ApiError::NotFound(format!("Evaluation {} not found", eval_id)))?;
+
+    let is_admin = require_admin(&state, &agent_context).await.is_ok();
+    if !is_admin {
+        let identity_id = agent_context.require_identity()?;
+        let subject_str = identity_id.to_string();
+        let agent_str = agent_context
+            .agent_id
+            .map(|id| id.to_string())
+            .unwrap_or_default();
+        if eval.agent_id != subject_str && eval.agent_id != agent_str {
+            return Err(ApiError::Unauthorized(
+                "Not authorized to delete this evaluation".to_string(),
+            ));
+        }
+    }
+
     state
         .evaluator
         .delete_evaluation(eval_id)
@@ -5330,7 +6561,7 @@ pub async fn delete_evaluation_handler(
     state
         .audit_repo
         .create(crate::db::repositories::audit::NewAuditLog {
-            agent_id: Some(subject),
+            agent_id: Some(agent_context.subject),
             action: "evaluation_deleted".to_string(),
             resource_type: "evaluation".to_string(),
             resource_id: Some(eval_id.to_string()),
@@ -5657,14 +6888,18 @@ pub async fn confirm_skill_upload_handler(
     axum::extract::Path((preview_id,)): axum::extract::Path<(String,)>,
     Json(body): Json<crate::api::models::ConfirmUploadBody>,
 ) -> Result<impl IntoResponse, ApiError> {
-    let _identity_id = identity_id
-        .ok_or_else(|| ApiError::Unauthorized("identity_id required".to_string()))?;
+    let _identity_id =
+        identity_id.ok_or_else(|| ApiError::Unauthorized("identity_id required".to_string()))?;
 
     let is_admin = roles.iter().any(|r| r == "admin");
 
     // 推断 owner_type：body 显式 → 自动（有 agent_org_id → organization，否则 user）
     let effective_owner_type = body.owner_type.as_deref().unwrap_or_else(|| {
-        if agent_org_id.is_some() { "organization" } else { "user" }
+        if agent_org_id.is_some() {
+            "organization"
+        } else {
+            "user"
+        }
     });
 
     let (owner_type, owner_id) = if effective_owner_type == "organization" {
@@ -5672,9 +6907,11 @@ pub async fn confirm_skill_upload_handler(
             .organization_id
             .or(body.owner_id)
             .or(agent_org_id)
-            .ok_or_else(|| ApiError::BadRequest(
-                "organization_id is required when owner_type is organization".to_string(),
-            ))?;
+            .ok_or_else(|| {
+                ApiError::BadRequest(
+                    "organization_id is required when owner_type is organization".to_string(),
+                )
+            })?;
 
         // 验证用户属于该组织（admin 跳过组织成员校验）
         if !is_admin {
@@ -6048,6 +7285,223 @@ pub async fn gitlab_webhook_handler(
         Json(serde_json::json!({
             "received": true,
             "event": event_type,
+        })),
+    ))
+}
+
+// ============================================================================
+// Marketplace Delist Request Workflow (Author → Admin/Reviewer)
+// ============================================================================
+
+/// POST /api/v1/skills/:id/request-delist — 作者申请下架市场上架的 Skill
+pub async fn request_marketplace_delist_handler(
+    State(state): State<ApiState>,
+    Path(skill_id): Path<String>,
+    agent_context: AgentContext,
+    Json(body): Json<crate::api::models::RequestDelistBody>,
+) -> Result<impl IntoResponse, ApiError> {
+    use crate::db::repositories::skill::SkillRepository;
+    let pool = state.agent_repo.pool().clone();
+    let skill_repo = SkillRepository::new(pool);
+
+    let identity_id = agent_context.require_identity()?;
+
+    let skill = skill_repo
+        .find_by_id(&skill_id)
+        .await
+        .map_err(|e| ApiError::BadRequest(e.to_string()))?
+        .ok_or_else(|| ApiError::NotFound(format!("Skill {} not found", skill_id)))?;
+
+    // 只有 Skill 的作者（owner）或组织 Admin 可以申请下架
+    let mut is_owner = false;
+
+    if skill.owner_type == "user" {
+        // 个人 Skill：作者本人可申请下架
+        is_owner = skill.owner_id == Some(identity_id)
+            || skill.author_identity_id == Some(identity_id);
+    } else if skill.owner_type == "organization" {
+        // 组织 Skill：组织 Admin 及以上可申请下架
+        if let Some(org_id) = skill.owner_id {
+            match state.permission.get_org_role(identity_id, org_id).await {
+                Ok(Some(role)) if role >= crate::models::org_membership::OrgRole::Admin => {
+                    is_owner = true;
+                }
+                _ => {}
+            }
+        }
+    }
+
+    if !is_owner {
+        return Err(ApiError::Unauthorized(
+            "Only the skill owner can request delisting".to_string(),
+        ));
+    }
+
+    // 只有上架中的 Skill 可以申请下架
+    if skill.marketplace_status.as_deref() != Some("listed") {
+        return Err(ApiError::BadRequest(
+            "Only listed marketplace skills can request delisting".to_string(),
+        ));
+    }
+
+    // 设置 marketplace_status = pending_delist
+    skill_repo
+        .update_marketplace_status(&skill_id, Some("pending_delist"))
+        .await
+        .map_err(|e| {
+            ApiError::BadRequest(format!("Failed to request delist: {}", e))
+        })?;
+
+    state
+        .audit_repo
+        .create(crate::db::repositories::audit::NewAuditLog {
+            agent_id: Some(agent_context.subject),
+            action: "marketplace_delist_requested".to_string(),
+            resource_type: "skill".to_string(),
+            resource_id: Some(skill_id.clone()),
+            details: serde_json::json!({
+                "skill_name": skill.name,
+                "reason": body.reason,
+                "new_marketplace_status": "pending_delist",
+            }),
+        })
+        .await
+        .map_err(|e| ApiError::InternalError(e.to_string()))?;
+
+    Ok((
+        StatusCode::OK,
+        Json(serde_json::json!({
+            "message": "Delist request submitted for review".to_string(),
+            "skill_id": skill_id,
+            "marketplace_status": "pending_delist",
+        })),
+    ))
+}
+
+/// POST /api/v1/admin/marketplace/:id/approve-delist — 市场管理员批准下架申请
+pub async fn marketplace_approve_delist_handler(
+    State(state): State<ApiState>,
+    Path(skill_id): Path<String>,
+    agent_context: AgentContext,
+) -> Result<impl IntoResponse, ApiError> {
+    require_marketplace_admin(&state, &agent_context).await?;
+    let _ = agent_context.require_identity()?;
+
+    use crate::db::repositories::skill::SkillRepository;
+    let pool = state.agent_repo.pool().clone();
+    let skill_repo = SkillRepository::new(pool);
+
+    let skill = skill_repo
+        .find_by_id(&skill_id)
+        .await
+        .map_err(|e| ApiError::BadRequest(e.to_string()))?
+        .ok_or_else(|| ApiError::NotFound(format!("Skill {} not found", skill_id)))?;
+
+    if skill.marketplace_status.as_deref() != Some("pending_delist") {
+        return Err(ApiError::BadRequest(
+            "Skill is not pending delist review".to_string(),
+        ));
+    }
+
+    // 批准下架：设置 marketplace_status=delisted，恢复 pre_marketplace_visibility
+    let pre_visibility = skill.pre_marketplace_visibility.as_deref().unwrap_or("private");
+    skill_repo
+        .update_marketplace_status(&skill_id, Some("delisted"))
+        .await
+        .map_err(|e| ApiError::BadRequest(format!("Failed to approve delist: {}", e)))?;
+
+    skill_repo
+        .update(&skill_id, None, None, None, Some(pre_visibility))
+        .await
+        .map_err(|e| {
+            ApiError::BadRequest(format!("Failed to revert visibility: {}", e))
+        })?;
+
+    skill_repo
+        .set_admin_unpublished(&skill_id, true)
+        .await
+        .map_err(|e| {
+            ApiError::BadRequest(format!("Failed to set admin unpublished flag: {}", e))
+        })?;
+
+    state
+        .audit_repo
+        .create(crate::db::repositories::audit::NewAuditLog {
+            agent_id: Some(agent_context.subject),
+            action: "marketplace_delist_approved".to_string(),
+            resource_type: "skill".to_string(),
+            resource_id: Some(skill_id.clone()),
+            details: serde_json::json!({
+                "skill_name": skill.name,
+                "new_marketplace_status": "delisted",
+                "restored_visibility": pre_visibility,
+            }),
+        })
+        .await
+        .map_err(|e| ApiError::InternalError(e.to_string()))?;
+
+    Ok((
+        StatusCode::OK,
+        Json(serde_json::json!({
+            "message": "Delist request approved, skill delisted from marketplace".to_string(),
+            "skill_id": skill_id,
+            "marketplace_status": "delisted",
+        })),
+    ))
+}
+
+/// POST /api/v1/admin/marketplace/:id/reject-delist — 市场管理员驳回下架申请
+pub async fn marketplace_reject_delist_handler(
+    State(state): State<ApiState>,
+    Path(skill_id): Path<String>,
+    agent_context: AgentContext,
+) -> Result<impl IntoResponse, ApiError> {
+    require_marketplace_admin(&state, &agent_context).await?;
+    let _ = agent_context.require_identity()?;
+
+    use crate::db::repositories::skill::SkillRepository;
+    let pool = state.agent_repo.pool().clone();
+    let skill_repo = SkillRepository::new(pool);
+
+    let skill = skill_repo
+        .find_by_id(&skill_id)
+        .await
+        .map_err(|e| ApiError::BadRequest(e.to_string()))?
+        .ok_or_else(|| ApiError::NotFound(format!("Skill {} not found", skill_id)))?;
+
+    if skill.marketplace_status.as_deref() != Some("pending_delist") {
+        return Err(ApiError::BadRequest(
+            "Skill is not pending delist review".to_string(),
+        ));
+    }
+
+    // 驳回下架申请：恢复 marketplace_status = listed
+    skill_repo
+        .update_marketplace_status(&skill_id, Some("listed"))
+        .await
+        .map_err(|e| ApiError::BadRequest(format!("Failed to reject delist: {}", e)))?;
+
+    state
+        .audit_repo
+        .create(crate::db::repositories::audit::NewAuditLog {
+            agent_id: Some(agent_context.subject),
+            action: "marketplace_delist_rejected".to_string(),
+            resource_type: "skill".to_string(),
+            resource_id: Some(skill_id.clone()),
+            details: serde_json::json!({
+                "skill_name": skill.name,
+                "new_marketplace_status": "listed",
+            }),
+        })
+        .await
+        .map_err(|e| ApiError::InternalError(e.to_string()))?;
+
+    Ok((
+        StatusCode::OK,
+        Json(serde_json::json!({
+            "message": "Delist request rejected, skill remains listed".to_string(),
+            "skill_id": skill_id,
+            "marketplace_status": "listed",
         })),
     ))
 }

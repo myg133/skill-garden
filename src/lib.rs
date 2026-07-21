@@ -125,6 +125,7 @@ pub struct AppState {
     pub api_key: services::admin::ApiKeyService,
     pub audit: services::admin::AuditService,
     pub system_role_assignment: services::admin::SystemRoleAssignmentService,
+    pub tenant_role_assignment: services::admin::TenantRoleAssignmentService,
     pub role_permission: services::admin::RolePermissionService,
     pub permission: services::PermissionService,
     pub download_token_repo: db::repositories::DownloadTokenRepository,
@@ -190,6 +191,8 @@ impl AppState {
 
         let system_role_assignment_repo =
             db::repositories::SystemRoleAssignmentRepository::new(pool.clone());
+        let tenant_role_assignment_repo =
+            db::repositories::TenantRoleAssignmentRepository::new(pool.clone());
         let role_permission_repo = db::repositories::RolePermissionRepository::new(pool.clone());
         let org_membership_repo = db::repositories::OrgMembershipRepository::new(pool.clone());
         let group_perm_override_repo =
@@ -197,10 +200,13 @@ impl AppState {
 
         let system_role_assignment =
             services::admin::SystemRoleAssignmentService::new(system_role_assignment_repo.clone());
+        let tenant_role_assignment =
+            services::admin::TenantRoleAssignmentService::new(tenant_role_assignment_repo.clone());
         let role_permission =
             services::admin::RolePermissionService::new(role_permission_repo.clone());
         let permission = services::PermissionService::new(
             system_role_assignment_repo,
+            tenant_role_assignment_repo,
             org_membership_repo,
             role_permission_repo,
             group_perm_override_repo.clone(),
@@ -227,6 +233,7 @@ impl AppState {
             api_key,
             audit,
             system_role_assignment,
+            tenant_role_assignment,
             role_permission,
             permission,
             download_token_repo,

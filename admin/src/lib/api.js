@@ -212,6 +212,10 @@ export const api = {
     return request('/users/me');
   },
 
+  getMyPermissions() {
+    return request('/users/me/permissions');
+  },
+
   updateMe(data) {
     return request('/users/me', {
       method: 'PUT',
@@ -242,6 +246,20 @@ export const api = {
 
   revokeMyApiKey(id) {
     return request(`/api-keys/${id}`, { method: 'DELETE' });
+  },
+
+  disableMyApiKey(id) {
+    return request(`/api-keys/${id}`, {
+      method: 'PATCH',
+      body: JSON.stringify({ status: 'disabled' })
+    });
+  },
+
+  enableMyApiKey(id) {
+    return request(`/api-keys/${id}`, {
+      method: 'PATCH',
+      body: JSON.stringify({ status: 'active' })
+    });
   },
 
   // Tenants
@@ -300,6 +318,69 @@ export const api = {
     return request(`/admin/identities/${id}`, { method: 'DELETE' });
   },
 
+  // System Role Assignments
+  assignSystemRole(identity_id, role_name) {
+    return request('/admin/system-role-assignments', {
+      method: 'POST',
+      body: JSON.stringify({ identity_id, role_name })
+    });
+  },
+
+  revokeSystemRole(identity_id, role_name) {
+    return request('/admin/system-role-assignments', {
+      method: 'DELETE',
+      body: JSON.stringify({ identity_id, role_name })
+    });
+  },
+
+  listSystemRoleAssignments(params = {}) {
+    const qs = new URLSearchParams(params).toString();
+    return request(`/admin/system-role-assignments${qs ? `?${qs}` : ''}`);
+  },
+
+  getIdentitySystemRoles(id) {
+    return request(`/admin/identities/${id}/system-roles`);
+  },
+
+  // Marketplace Reviewer Assignments (marketplace_admin manages reviewers)
+  assignMarketplaceReviewer(identity_id) {
+    return request('/admin/marketplace-reviewers', {
+      method: 'POST',
+      body: JSON.stringify({ identity_id })
+    });
+  },
+
+  revokeMarketplaceReviewer(identity_id) {
+    return request('/admin/marketplace-reviewers', {
+      method: 'DELETE',
+      body: JSON.stringify({ identity_id })
+    });
+  },
+
+  listMarketplaceReviewers() {
+    return request('/admin/marketplace-reviewers');
+  },
+
+  // Tenant Role Assignments (tenant_admin manages org admins)
+  assignTenantRole(identity_id, tenant_id, role_name) {
+    return request('/admin/tenant-role-assignments', {
+      method: 'POST',
+      body: JSON.stringify({ identity_id, tenant_id, role_name })
+    });
+  },
+
+  revokeTenantRole(identity_id, tenant_id, role_name) {
+    return request('/admin/tenant-role-assignments', {
+      method: 'DELETE',
+      body: JSON.stringify({ identity_id, tenant_id, role_name })
+    });
+  },
+
+  listTenantRoleAssignments(params = {}) {
+    const qs = new URLSearchParams(params).toString();
+    return request(`/admin/tenant-role-assignments${qs ? `?${qs}` : ''}`);
+  },
+
   // Groups
   listGroups(params = {}) {
     const qs = new URLSearchParams(params).toString();
@@ -352,6 +433,20 @@ export const api = {
 
   deleteApiKey(id) {
     return request(`/admin/api-keys/${id}`, { method: 'DELETE' });
+  },
+
+  disableApiKey(id) {
+    return request(`/admin/api-keys/${id}`, {
+      method: 'PATCH',
+      body: JSON.stringify({ status: 'disabled' })
+    });
+  },
+
+  enableApiKey(id) {
+    return request(`/admin/api-keys/${id}`, {
+      method: 'PATCH',
+      body: JSON.stringify({ status: 'active' })
+    });
   },
 
   // Audit Entries
@@ -415,6 +510,10 @@ export const api = {
       method: 'PUT',
       body: JSON.stringify(data)
     });
+  },
+
+  deleteSkill(id) {
+    return request(`/skills/${id}`, { method: 'DELETE' });
   },
 
   uploadSkill(formData) {
@@ -664,6 +763,49 @@ export const api = {
       method: 'DELETE',
       body: JSON.stringify(data),
     });
+  },
+
+  // Marketplace
+  listMarketplaceSkills(params = {}) {
+    const qs = new URLSearchParams(params).toString();
+    return request(`/marketplace${qs ? `?${qs}` : ''}`);
+  },
+
+  // Marketplace review & lifecycle
+  submitToMarketplace(skillId) {
+    return request(`/skills/${skillId}/submit-to-marketplace`, { method: 'POST' });
+  },
+
+  marketplaceReviewApprove(skillId) {
+    return request(`/admin/marketplace/${skillId}/approve`, { method: 'POST' });
+  },
+
+  marketplaceReviewReject(skillId) {
+    return request(`/admin/marketplace/${skillId}/reject`, { method: 'POST' });
+  },
+
+  marketplaceRelist(skillId) {
+    return request(`/admin/marketplace/${skillId}/relist`, { method: 'POST' });
+  },
+
+  marketplaceDelist(skillId) {
+    return request(`/admin/marketplace/${skillId}/delist`, { method: 'POST' });
+  },
+
+  // Marketplace delist request workflow
+  requestMarketplaceDelist(skillId, reason) {
+    return request(`/skills/${skillId}/request-delist`, {
+      method: 'POST',
+      body: JSON.stringify({ reason }),
+    });
+  },
+
+  marketplaceApproveDelist(skillId) {
+    return request(`/admin/marketplace/${skillId}/approve-delist`, { method: 'POST' });
+  },
+
+  marketplaceRejectDelist(skillId) {
+    return request(`/admin/marketplace/${skillId}/reject-delist`, { method: 'POST' });
   },
 
   // Sandbox

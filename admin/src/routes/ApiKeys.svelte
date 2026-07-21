@@ -2,8 +2,12 @@
   import { onMount } from 'svelte';
   import { api } from '../lib/api.js';
   import { addToast } from '../stores/app.js';
+  import { hasPermission } from '../stores/permission.js';
+  import { ACTIONS } from '../config/actions.js';
   import LoadingSpinner from '../components/LoadingSpinner.svelte';
   import EmptyState from '../components/EmptyState.svelte';
+
+  const ACT = ACTIONS.ApiKeys;
 
   let apiKeys = [];
   let identities = [];
@@ -52,10 +56,14 @@
   }
 
   async function handleCreate() {
-    if (!newApiKey.identity_id || !newApiKey.organization_id) return;
+    if (!newApiKey.identity_id) return;
     creating = true;
     try {
-      const res = await api.createApiKey(newApiKey);
+      const payload = {
+        ...newApiKey,
+        organization_id: newApiKey.organization_id || null
+      };
+      const res = await api.createApiKey(payload);
       createdKey = res;
       newApiKey = { identity_id: '', organization_id: '', name: '', scopes: [], rate_limit: 1000 };
       addToast('API Key created - copy it now!', 'success');
@@ -99,9 +107,30 @@
   function getStatusColor(status) {
     switch (status) {
       case 'active': return 'bg-emerald-100 text-emerald-700';
+      case 'disabled': return 'bg-gray-100 text-gray-500';
       case 'expired': return 'bg-amber-100 text-amber-700';
       case 'revoked': return 'bg-red-100 text-red-700';
       default: return 'bg-gray-100 text-gray-700';
+    }
+  }
+
+  async function handleDisable(id) {
+    try {
+      await api.disableApiKey(id);
+      addToast('API Key disabled', 'success');
+      await loadApiKeys();
+    } catch (e) {
+      addToast(e.message, 'error');
+    }
+  }
+
+  async function handleEnable(id) {
+    try {
+      await api.enableApiKey(id);
+      addToast('API Key enabled', 'success');
+      await loadApiKeys();
+    } catch (e) {
+      addToast(e.message, 'error');
     }
   }
 </script>
@@ -113,13 +142,15 @@
         <h1 class="text-[28px] font-extrabold text-gray-800 tracking-tight">API Keys</h1>
         <p class="text-gray-500 text-sm mt-1.5 font-medium">Manage API keys for external agent access</p>
       </div>
-      <button
-        on:click={() => { showCreateModal = true; createdKey = null; }}
-        class="btn-primary px-5 py-2.5 rounded-xl font-semibold text-sm flex items-center gap-2"
-      >
-        <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 4v16m8-8H4"/></svg>
-        New API Key
-      </button>
+      {#if hasPermission(ACT.create)}
+        <button
+          on:click={() => { showCreateModal = true; createdKey = null; }}
+          class="btn-primary px-5 py-2.5 rounded-xl font-semibold text-sm flex items-center gap-2"
+        >
+          <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 4v16m8-8H4"/></svg>
+          New API Key
+        </button>
+      {/if}
     </div>
   </div>
 
@@ -130,12 +161,14 @@
   {:else if apiKeys.length === 0}
     <div class="bg-white rounded-xl border border-gray-200 shadow-card">
       <EmptyState message="No API keys yet">
-        <button
-          on:click={() => showCreateModal = true}
-          class="mt-4 btn-primary px-5 py-2.5 rounded-lg font-semibold text-sm"
-        >
-          Create your first API key
-        </button>
+        {#if hasPermission(ACT.create)}
+          <button
+            on:click={() => showCreateModal = true}
+            class="mt-4 btn-primary px-5 py-2.5 rounded-lg font-semibold text-sm"
+          >
+            Create your first API key
+          </button>
+        {/if}
       </EmptyState>
     </div>
   {:else}
@@ -180,13 +213,32 @@
               </td>
               <td class="px-6 py-4 text-sm text-gray-600">{key.rate_limit}/min</td>
               <td class="px-6 py-4 text-right">
-                <button
-                  on:click={() => handleDelete(key.id)}
-                  class="p-2 rounded-lg text-gray-400 hover:text-red-500 hover:bg-red-50 transition-all"
-                  title="Revoke"
-                >
-                  <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16"/></svg>
-                </button>
+                {#if hasPermission(ACT.revoke)}
+                  {#if key.status === 'disabled'}
+                    <button
+                      on:click={() => handleEnable(key.id)}
+                      class="p-2 rounded-lg text-gray-400 hover:text-emerald-500 hover:bg-emerald-50 transition-all"
+                      title="Enable"
+                    >
+                      <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7"/></svg>
+                    </button>
+                  {:else if key.status !== 'revoked' && key.status !== 'expired'}
+                    <button
+                      on:click={() => handleDisable(key.id)}
+                      class="p-2 rounded-lg text-gray-400 hover:text-amber-500 hover:bg-amber-50 transition-all"
+                      title="Disable"
+                    >
+                      <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M18.364 18.364A9 9 0 005.636 5.636m12.728 12.728A9 9 0 015.636 5.636m12.728 12.728L5.636 5.636"/></svg>
+                    </button>
+                  {/if}
+                  <button
+                    on:click={() => handleDelete(key.id)}
+                    class="p-2 rounded-lg text-gray-400 hover:text-red-500 hover:bg-red-50 transition-all"
+                    title="Revoke"
+                  >
+                    <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16"/></svg>
+                  </button>
+                {/if}
               </td>
             </tr>
           {/each}
@@ -221,7 +273,7 @@
           <select
             id="apikey-identity"
             bind:value={newApiKey.identity_id}
-            class="w-full px-4 py-3 border border-gray-200 rounded-xl text-sm input-focus outline-none font-medium bg-white"
+            class="w-full px-4 py-3 border border-gray-200 rounded-xl text-sm input-focus outline-none font-medium bg-white text-gray-900"
           >
             <option value="" disabled selected hidden>Select identity</option>
             {#each identities as identity}
@@ -234,9 +286,9 @@
           <select
             id="apikey-org"
             bind:value={newApiKey.organization_id}
-            class="w-full px-4 py-3 border border-gray-200 rounded-xl text-sm input-focus outline-none font-medium bg-white"
+            class="w-full px-4 py-3 border border-gray-200 rounded-xl text-sm input-focus outline-none font-medium bg-white text-gray-900"
           >
-            <option value="" disabled selected hidden>Select organization</option>
+            <option value="">Personal（个人）</option>
             {#each organizations as org}
               <option value={org.id}>{org.name}</option>
             {/each}
@@ -249,7 +301,7 @@
             type="text"
             bind:value={newApiKey.name}
             placeholder="My API Key"
-            class="w-full px-4 py-3 border border-gray-200 rounded-xl text-sm input-focus outline-none font-medium"
+            class="w-full px-4 py-3 border border-gray-200 rounded-xl text-sm input-focus outline-none font-medium bg-white text-gray-900"
           />
         </div>
         <div>
@@ -259,7 +311,7 @@
             type="number"
             bind:value={newApiKey.rate_limit}
             min="1"
-            class="w-full px-4 py-3 border border-gray-200 rounded-xl text-sm input-focus outline-none font-medium"
+            class="w-full px-4 py-3 border border-gray-200 rounded-xl text-sm input-focus outline-none font-medium bg-white text-gray-900"
           />
         </div>
         <div class="flex gap-3 justify-end pt-1">
@@ -271,7 +323,7 @@
           </button>
           <button
             on:click={handleCreate}
-            disabled={creating || !newApiKey.identity_id || !newApiKey.organization_id}
+            disabled={creating || !newApiKey.identity_id}
             class="btn-primary px-5 py-2.5 rounded-xl font-semibold text-sm disabled:opacity-50 disabled:cursor-not-allowed"
           >
             {creating ? 'Creating...' : 'Create'}

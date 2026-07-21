@@ -134,7 +134,7 @@ impl McpServer {
         identity: &IdentityService,
         api_key_raw: &str,
     ) -> Result<(AgentContext, Option<Uuid>), String> {
-        // 1. Validate API key
+        // 1. Validate API key（含过期时间校验）
         let key_record = api_key
             .validate(api_key_raw)
             .await
@@ -143,8 +143,8 @@ impl McpServer {
                 format!("API key validation error: {}", e)
             })?
             .ok_or_else(|| {
-                tracing::warn!("API key not found or revoked");
-                "Invalid or revoked API Key".to_string()
+                tracing::warn!("API key not found, disabled, revoked, or expired");
+                "Invalid, disabled, revoked, or expired API Key".to_string()
             })?;
 
         tracing::debug!(
@@ -153,14 +153,6 @@ impl McpServer {
             key_record.organization_id,
             key_record.identity_id
         );
-
-        // 2. Check if expired
-        if let Some(ref expires_at) = key_record.expires_at {
-            if expires_at < &chrono::Utc::now() {
-                tracing::warn!("API key expired: expires_at={:?}", expires_at);
-                return Err("API Key has expired".to_string());
-            }
-        }
 
         let identity_id = key_record.identity_id;
         let org_id = key_record.organization_id;
@@ -461,19 +453,17 @@ impl McpServer {
                 match self.search.search(&query, tags.as_deref(), limit) {
                     Ok(results) => {
                         let identity_id = agent_ctx.and_then(|c| c.identity_id);
-                        let org_ids = self
-                            .get_user_org_ids(identity_id)
-                            .await
-                            .unwrap_or_default();
+                        let org_ids = self.get_user_org_ids(identity_id).await.unwrap_or_default();
                         let mut filtered = Vec::new();
                         for r in results {
                             if let Ok(skill) = self.registry.get_skill(&r.skill_id).await {
                                 let meta: crate::models::skill::SkillMetadata = (&skill).into();
-                                let visible = crate::services::RegistryService::filter_skills_visible_to(
-                                    vec![meta],
-                                    identity_id,
-                                    &org_ids,
-                                );
+                                let visible =
+                                    crate::services::RegistryService::filter_skills_visible_to(
+                                        vec![meta],
+                                        identity_id,
+                                        &org_ids,
+                                    );
                                 if !visible.is_empty() {
                                     filtered.push(r);
                                 }
@@ -500,12 +490,11 @@ impl McpServer {
                 {
                     Ok(skills) => {
                         let identity_id = agent_ctx.and_then(|c| c.identity_id);
-                        let org_ids = self
-                            .get_user_org_ids(identity_id)
-                            .await
-                            .unwrap_or_default();
+                        let org_ids = self.get_user_org_ids(identity_id).await.unwrap_or_default();
                         let filtered = crate::services::RegistryService::filter_skills_visible_to(
-                            skills, identity_id, &org_ids,
+                            skills,
+                            identity_id,
+                            &org_ids,
                         );
                         let total = filtered.len();
                         Self::json_success(serde_json::json!({
@@ -528,10 +517,8 @@ impl McpServer {
                             Ok(skill) => {
                                 // 权限校验：与 HTTP get_skill_handler 一致
                                 let identity_id = agent_ctx.and_then(|c| c.identity_id);
-                                let org_ids = self
-                                    .get_user_org_ids(identity_id)
-                                    .await
-                                    .unwrap_or_default();
+                                let org_ids =
+                                    self.get_user_org_ids(identity_id).await.unwrap_or_default();
 
                                 let visible = if let Some(id_id) = identity_id {
                                     if skill.status == "published"
@@ -547,9 +534,7 @@ impl McpServer {
                                     {
                                         true
                                     } else if skill.owner_type == "organization" {
-                                        skill
-                                            .owner_id
-                                            .map_or(false, |oid| org_ids.contains(&oid))
+                                        skill.owner_id.map_or(false, |oid| org_ids.contains(&oid))
                                     } else {
                                         false
                                     }
@@ -607,12 +592,11 @@ impl McpServer {
                 match self.registry.list_skills_sorted(limit, 0, "installs").await {
                     Ok(skills) => {
                         let identity_id = agent_ctx.and_then(|c| c.identity_id);
-                        let org_ids = self
-                            .get_user_org_ids(identity_id)
-                            .await
-                            .unwrap_or_default();
+                        let org_ids = self.get_user_org_ids(identity_id).await.unwrap_or_default();
                         let filtered = crate::services::RegistryService::filter_skills_visible_to(
-                            skills, identity_id, &org_ids,
+                            skills,
+                            identity_id,
+                            &org_ids,
                         );
                         Self::json_success(serde_json::to_value(filtered).unwrap_or_default())
                     }
@@ -656,29 +640,40 @@ impl McpServer {
                             .get("owner_type")
                             .and_then(|v| v.as_str())
                             .unwrap_or_else(|| {
-                                if caller_org_id.is_some() { "organization" } else { "user" }
+                                if caller_org_id.is_some() {
+                                    "organization"
+                                } else {
+                                    "user"
+                                }
                             });
 
-                        let (owner_type, owner_id, default_visibility) = if mcp_owner_type == "organization" {
-                            // 优先 args 指定的 org_id，其次使用调用者关联的 org
-                            let org_id = args
-                                .get("organization_id")
-                                .and_then(|v| v.as_str())
-                                .and_then(|s| uuid::Uuid::parse_str(s).ok())
-                                .or(caller_org_id);
-                            ("organization".to_string(), org_id, "org_visible")
-                        } else {
-                            ("user".to_string(), author_identity_id, "private")
-                        };
+                        let (owner_type, owner_id, default_visibility) =
+                            if mcp_owner_type == "organization" {
+                                // 优先 args 指定的 org_id，其次使用调用者关联的 org
+                                let org_id = args
+                                    .get("organization_id")
+                                    .and_then(|v| v.as_str())
+                                    .and_then(|s| uuid::Uuid::parse_str(s).ok())
+                                    .or(caller_org_id);
+                                ("organization".to_string(), org_id, "org_visible")
+                            } else {
+                                ("user".to_string(), author_identity_id, "private")
+                            };
 
                         let visibility = match args.get("visibility").and_then(|v| v.as_str()) {
                             Some("private") => crate::models::skill_policy::Visibility::Private,
-                            Some("org_visible") => crate::models::skill_policy::Visibility::OrgVisible,
-                            Some("marketplace") => crate::models::skill_policy::Visibility::Marketplace,
+                            Some("org_visible") => {
+                                crate::models::skill_policy::Visibility::OrgVisible
+                            }
+                            Some("marketplace") => {
+                                crate::models::skill_policy::Visibility::Marketplace
+                            }
                             Some("shared") => crate::models::skill_policy::Visibility::Shared,
                             _ => match default_visibility {
                                 "private" => crate::models::skill_policy::Visibility::Private,
-                                "org_visible" => crate::models::skill_policy::Visibility::OrgVisible,
+                                "org_visible" => {
+                                    crate::models::skill_policy::Visibility::OrgVisible
+                                }
                                 _ => crate::models::skill_policy::Visibility::Private,
                             },
                         };
@@ -1156,13 +1151,11 @@ impl McpServer {
                 let api_key_id = agent_ctx.and_then(|c| c.api_key_id);
                 // 优先从 HTTP 请求上下文获取原始 API key（HTTP/SSE 模式），
                 // 其次从环境变量获取（stdio 模式），最后回退到占位符
-                let api_key_token = agent_ctx
-                    .and_then(|c| c.raw_api_key.clone())
-                    .or_else(|| {
-                        std::env::var("AION_HIVE_JWT_TOKEN")
-                            .or_else(|_| std::env::var("AION_HIVE_AUTH_TOKEN"))
-                            .ok()
-                    });
+                let api_key_token = agent_ctx.and_then(|c| c.raw_api_key.clone()).or_else(|| {
+                    std::env::var("AION_HIVE_JWT_TOKEN")
+                        .or_else(|_| std::env::var("AION_HIVE_AUTH_TOKEN"))
+                        .ok()
+                });
 
                 match (identity_id, api_key_id) {
                     (Some(identity), Some(api_key)) => {
@@ -1203,11 +1196,7 @@ token = "{token}"
                         };
 
                         // 检查二进制文件是否存在
-                        let bin_path = self
-                            .cli_dir
-                            .join(&version)
-                            .join(&target)
-                            .join(filename);
+                        let bin_path = self.cli_dir.join(&version).join(&target).join(filename);
 
                         if bin_path.exists() {
                             // 创建下载 token，config.toml 内容存入 DB，下载时嵌入 tar.gz
@@ -1225,7 +1214,9 @@ token = "{token}"
                             {
                                 Ok(token_record) => {
                                     let download_url = Self::build_cli_download_url(
-                                        &version, &target, &token_record.token,
+                                        &version,
+                                        &target,
+                                        &token_record.token,
                                     );
 
                                     let install_step = if is_windows {
@@ -1234,14 +1225,15 @@ token = "{token}"
                                         "cd skill-garden-cli && chmod +x install.sh && ./install.sh"
                                     };
 
-                                    let instructions = include_str!("../../cli-dist/instructions.md")
-                                        .replace("{version}", version)
-                                        .replace("{os}", os_label)
-                                        .replace("{arch}", arch_label)
-                                        .replace("{url}", &download_url)
-                                        .replace("{install}", install_step)
-                                        .replace("{verify}", verify_cmd)
-                                        .replace("{filename}", filename);
+                                    let instructions =
+                                        include_str!("../../cli-dist/instructions.md")
+                                            .replace("{version}", version)
+                                            .replace("{os}", os_label)
+                                            .replace("{arch}", arch_label)
+                                            .replace("{url}", &download_url)
+                                            .replace("{install}", install_step)
+                                            .replace("{verify}", verify_cmd)
+                                            .replace("{filename}", filename);
 
                                     let result = crate::models::skill::CliSetupResult {
                                         success: true,
@@ -1257,7 +1249,8 @@ token = "{token}"
                                     )
                                 }
                                 Err(e) => Self::json_error(format!(
-                                    "Failed to generate download token: {}", e
+                                    "Failed to generate download token: {}",
+                                    e
                                 )),
                             }
                         } else {
@@ -1272,9 +1265,7 @@ token = "{token}"
                                     version, target, version, target, filename
                                 ),
                             };
-                            Self::json_success(
-                                serde_json::to_value(result).unwrap_or_default(),
-                            )
+                            Self::json_success(serde_json::to_value(result).unwrap_or_default())
                         }
                     }
                     _ => Self::json_error(

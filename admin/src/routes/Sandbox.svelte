@@ -2,9 +2,13 @@
   import { onMount } from 'svelte';
   import { api } from '../lib/api.js';
   import { addToast } from '../stores/app.js';
+  import { hasPermission } from '../stores/permission.js';
+  import { ACTIONS } from '../config/actions.js';
   import Badge from '../components/Badge.svelte';
   import EmptyState from '../components/EmptyState.svelte';
   import LoadingSpinner from '../components/LoadingSpinner.svelte';
+
+  const ACT = ACTIONS.Sandbox;
 
   let containers = [];
   let health = null;
@@ -186,14 +190,16 @@
                   <p class="text-xs text-indigo-500 whitespace-nowrap">{formatTime(c.created_at)}</p>
                 </td>
                 <td class="px-5 py-3.5">
-                  <button
-                    on:click={() => handleRemove(c.id)}
-                    disabled={removing === c.id}
-                    class="text-xs font-medium text-red-500 hover:text-red-700 hover:bg-red-50 px-2.5 py-1 rounded-lg transition-colors disabled:opacity-50"
-                    title="Stop and remove container"
-                  >
-                    {removing === c.id ? 'Removing...' : 'Remove'}
-                  </button>
+                  {#if hasPermission(ACT.manage)}
+                    <button
+                      on:click={() => handleRemove(c.id)}
+                      disabled={removing === c.id}
+                      class="text-xs font-medium text-red-500 hover:text-red-700 hover:bg-red-50 px-2.5 py-1 rounded-lg transition-colors disabled:opacity-50"
+                      title="Stop and remove container"
+                    >
+                      {removing === c.id ? 'Removing...' : 'Remove'}
+                    </button>
+                  {/if}
                 </td>
               </tr>
             {/each}

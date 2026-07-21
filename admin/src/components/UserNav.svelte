@@ -1,5 +1,5 @@
 <script>
-  import { navigate, useLocation } from 'svelte-routing';
+  import { useLocation, navigate } from 'svelte-routing';
   import { auth, selectedNav } from '../stores/auth.js';
   import Icon from './Icon.svelte';
 
@@ -9,29 +9,38 @@
   $: $selectedNav = $location.pathname;
 
   function handleNavigate(href) {
+    navigate(href);
     $selectedNav = href;
   }
 
   function handleLogout() {
     auth.logout();
-    navigate('/login', { replace: true });
-  }
-
-  function isActive(href) {
-    // Home 只精确匹配，避免 /user/skills 等子路由误判
-    if (href === '/user') {
-      return $selectedNav === '/user';
-    }
-    return $selectedNav === href || ($selectedNav && $selectedNav.startsWith(href + '/'));
+    // 退出后直接整页刷新到登录页，避免 SPA 路由状态残留导致布局未切换
+    window.location.href = '/login';
   }
 
   const userNavItems = [
     { href: '/user', label: 'Home', icon: 'dashboard' },
-    { href: '/user/skills', label: 'Skills', icon: 'skills' },
+    { href: '/user/marketplace', label: 'Marketplace', icon: 'marketplace' },
+    { href: '/user/skills', label: 'My Skills', icon: 'skills' },
     { href: '/user/submissions', label: 'Submissions', icon: 'review' },
     { href: '/profile', label: 'Profile', icon: 'profile' },
     { href: '/my-api-keys', label: 'API Keys', icon: 'my-api-keys' },
   ];
+
+  // 用 $: 预计算高亮 map，模板直接查表，避免函数内 store 订阅失效
+  $: activeMap = (() => {
+    const path = $location.pathname;
+    const m = {};
+    for (const item of userNavItems) {
+      if (item.href === '/user') {
+        m[item.href] = path === '/user';
+      } else {
+        m[item.href] = path === item.href || (path && path.startsWith(item.href + '/'));
+      }
+    }
+    return m;
+  })();
 </script>
 
 <aside class="flex-shrink-0 flex flex-col bg-white border-r border-gray-200 w-[200px]">
@@ -44,14 +53,13 @@
   <!-- Navigation -->
   <nav class="flex-1 py-4 px-3 overflow-y-auto">
     {#each userNavItems as item}
-      <a
-        href={item.href}
+      <button
         on:click={() => handleNavigate(item.href)}
-        class="flex items-center gap-3 px-3 py-2.5 mb-0.5 rounded-lg text-[13px] font-medium transition-all duration-200 {isActive(item.href) ? 'bg-blue-50 text-blue-700' : 'text-gray-500 hover:text-gray-700 hover:bg-gray-50'}"
+        class="w-full flex items-center gap-3 px-3 py-2.5 mb-0.5 rounded-lg text-[13px] font-medium transition-all duration-200 {activeMap[item.href] ? 'bg-blue-50 text-blue-700' : 'text-gray-500 hover:text-gray-700 hover:bg-gray-50'}"
       >
-        <Icon name={item.icon} size="w-[17px] h-[17px]" className={isActive(item.href) ? 'text-blue-600' : 'text-gray-400'} />
+        <Icon name={item.icon} size="w-[17px] h-[17px]" className={activeMap[item.href] ? 'text-blue-600' : 'text-gray-400'} />
         {item.label}
-      </a>
+      </button>
     {/each}
   </nav>
 

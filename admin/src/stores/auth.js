@@ -30,6 +30,11 @@ function createAuthStore() {
       localStorage.removeItem(IS_ADMIN_KEY);
       localStorage.removeItem(NAV_KEY);
       set({ token: null, username: null, is_admin: false, loading: false, error: null });
+      // 延迟导入权限 store 避免循环依赖
+      setTimeout(async () => {
+        const { permissionStore } = await import('./permission.js');
+        permissionStore.reset();
+      }, 0);
     },
 
     setLoading(loading) {

@@ -1,19 +1,32 @@
 use std::collections::HashSet;
+use std::sync::Arc;
+use tokio::sync::Mutex;
 use uuid::Uuid;
 
 use crate::db::repositories::group::GroupRepository;
 use crate::db::repositories::{
     GroupPermissionOverrideRepository, IdentityRepository, OrgMembershipRepository,
-    RolePermissionRepository, SystemRoleAssignmentRepository,
+    RolePermissionRepository, SystemRoleAssignmentRepository, TenantRoleAssignmentRepository,
 };
 use crate::models::error::AppError;
 use crate::models::org_membership::OrgRole;
+
+/// BuildContext 结果缓存条目
+#[derive(Clone)]
+struct ContextCacheEntry {
+    ctx: PermissionContext,
+    cached_at: std::time::Instant,
+}
 
 #[derive(Debug, Clone)]
 pub struct PermissionContext {
     pub identity_id: Uuid,
     pub system_roles: HashSet<String>,
+    /// (tenant_id, role_name)
+    pub tenant_roles: Vec<(Uuid, String)>,
+    /// (org_id, role_name)
     pub org_roles: Vec<(Uuid, String)>,
+    /// (group_id, role_name)
     pub group_roles: Vec<(Uuid, String)>,
 }
 
@@ -22,6 +35,7 @@ pub struct ResourceScope {
     pub owner_type: Option<String>,
     pub owner_id: Option<Uuid>,
     pub author_identity_id: Option<Uuid>,
+    pub tenant_id: Option<Uuid>,
     pub organization_id: Option<Uuid>,
     pub group_id: Option<Uuid>,
 }
@@ -36,16 +50,20 @@ pub enum SkillAction {
     Approve,
     Reject,
     Publish,
+    PublishToMarketplace,
 }
 
 #[derive(Clone)]
 pub struct PermissionService {
     system_role_repo: SystemRoleAssignmentRepository,
+    tenant_role_repo: TenantRoleAssignmentRepository,
     org_membership_repo: OrgMembershipRepository,
     role_permission_repo: RolePermissionRepository,
     group_perm_override_repo: GroupPermissionOverrideRepository,
     group_repo: GroupRepository,
     identity_repo: IdentityRepository,
+    /// build_context 结果缓存（TTL=5秒），减少高频权限查询的 DB 负载
+    context_cache: Arc<Mutex<std::collections::HashMap<Uuid, ContextCacheEntry>>>,
 }
 
 impl std::fmt::Debug for PermissionService {
@@ -55,8 +73,11 @@ impl std::fmt::Debug for PermissionService {
 }
 
 impl PermissionService {
+    const CONTEXT_CACHE_TTL_S: u64 = 5;
+
     pub fn new(
         system_role_repo: SystemRoleAssignmentRepository,
+        tenant_role_repo: TenantRoleAssignmentRepository,
         org_membership_repo: OrgMembershipRepository,
         role_permission_repo: RolePermissionRepository,
         group_perm_override_repo: GroupPermissionOverrideRepository,
@@ -65,11 +86,13 @@ impl PermissionService {
     ) -> Self {
         Self {
             system_role_repo,
+            tenant_role_repo,
             org_membership_repo,
             role_permission_repo,
             group_perm_override_repo,
             group_repo,
             identity_repo,
+            context_cache: Arc::new(Mutex::new(std::collections::HashMap::new())),
         }
     }
 
@@ -78,6 +101,49 @@ impl PermissionService {
             .has_system_role(identity_id, "super_admin")
             .await
             .map_err(|e| AppError::InternalError(e.to_string()))
+    }
+
+    /// 检查身份是否拥有任一指定的系统角色（单表查询，不构建完整 context）
+    pub async fn has_any_system_role(
+        &self,
+        identity_id: Uuid,
+        role_names: &[&str],
+    ) -> Result<bool, AppError> {
+        let assignments = self
+            .system_role_repo
+            .find_by_identity(identity_id)
+            .await
+            .map_err(|e| AppError::InternalError(e.to_string()))?;
+        Ok(assignments
+            .iter()
+            .any(|a| role_names.contains(&a.role_name.as_str())))
+    }
+
+    /// 检查身份是否为任意管理员（super_admin 或任意租户的 tenant_admin）
+    pub async fn is_any_admin(&self, identity_id: Uuid) -> Result<bool, AppError> {
+        if self.is_super_admin(identity_id).await? {
+            return Ok(true);
+        }
+        let assignments = self
+            .tenant_role_repo
+            .find_by_identity(identity_id)
+            .await
+            .map_err(|e| AppError::InternalError(e.to_string()))?;
+        Ok(assignments.iter().any(|a| a.role_name == "tenant_admin"))
+    }
+
+    /// 获取身份作为 tenant_admin 管理的所有租户 ID
+    pub async fn get_tenant_admin_tenant_ids(&self, identity_id: Uuid) -> Result<Vec<Uuid>, AppError> {
+        let assignments = self
+            .tenant_role_repo
+            .find_by_identity(identity_id)
+            .await
+            .map_err(|e| AppError::InternalError(e.to_string()))?;
+        Ok(assignments
+            .iter()
+            .filter(|a| a.role_name == "tenant_admin")
+            .map(|a| a.tenant_id)
+            .collect())
     }
 
     /// 检查身份是否为系统管理员（通过 identities.is_system_admin 字段）
@@ -150,19 +216,6 @@ impl PermissionService {
                     identity_id = %identity_id,
                     error = %e,
                     "Failed to check super_admin role, falling through to other checks"
-                );
-            }
-            _ => {}
-        }
-
-        // 2. 系统管理员（identities.is_system_admin 字段）拥有所有权限
-        match self.is_system_admin(identity_id).await {
-            Ok(true) => return Ok(()),
-            Err(e) => {
-                tracing::error!(
-                    identity_id = %identity_id,
-                    error = %e,
-                    "Failed to check is_system_admin, falling through to other checks"
                 );
             }
             _ => {}
@@ -300,10 +353,42 @@ impl PermissionService {
                 }
                 Err("无权发布此 Skill".to_string())
             }
+            SkillAction::PublishToMarketplace => {
+                if is_owner {
+                    return Ok(());
+                }
+                if skill_owner_type == "organization" {
+                    if let Some(org_id) = skill_owner_id {
+                        match self.get_org_role(identity_id, org_id).await {
+                            Ok(Some(role)) if role >= OrgRole::Admin => return Ok(()),
+                            Ok(_) => {}
+                            Err(e) => {
+                                tracing::error!(
+                                    identity_id = %identity_id,
+                                    org_id = %org_id,
+                                    error = %e,
+                                    "Failed to get org role for PublishToMarketplace permission"
+                                );
+                            }
+                        }
+                    }
+                }
+                Err("无权提交此 Skill 到市场".to_string())
+            }
         }
     }
 
     pub async fn build_context(&self, identity_id: Uuid) -> Result<PermissionContext, AppError> {
+        // 5 秒 TTL 缓存：同一用户短时间内的多次请求共享同一个 context
+        {
+            let cache = self.context_cache.lock().await;
+            if let Some(entry) = cache.get(&identity_id) {
+                if entry.cached_at.elapsed().as_secs() < Self::CONTEXT_CACHE_TTL_S {
+                    return Ok(entry.ctx.clone());
+                }
+            }
+        }
+
         let system_assignments = self
             .system_role_repo
             .find_by_identity(identity_id)
@@ -313,6 +398,17 @@ impl PermissionService {
         let system_roles: HashSet<String> = system_assignments
             .into_iter()
             .map(|a| a.role_name)
+            .collect();
+
+        let tenant_assignments = self
+            .tenant_role_repo
+            .find_by_identity(identity_id)
+            .await
+            .map_err(|e| AppError::InternalError(e.to_string()))?;
+
+        let tenant_roles: Vec<(Uuid, String)> = tenant_assignments
+            .into_iter()
+            .map(|a| (a.tenant_id, a.role_name))
             .collect();
 
         let org_memberships = self
@@ -332,12 +428,27 @@ impl PermissionService {
             .await
             .map_err(|e| AppError::InternalError(e.to_string()))?;
 
-        Ok(PermissionContext {
+        let ctx = PermissionContext {
             identity_id,
             system_roles,
+            tenant_roles,
             org_roles,
             group_roles,
-        })
+        };
+
+        // 写入缓存
+        {
+            let mut cache = self.context_cache.lock().await;
+            cache.insert(
+                identity_id,
+                ContextCacheEntry {
+                    ctx: ctx.clone(),
+                    cached_at: std::time::Instant::now(),
+                },
+            );
+        }
+
+        Ok(ctx)
     }
 
     pub async fn has_permission(
@@ -354,6 +465,11 @@ impl PermissionService {
 
         for role_name in &ctx.system_roles {
             role_entries.push(("system".to_string(), role_name.clone(), None));
+        }
+
+        // tenant-level roles: scope restriction "tenant" checks against resource.tenant_id
+        for (tenant_id, role_name) in &ctx.tenant_roles {
+            role_entries.push(("tenant".to_string(), role_name.clone(), Some(*tenant_id)));
         }
 
         for (org_id, role_name) in &ctx.org_roles {
@@ -383,6 +499,20 @@ impl PermissionService {
                             if let Some(author_id) = resource.author_identity_id {
                                 if author_id != ctx.identity_id {
                                     continue;
+                                }
+                            }
+                        }
+                        "tenant" => {
+                            if let Some(scope_tenant_id) = scope_id {
+                                if let Some(resource_tenant_id) = resource.tenant_id {
+                                    if *scope_tenant_id != resource_tenant_id {
+                                        continue;
+                                    }
+                                } else if let Some(owner_id) = resource.owner_id {
+                                    // fallback: check if resource owner_id matches scope tenant
+                                    if *scope_tenant_id != owner_id {
+                                        continue;
+                                    }
                                 }
                             }
                         }
@@ -465,6 +595,7 @@ impl PermissionService {
                 owner_type: Some("organization".to_string()),
                 owner_id: Some(org_id),
                 author_identity_id: None,
+                tenant_id: None,
                 organization_id: Some(org_id),
                 group_id: None,
             });
@@ -496,6 +627,7 @@ impl PermissionService {
                     owner_type: Some("organization".to_string()),
                     owner_id: Some(org_id),
                     author_identity_id: None,
+                    tenant_id: None,
                     organization_id: Some(org_id),
                     group_id: None,
                 });
@@ -508,5 +640,49 @@ impl PermissionService {
         }
 
         Ok(false)
+    }
+
+    /// 收集当前用户所有可用的 permission_code 列表（用于前端权限刷新）
+    pub async fn collect_all_permissions(
+        &self,
+        ctx: &PermissionContext,
+    ) -> Result<Vec<String>, AppError> {
+        let mut codes = std::collections::HashSet::new();
+
+        // super_admin 拥有所有权限
+        if ctx.system_roles.contains("super_admin") {
+            codes.insert("*".to_string());
+            codes.insert("system:admin:access".to_string());
+            return Ok(codes.into_iter().collect());
+        }
+
+        // 收集所有 (role_level, role_name) 对
+        let mut role_entries: Vec<(String, String)> = Vec::new();
+        for role_name in &ctx.system_roles {
+            role_entries.push(("system".to_string(), role_name.clone()));
+        }
+        for (_, role_name) in &ctx.tenant_roles {
+            role_entries.push(("tenant".to_string(), role_name.clone()));
+        }
+        for (_, role_name) in &ctx.org_roles {
+            role_entries.push(("organization".to_string(), role_name.clone()));
+        }
+        for (_, role_name) in &ctx.group_roles {
+            role_entries.push(("group".to_string(), role_name.clone()));
+        }
+
+        // 一次 SQL 批量查询替代 N 次逐个查询
+        if !role_entries.is_empty() {
+            let perms = self
+                .role_permission_repo
+                .list_by_roles_batch(&role_entries)
+                .await
+                .map_err(|e| AppError::InternalError(e.to_string()))?;
+            for perm in &perms {
+                codes.insert(perm.permission_code.clone());
+            }
+        }
+
+        Ok(codes.into_iter().collect())
     }
 }
