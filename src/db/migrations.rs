@@ -154,6 +154,14 @@ const MIGRATIONS: &[(&str, &str)] = &[
         "037_remove_market_admin_internal_review",
         include_str!("migrations/037_remove_market_admin_internal_review.sql"),
     ),
+    (
+        "038_add_is_current_and_tenant_perms",
+        include_str!("migrations/038_add_is_current_and_tenant_perms.sql"),
+    ),
+    (
+        "039_drop_unused_organization_identities",
+        include_str!("migrations/039_drop_unused_organization_identities.sql"),
+    ),
 ];
 
 fn split_sql_statements(sql: &str) -> Vec<&str> {

@@ -192,8 +192,9 @@
 
     <div class="space-y-4">
       <div>
-        <label class="block text-xs font-semibold text-gray-500 uppercase tracking-wider mb-2">User Email *</label>
+        <label for="add-reviewer-email" class="block text-xs font-semibold text-gray-500 uppercase tracking-wider mb-2">User Email *</label>
         <input
+          id="add-reviewer-email"
           type="email"
           bind:value={addEmail}
           placeholder="reviewer@example.com"

@@ -8,11 +8,13 @@
   export let activeTab = 'overview';
 
   export let canEdit = false;
+  export let canDelete = false;
 
   export let onStartEdit = () => {};
   export let onUpdate = () => {};
   export let onCancelEdit = () => {};
   export let onTabChange = () => {};
+  export let onDeleteOrg = () => {};
 </script>
 
 <div class="bg-white rounded-2xl border border-gray-200 shadow-card mb-6">
@@ -30,9 +32,14 @@
         </div>
       {:else}
         <h1 class="text-[28px] font-extrabold text-gray-800 tracking-tight">{organization.name}</h1>
-        {#if canEdit}
-          <button on:click={onStartEdit} class="btn-secondary px-4 py-2 rounded-xl text-sm font-semibold">Edit</button>
-        {/if}
+        <div class="flex items-center gap-2">
+          {#if canEdit}
+            <button on:click={onStartEdit} class="btn-secondary px-4 py-2 rounded-xl text-sm font-semibold">Edit</button>
+          {/if}
+          {#if canDelete}
+            <button on:click={onDeleteOrg} class="px-4 py-2 rounded-xl text-sm font-semibold bg-rose-50 text-rose-600 border border-rose-200 hover:bg-rose-100 transition-colors">Delete</button>
+          {/if}
+        </div>
       {/if}
     </div>
     <p class="text-gray-400 text-xs mt-1.5 font-mono">ID: {organization.id}</p>

@@ -22,7 +22,6 @@ use crate::services::SearchService;
 /// 注册服务
 #[derive(Debug, Clone)]
 pub struct RegistryService {
-    skills_dir: PathBuf,
     registry_dir: PathBuf,
     storage: StorageService,
     skill_repo: SkillRepository,
@@ -31,14 +30,12 @@ pub struct RegistryService {
 
 impl RegistryService {
     pub fn new(
-        skills_dir: PathBuf,
         registry_dir: PathBuf,
         skill_repo: SkillRepository,
         download_token_repo: DownloadTokenRepository,
     ) -> Self {
         let storage = StorageService::new(registry_dir.clone());
         Self {
-            skills_dir,
             registry_dir,
             storage,
             skill_repo,
@@ -51,12 +48,12 @@ impl RegistryService {
         self.registry_dir.join("skills-index.json")
     }
 
-    /// 获取 Skill 目录路径
-    fn skill_dir(&self, name: &str) -> PathBuf {
-        self.skills_dir.join(name)
+    /// 获取 Skill 目录路径（已废弃，保留兼容）
+    fn skill_dir(&self, _name: &str) -> PathBuf {
+        self.registry_dir.parent().unwrap_or(&self.registry_dir).join("skills").join(_name)
     }
 
-    /// 公开的 skill 目录路径（供 download handler 使用）
+    /// 公开的 skill 目录路径（已废弃，保留兼容）
     pub fn skill_dir_path(&self, name: &str) -> PathBuf {
         self.skill_dir(name)
     }
@@ -154,11 +151,6 @@ impl RegistryService {
             draft_content: db_skill.draft_content,
         };
         search.add_skill(&skill)?;
-
-        // 写入 SKILL.md 到 skills_dir，确保 get_skill_files 能从磁盘读取
-        // （atomic_write 内部已包含 ensure_dir）
-        let skill_md_path = self.skill_dir(&skill.name).join("SKILL.md");
-        self.storage.atomic_write(&skill_md_path, &skill.content)?;
 
         info!("Created skill: {}", skill.id);
 
@@ -405,27 +397,38 @@ impl RegistryService {
         api_key_id: uuid::Uuid,
     ) -> Result<InstallResult, AppError> {
         let skill = self.get_skill(skill_id).await?;
-        let skill_dir = self.skill_dir(&skill.name);
-
-        // 确保文件可用：从 git-repos 同步（如果需要）
-        if !skill_dir.exists() {
-            if let Some(data_dir) = self.registry_dir.parent() {
-                let git_repo_dir = data_dir
-                    .join("git-repos")
-                    .join(format!("skill-{}", skill.name));
-                if git_repo_dir.exists() {
-                    self.sync_skill_files_from(&skill.name, &git_repo_dir)?;
-                }
-            }
-        }
 
         // 统计文件数量和总大小
-        let (file_count, tarball_size) = if skill_dir.exists() {
-            self.count_skill_files(&skill_dir)?
-        } else {
-            // 文件不存在但有 content：计为 1 个文件（将从 metadata 生成 SKILL.md）
-            let fallback_size = skill.content.len() as u64;
-            (1, fallback_size)
+        // 优先使用预生成的 release tarball
+        let (file_count, tarball_size) = {
+            let release_tarball = self
+                .registry_dir
+                .parent()
+                .unwrap_or(&self.registry_dir)
+                .join("releases")
+                .join(&skill.name)
+                .join(format!("v{}.tar.gz", skill.version));
+
+            if release_tarball.exists() {
+                let size = std::fs::metadata(&release_tarball)
+                    .map(|m| m.len())
+                    .unwrap_or(0);
+                // 从 git repo 统计文件数，或估算
+                let git_repo_dir = self.registry_dir.parent()
+                    .unwrap_or(&self.registry_dir)
+                    .join("git-repos")
+                    .join(format!("skill-{}", skill.name));
+                let count = if git_repo_dir.exists() {
+                    self.count_skill_files(&git_repo_dir)?.0
+                } else {
+                    (size / 5120).max(1) as usize
+                };
+                (count, size)
+            } else {
+                // 无 tarball：fallback 到 content 大小
+                let fallback_size = skill.content.len() as u64;
+                (1, fallback_size)
+            }
         };
 
         // 在数据库中创建下载凭证（5分钟有效），URL 中只暴露随机 UUID
@@ -498,8 +501,8 @@ impl RegistryService {
         )
     }
 
-    /// 递归统计 skill 目录文件数量和总大小
-    fn count_skill_files(&self, dir: &std::path::Path) -> Result<(usize, u64), AppError> {
+    /// 递归统计目录文件数量和总大小（跳过 .git 目录）
+    pub fn count_skill_files(&self, dir: &std::path::Path) -> Result<(usize, u64), AppError> {
         let mut count = 0usize;
         let mut total_size = 0u64;
 
@@ -510,6 +513,12 @@ impl RegistryService {
                 AppError::RegistryReadFailed(format!("Failed to read entry: {}", e))
             })?;
             let path = entry.path();
+
+            // 跳过 .git 目录
+            if path.file_name().map_or(false, |n| n == ".git") {
+                continue;
+            }
+
             if path.is_dir() {
                 let (sub_count, sub_size) = self.count_skill_files(&path)?;
                 count += sub_count;
@@ -886,73 +895,4 @@ dependencies: [{}]
         })
     }
 
-    /// 增量添加 Skills（用于启动时从文件同步）
-    pub fn sync_from_files(&self, search: &SearchService) -> Result<u32, AppError> {
-        let mut count = 0u32;
-
-        // 读取索引
-        let mut index = self.load_index()?;
-        let existing_ids: std::collections::HashSet<String> =
-            index.skills.iter().map(|s| s.id.clone()).collect();
-
-        // 扫描 skills 目录
-        if self.skills_dir.exists() {
-            for entry in std::fs::read_dir(&self.skills_dir)? {
-                let entry = entry?;
-                let path = entry.path();
-
-                if path.is_dir() {
-                    let skill_md_path = path.join("SKILL.md");
-                    if skill_md_path.exists() {
-                        if let Ok(content) = self.storage.read_file(&skill_md_path) {
-                            if let Ok(skill) = self.parse_skill_md(
-                                &content,
-                                &crate::models::skill::SkillMetadata {
-                                    id: "temp".to_string(),
-                                    name: path
-                                        .file_name()
-                                        .unwrap_or_default()
-                                        .to_string_lossy()
-                                        .to_string(),
-                                    description: String::new(),
-                                    tags: Vec::new(),
-                                    version: "1.0.0".to_string(),
-                                    author_agent_id: String::new(),
-                                    author_identity_id: None,
-                                    author_name: None,
-                                    owner_type: "user".to_string(),
-                                    owner_id: None,
-                                    created: Utc::now(),
-                                    updated: Utc::now(),
-                                    install_count: 0,
-                                    status: "published".to_string(),
-                                    git_url: None,
-                                    visibility: crate::models::skill_policy::Visibility::OrgVisible,
-                                    reviewed_by: None,
-                                    reviewed_at: None,
-                                    review_comment: None,
-                                    marketplace_status: None,
-                                    pre_marketplace_visibility: None,
-                                    draft_content: None,
-                                },
-                            ) {
-                                if !existing_ids.contains(&skill.id) {
-                                    index.skills.push((&skill).into());
-                                    search.add_skill(&skill)?;
-                                    count += 1;
-                                }
-                            }
-                        }
-                    }
-                }
-            }
-        }
-
-        if count > 0 {
-            self.save_index(&index)?;
-            info!("Synced {} skills from files", count);
-        }
-
-        Ok(count)
-    }
 }

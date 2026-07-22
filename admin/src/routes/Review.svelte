@@ -2,6 +2,7 @@
   import { onMount } from 'svelte';
   import { api } from '../lib/api.js';
   import { hasPermission } from '../stores/permission.js';
+  import { selectedOrg, isPersonalSpace } from '../stores/org.js';
   import ReviewActions from '../components/ReviewActions.svelte';
   import EmptyState from '../components/EmptyState.svelte';
   import LoadingSpinner from '../components/LoadingSpinner.svelte';
@@ -12,20 +13,25 @@
   let updateRequestSkills = [];
   let loading = true;
   let error = '';
-  let activeQueue = 'internal'; // 'internal' | 'marketplace' | 'delist' | 'update'
+  let activeQueue = 'internal';
 
   $: canReviewInternal = hasPermission('skill:approve_review') || hasPermission('skill:reject_review');
   $: canReviewMarketplace = hasPermission('marketplace:review_approve') || hasPermission('marketplace:review_reject');
+  $: currentOrgId = $selectedOrg?.id || null;
 
   onMount(async () => {
     try {
-      const res = await api.listSkills({ page_size: 200 });
+      const params = { page_size: 200 };
+      // 如果选中了组织，只加载该组织的 skill
+      if (currentOrgId && !$isPersonalSpace) {
+        params.org_id = currentOrgId;
+      }
+      const res = await api.listSkills(params);
       const allSkills = res.data || [];
       skills = allSkills.filter(s => s.status === 'pending_review');
       marketplaceSkills = allSkills.filter(s => s.marketplace_status === 'pending_review');
       delistRequestSkills = allSkills.filter(s => s.marketplace_status === 'pending_delist');
       updateRequestSkills = allSkills.filter(s => s.marketplace_status === 'pending_update');
-      // Auto-select active queue based on permissions
       if (!canReviewInternal && canReviewMarketplace) activeQueue = 'marketplace';
     } catch (e) {
       error = e.message;
@@ -336,8 +342,8 @@
         <div class="space-y-4">
           {#each updateRequestSkills as skill (skill.id)}
             <div class="bg-white rounded-xl border border-gray-200 shadow-card p-6">
-              <div class="flex items-center justify-between">
-                <div>
+              <div class="flex items-start justify-between">
+                <div class="flex-1">
                   <h3 class="text-lg font-bold text-gray-800">{skill.name}</h3>
                   <p class="text-sm text-gray-500 mt-1">{skill.description || 'No description'}</p>
                   <div class="flex items-center gap-3 mt-3 text-xs text-gray-400">
@@ -351,15 +357,72 @@
                       Content Update
                     </span>
                   </div>
-                  {#if skill.tags && skill.tags.length > 0}
-                    <div class="flex gap-1.5 mt-2 flex-wrap">
-                      {#each skill.tags as tag}
-                        <span class="px-2 py-0.5 bg-gray-100 text-gray-600 rounded-md text-xs font-medium">{tag}</span>
-                      {/each}
+
+                  <!-- Draft content diff -->
+                  {#if skill.draft_content}
+                    <div class="mt-4 p-4 bg-gray-50 rounded-xl border border-gray-100">
+                      <h4 class="text-xs font-semibold text-gray-500 uppercase tracking-wider mb-3">待审核的更改</h4>
+                      <div class="space-y-3">
+                        {#if skill.draft_content.description}
+                          <div>
+                            <span class="text-[11px] font-semibold text-gray-400 uppercase">Description</span>
+                            <div class="mt-1 grid grid-cols-2 gap-2">
+                              <div class="p-2 bg-rose-50 rounded-lg border border-rose-100">
+                                <div class="text-[10px] text-rose-400 font-medium mb-0.5">当前</div>
+                                <div class="text-xs text-gray-700 line-clamp-3">{skill.description || '-'}</div>
+                              </div>
+                              <div class="p-2 bg-emerald-50 rounded-lg border border-emerald-100">
+                                <div class="text-[10px] text-emerald-500 font-medium mb-0.5">更新为</div>
+                                <div class="text-xs text-gray-700 line-clamp-3">{skill.draft_content.description}</div>
+                              </div>
+                            </div>
+                          </div>
+                        {/if}
+                        {#if skill.draft_content.tags}
+                          <div>
+                            <span class="text-[11px] font-semibold text-gray-400 uppercase">Tags</span>
+                            <div class="mt-1 grid grid-cols-2 gap-2">
+                              <div class="p-2 bg-rose-50 rounded-lg border border-rose-100">
+                                <div class="text-[10px] text-rose-400 font-medium mb-0.5">当前</div>
+                                <div class="flex gap-1 flex-wrap">
+                                  {#each (skill.tags || []) as t}
+                                    <span class="px-1.5 py-0.5 bg-rose-100 text-rose-700 rounded text-[10px] font-medium">{t}</span>
+                                  {/each}
+                                </div>
+                              </div>
+                              <div class="p-2 bg-emerald-50 rounded-lg border border-emerald-100">
+                                <div class="text-[10px] text-emerald-500 font-medium mb-0.5">更新为</div>
+                                <div class="flex gap-1 flex-wrap">
+                                  {#each skill.draft_content.tags as t}
+                                    <span class="px-1.5 py-0.5 bg-emerald-100 text-emerald-700 rounded text-[10px] font-medium">{t}</span>
+                                  {/each}
+                                </div>
+                              </div>
+                            </div>
+                          </div>
+                        {/if}
+                        {#if skill.draft_content.content}
+                          <div>
+                            <span class="text-[11px] font-semibold text-gray-400 uppercase">Content</span>
+                            <div class="mt-1 grid grid-cols-2 gap-2">
+                              <div class="p-2 bg-rose-50 rounded-lg border border-rose-100">
+                                <div class="text-[10px] text-rose-400 font-medium mb-0.5">当前 (前200字符)</div>
+                                <pre class="text-[10px] text-gray-700 whitespace-pre-wrap font-mono max-h-32 overflow-y-auto">{skill.content?.substring(0, 200) || '-'}</pre>
+                              </div>
+                              <div class="p-2 bg-emerald-50 rounded-lg border border-emerald-100">
+                                <div class="text-[10px] text-emerald-500 font-medium mb-0.5">更新为 (前200字符)</div>
+                                <pre class="text-[10px] text-gray-700 whitespace-pre-wrap font-mono max-h-32 overflow-y-auto">{skill.draft_content.content?.substring(0, 200) || '-'}</pre>
+                              </div>
+                            </div>
+                          </div>
+                        {/if}
+                      </div>
                     </div>
+                  {:else}
+                    <div class="mt-3 text-xs text-gray-400 italic">无具体更改内容</div>
                   {/if}
                 </div>
-                <div class="flex items-center gap-2">
+                <div class="flex items-center gap-2 flex-shrink-0 ml-4">
                   <a
                     href={`/skills/${skill.id}`}
                     class="px-3 py-1.5 text-xs font-semibold bg-gray-100 text-gray-600 rounded-lg hover:bg-gray-200 transition-colors"

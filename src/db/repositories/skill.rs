@@ -119,10 +119,18 @@ impl SkillRepository {
         let tools = new_skill.tools.clone().unwrap_or_default();
         let tools_json = serde_json::to_value(&tools).unwrap_or(serde_json::Value::Array(vec![]));
 
+        // 新版本 is_current = true，旧已发布版本也保持 is_current（保证市场用户仍可见）
+        // 审核通过并发布后，旧版本 is_current 才设为 false
+        sqlx::query("UPDATE skills SET is_current = false WHERE name = $1 AND is_current = true AND status NOT IN ('published')")
+            .bind(&new_skill.name)
+            .execute(&self.pool)
+            .await
+            .map_err(|e| DbError::QueryError(e.to_string()))?;
+
         let skill_row = sqlx::query_as::<_, SkillRow>(
             r#"
-            INSERT INTO skills (id, name, description, version, author_agent_id, author_identity_id, owner_type, owner_id, compatibility, content, install_count, status, git_url, visibility, skill_tools)
-            VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, 0, $11, $12, $13, $14)
+            INSERT INTO skills (id, name, description, version, author_agent_id, author_identity_id, owner_type, owner_id, compatibility, content, install_count, status, git_url, visibility, skill_tools, is_current)
+            VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, 0, $11, $12, $13, $14, true)
             RETURNING id, name, description, version, author_agent_id, author_identity_id, owner_type, owner_id, compatibility, content, install_count, status, git_url, visibility, skill_tools, reviewed_by, reviewed_at, review_comment, admin_unpublished, marketplace_status, pre_marketplace_visibility, draft_content, created_at, updated_at
             "#,
         )
@@ -271,11 +279,11 @@ impl SkillRepository {
             SELECT s.id, s.name, s.description, s.version, s.author_agent_id, s.author_identity_id,
                    s.owner_type, s.owner_id, s.install_count, s.status, s.git_url, s.visibility,
                    s.reviewed_by, s.reviewed_at, s.review_comment, s.admin_unpublished,
-                   s.marketplace_status, s.pre_marketplace_visibility, s.draft_content, s.created_at, s.updated_at,
+                   s.marketplace_status, s.pre_marketplace_visibility, s.draft_content, s.is_current, s.created_at, s.updated_at,
                    COALESCE(i.display_name, i.username, i.name) AS author_name
             FROM skills s
             LEFT JOIN identities i ON i.id = s.author_identity_id
-            WHERE s.status != 'rejected'
+            WHERE s.status != 'rejected' AND s.is_current = true
             {} LIMIT $1 OFFSET $2
             "#,
             order_clause
@@ -298,7 +306,7 @@ impl SkillRepository {
     }
 
     pub async fn count(&self) -> DbResult<i64> {
-        let row: (i64,) = sqlx::query_as("SELECT COUNT(*) FROM skills WHERE status != 'rejected'")
+        let row: (i64,) = sqlx::query_as("SELECT COUNT(*) FROM skills WHERE status != 'rejected' AND is_current = true")
             .fetch_one(&self.pool)
             .await
             .map_err(|e| DbError::QueryError(e.to_string()))?;
@@ -317,7 +325,7 @@ impl SkillRepository {
                    s.author_identity_id, s.owner_type, s.owner_id,
                    s.install_count, s.status, s.git_url, s.visibility,
                    s.reviewed_by, s.reviewed_at, s.review_comment, s.admin_unpublished,
-                   s.marketplace_status, s.pre_marketplace_visibility, s.draft_content, s.created_at, s.updated_at,
+                   s.marketplace_status, s.pre_marketplace_visibility, s.draft_content, s.is_current, s.created_at, s.updated_at,
                    COALESCE(i.display_name, i.username, i.name) AS author_name
             FROM skills s
             LEFT JOIN identities i ON i.id = s.author_identity_id
@@ -349,7 +357,7 @@ impl SkillRepository {
                    s.author_identity_id, s.owner_type, s.owner_id,
                    s.install_count, s.status, s.git_url, s.visibility,
                    s.reviewed_by, s.reviewed_at, s.review_comment, s.admin_unpublished,
-                   s.marketplace_status, s.pre_marketplace_visibility, s.draft_content, s.created_at, s.updated_at,
+                   s.marketplace_status, s.pre_marketplace_visibility, s.draft_content, s.is_current, s.created_at, s.updated_at,
                    COALESCE(i.display_name, i.username, i.name) AS author_name
             FROM skills s
             LEFT JOIN identities i ON i.id = s.author_identity_id
@@ -450,13 +458,63 @@ impl SkillRepository {
         Ok(())
     }
 
+    /// 按名称查找最新版本（按 created_at DESC 取第一条）
+    pub async fn find_latest_by_name(&self, name: &str) -> DbResult<Option<Skill>> {
+        let row = sqlx::query_as::<_, SkillRow>(
+            r#"
+            SELECT id, name, description, version, author_agent_id, author_identity_id, owner_type, owner_id, compatibility, content, install_count, status, git_url, visibility, skill_tools, reviewed_by, reviewed_at, review_comment, admin_unpublished, marketplace_status, pre_marketplace_visibility, draft_content, created_at, updated_at
+            FROM skills WHERE name = $1
+            ORDER BY created_at DESC LIMIT 1
+            "#,
+        )
+        .bind(name)
+        .fetch_optional(&self.pool)
+        .await
+        .map_err(|e| DbError::QueryError(e.to_string()))?;
+
+        match row {
+            Some(row) => {
+                let tags = self.get_tags(&row.id).await?;
+                Ok(Some(Skill {
+                id: row.id,
+                name: row.name,
+                description: row.description,
+                version: row.version,
+                author_agent_id: row.author_agent_id,
+                author_identity_id: row.author_identity_id,
+                owner_type: row.owner_type,
+                owner_id: row.owner_id,
+                compatibility: row.compatibility,
+                content: row.content,
+                install_count: row.install_count,
+                tags,
+                dependencies: vec![],
+                status: row.status,
+                git_url: row.git_url,
+                visibility: row.visibility,
+                tools: row.tools,
+                reviewed_by: row.reviewed_by,
+                reviewed_at: row.reviewed_at,
+                review_comment: row.review_comment,
+                admin_unpublished: row.admin_unpublished,
+                marketplace_status: row.marketplace_status,
+                pre_marketplace_visibility: row.pre_marketplace_visibility,
+                draft_content: row.draft_content,
+                created_at: row.created_at,
+                updated_at: row.updated_at,
+            }))
+            }
+            None => Ok(None),
+        }
+    }
+
     pub async fn list_by_name(&self, name: &str) -> DbResult<Vec<SkillMetadata>> {
         let rows = sqlx::query_as::<_, SkillMetadataRow>(
             r#"
             SELECT s.id, s.name, s.description, s.version, s.author_agent_id, s.author_identity_id,
                    s.owner_type, s.owner_id, s.install_count, s.status, s.git_url, s.visibility,
                    s.reviewed_by, s.reviewed_at, s.review_comment, s.admin_unpublished,
-                   s.marketplace_status, s.pre_marketplace_visibility, s.draft_content, s.created_at, s.updated_at,
+                   s.marketplace_status, s.pre_marketplace_visibility, s.draft_content, s.is_current, s.created_at, s.updated_at,
                    COALESCE(i.display_name, i.username, i.name) AS author_name
             FROM skills s
             LEFT JOIN identities i ON i.id = s.author_identity_id
@@ -652,7 +710,7 @@ impl SkillRepository {
                    s.author_identity_id, s.owner_type, s.owner_id,
                    s.install_count, s.status, s.git_url, s.visibility,
                    s.reviewed_by, s.reviewed_at, s.review_comment, s.admin_unpublished,
-                   s.marketplace_status, s.pre_marketplace_visibility, s.draft_content, s.created_at, s.updated_at,
+                   s.marketplace_status, s.pre_marketplace_visibility, s.draft_content, s.is_current, s.created_at, s.updated_at,
                    COALESCE(i.display_name, i.username, i.name) AS author_name
             FROM skills s
             LEFT JOIN identities i ON i.id = s.author_identity_id
@@ -689,7 +747,7 @@ impl SkillRepository {
                    s.author_identity_id, s.owner_type, s.owner_id,
                    s.install_count, s.status, s.git_url, s.visibility,
                    s.reviewed_by, s.reviewed_at, s.review_comment, s.admin_unpublished,
-                   s.marketplace_status, s.pre_marketplace_visibility, s.draft_content, s.created_at, s.updated_at,
+                   s.marketplace_status, s.pre_marketplace_visibility, s.draft_content, s.is_current, s.created_at, s.updated_at,
                    COALESCE(i.display_name, i.username, i.name) AS author_name
             FROM skills s
             LEFT JOIN identities i ON i.id = s.author_identity_id
@@ -719,7 +777,7 @@ impl SkillRepository {
             SELECT s.id, s.name, s.description, s.version, s.author_agent_id, s.author_identity_id,
                    s.owner_type, s.owner_id, s.install_count, s.status, s.git_url, s.visibility,
                    s.reviewed_by, s.reviewed_at, s.review_comment, s.admin_unpublished,
-                   s.marketplace_status, s.pre_marketplace_visibility, s.draft_content, s.created_at, s.updated_at,
+                   s.marketplace_status, s.pre_marketplace_visibility, s.draft_content, s.is_current, s.created_at, s.updated_at,
                    COALESCE(i.display_name, i.username, i.name) AS author_name
             FROM skills s
             LEFT JOIN identities i ON i.id = s.author_identity_id
@@ -755,7 +813,7 @@ impl SkillRepository {
                 SELECT s.id, s.name, s.description, s.version, s.author_agent_id, s.author_identity_id,
                        s.owner_type, s.owner_id, s.install_count, s.status, s.git_url, s.visibility,
                        s.reviewed_by, s.reviewed_at, s.review_comment, s.admin_unpublished,
-                       s.marketplace_status, s.pre_marketplace_visibility, s.draft_content, s.created_at, s.updated_at,
+                       s.marketplace_status, s.pre_marketplace_visibility, s.draft_content, s.is_current, s.created_at, s.updated_at,
                        COALESCE(i.display_name, i.username, i.name) AS author_name
                 FROM skills s
                 LEFT JOIN identities i ON i.id = s.author_identity_id
@@ -786,7 +844,7 @@ impl SkillRepository {
             SELECT s.id, s.name, s.description, s.version, s.author_agent_id, s.author_identity_id,
                    s.owner_type, s.owner_id, s.install_count, s.status, s.git_url, s.visibility,
                    s.reviewed_by, s.reviewed_at, s.review_comment, s.admin_unpublished,
-                   s.marketplace_status, s.pre_marketplace_visibility, s.draft_content, s.created_at, s.updated_at,
+                   s.marketplace_status, s.pre_marketplace_visibility, s.draft_content, s.is_current, s.created_at, s.updated_at,
                    COALESCE(i.display_name, i.username, i.name) AS author_name
             FROM skills s
             LEFT JOIN identities i ON i.id = s.author_identity_id
@@ -894,6 +952,7 @@ struct SkillRow {
 }
 
 #[derive(sqlx::FromRow)]
+#[allow(dead_code)]
 struct SkillMetadataRow {
     id: String,
     name: String,
@@ -915,6 +974,7 @@ struct SkillMetadataRow {
     marketplace_status: Option<String>,
     pre_marketplace_visibility: Option<String>,
     draft_content: Option<serde_json::Value>,
+    is_current: Option<bool>,
     created_at: DateTime<Utc>,
     updated_at: DateTime<Utc>,
 }

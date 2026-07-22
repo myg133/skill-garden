@@ -1,6 +1,7 @@
 <script>
   import { useLocation, navigate } from 'svelte-routing';
   import { auth, selectedNav } from '../stores/auth.js';
+  import { permissionStore } from '../stores/permission.js';
   import Icon from './Icon.svelte';
 
   const location = useLocation();
@@ -15,9 +16,11 @@
 
   function handleLogout() {
     auth.logout();
-    // 退出后直接整页刷新到登录页，避免 SPA 路由状态残留导致布局未切换
     window.location.href = '/login';
   }
+
+  // 有组织角色的用户可见组织相关入口
+  $: hasOrgAccess = ($permissionStore.orgRoles || []).length > 0;
 
   const userNavItems = [
     { href: '/user', label: 'Home', icon: 'dashboard' },
@@ -26,6 +29,10 @@
     { href: '/user/submissions', label: 'Submissions', icon: 'review' },
     { href: '/profile', label: 'Profile', icon: 'profile' },
     { href: '/my-api-keys', label: 'API Keys', icon: 'my-api-keys' },
+  ];
+
+  const orgNavItems = [
+    { href: '/organizations', label: 'Organizations', icon: 'organizations' },
   ];
 
   // 用 $: 预计算高亮 map，模板直接查表，避免函数内 store 订阅失效
@@ -61,6 +68,19 @@
         {item.label}
       </button>
     {/each}
+
+    {#if hasOrgAccess}
+      <div class="mt-4 mb-1 px-3 text-[10px] font-semibold text-gray-400 uppercase tracking-wider">Organizations</div>
+      {#each orgNavItems as item}
+        <button
+          on:click={() => handleNavigate(item.href)}
+          class="w-full flex items-center gap-3 px-3 py-2.5 mb-0.5 rounded-lg text-[13px] font-medium transition-all duration-200 {activeMap[item.href] ? 'bg-blue-50 text-blue-700' : 'text-gray-500 hover:text-gray-700 hover:bg-gray-50'}"
+        >
+          <Icon name={item.icon} size="w-[17px] h-[17px]" className={activeMap[item.href] ? 'text-blue-600' : 'text-gray-400'} />
+          {item.label}
+        </button>
+      {/each}
+    {/if}
   </nav>
 
   <!-- Footer -->

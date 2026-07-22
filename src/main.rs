@@ -366,17 +366,13 @@ async fn main() -> Result<()> {
         .map(PathBuf::from)
         .unwrap_or_else(|_| PathBuf::from("data"));
 
-    let skills_dir = std::env::var("AION_HIVE_SKILLS_DIR")
-        .map(PathBuf::from)
-        .unwrap_or_else(|_| data_dir.join("skills"));
 
     std::fs::create_dir_all(&data_dir)?;
-    std::fs::create_dir_all(&skills_dir)?;
     std::fs::create_dir_all(&data_dir.join("registry"))?;
     std::fs::create_dir_all(&data_dir.join("evaluations"))?;
     std::fs::create_dir_all(&data_dir.join("search_index"))?;
 
-    let state = AppState::new(data_dir.clone(), skills_dir).await?;
+    let state = AppState::new(data_dir.clone()).await?;
 
     info!("AionHive initialized successfully");
     info!(

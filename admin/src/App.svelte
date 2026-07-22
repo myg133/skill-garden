@@ -52,8 +52,9 @@
   $: showPersonalOption = /^\/(skills|review)(\/|$)/.test($currentPath);
 
   // 权限未加载时不急着决定布局，避免 user/admin 布局切换的闪烁
-  // loaded 后：缓存 is_admin 或权限返回的管理员才进入 admin 布局
-  $: showAdminLayout = $permissionStore.loaded && ($isAdmin || isAnyAdmin());
+  // loaded 后：管理员或组织角色用户进入 admin 布局
+  $: hasOrgRole = ($permissionStore.orgRoles || []).length > 0;
+  $: showAdminLayout = $permissionStore.loaded && ($isAdmin || isAnyAdmin() || hasOrgRole);
 
   // 已登录但权限还在加载中 → 展示加载状态
   $: permissionsLoading = $isAuthenticated && !$permissionStore.loaded;
@@ -143,9 +144,12 @@
     <div class="flex h-screen overflow-hidden bg-gray-50">
       <UserNav />
       <div class="flex-1 flex flex-col overflow-hidden">
-        <!-- Top bar with role badges -->
-        <div class="h-14 flex items-center justify-end px-6 border-b border-gray-200 bg-white flex-shrink-0">
-          <RoleBadges />
+        <!-- Top bar with OrgSwitcher + role badges -->
+        <div class="h-14 flex items-center px-6 border-b border-gray-200 bg-white flex-shrink-0">
+          {#if showOrgSwitcher}
+            <OrgSwitcher showPersonal={showPersonalOption} />
+          {/if}
+          <RoleBadges className="ml-auto flex-shrink-0" />
         </div>
         <div class="flex-1 overflow-y-auto relative">
           <main class="relative">
@@ -159,6 +163,12 @@
             <Route path="/user/submissions" component={MySubmissions} />
             <Route path="/profile" component={Profile} />
             <Route path="/my-api-keys" component={MyApiKeys} />
+            <!-- Organization management for users with org roles -->
+            <Route path="/organizations/:id" let:params>
+              <OrganizationDetail id={params.id} />
+            </Route>
+            <Route path="/organizations" component={Organizations} />
+            <Route path="/groups" component={Groups} />
             <Route path="*" component={UserDashboard} />
           </main>
         </div>

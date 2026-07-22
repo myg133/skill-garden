@@ -149,6 +149,43 @@ impl SkillGitService {
         self.repos_dir.join(format!("skill-{}", skill_name))
     }
 
+    /// 构造 releases 目录路径
+    pub fn releases_dir(&self) -> PathBuf {
+        self.repos_dir.parent().unwrap_or(&self.repos_dir).join("releases")
+    }
+
+    /// 生成版本 tarball（审核通过后调用）
+    pub fn generate_release_tarball(
+        &self,
+        skill_name: &str,
+        version: &str,
+    ) -> Result<PathBuf, AppError> {
+        let repo_dir = self.repo_path(skill_name);
+        let releases_dir = self.releases_dir().join(skill_name);
+        fs::create_dir_all(&releases_dir)
+            .map_err(|e| AppError::InternalError(format!("Failed to create releases dir: {}", e)))?;
+
+        let tarball_path = releases_dir.join(format!("v{}.tar.gz", version));
+        let tag_name = format!("v{}", version);
+
+        let output = Command::new("git")
+            .current_dir(&repo_dir)
+            .args(["archive", "--format=tar.gz", &tag_name, "-o"])
+            .arg(&tarball_path)
+            .output()
+            .map_err(|e| AppError::InternalError(format!("git archive failed: {}", e)))?;
+
+        if !output.status.success() {
+            let stderr = String::from_utf8_lossy(&output.stderr);
+            return Err(AppError::InternalError(format!(
+                "git archive failed: {}", stderr
+            )));
+        }
+
+        info!("Generated release tarball: {}", tarball_path.display());
+        Ok(tarball_path)
+    }
+
     /// 确保服务目录存在
     pub fn ensure_dirs(&self) -> Result<(), AppError> {
         fs::create_dir_all(&self.repos_dir).map_err(|e| {
@@ -166,7 +203,7 @@ impl SkillGitService {
         &self,
         zip_data: &[u8],
         author_agent_id: &str,
-        author_identity_id: Option<Uuid>,
+        _author_identity_id: Option<Uuid>,
         owner_type: &str,
         owner_id: Option<Uuid>,
         registry: &RegistryService,
@@ -208,46 +245,33 @@ impl SkillGitService {
         copy_dir_recursive(&unpacked.extract_dir, &repo_dir)
             .map_err(|e| AppError::InternalError(format!("Copy to repo failed: {}", e)))?;
 
-        // 6. Git add + commit + tag
-        let tag_name = format!("v{}", version);
+        // 6. Git add + commit（不打 tag，审核通过后才打）
         let commit_msg = format!(
             "v{}: {} by {}",
             version,
-            if repo_is_new {
-                "Initial skill upload"
-            } else {
-                "New version upload"
-            },
+            if repo_is_new { "Initial skill upload" } else { "New version upload" },
             author_agent_id
         );
-        let commit_hash = self.git_commit_and_tag(&repo_dir, &commit_msg, &tag_name)?;
+        let commit_hash = self.git_commit_only(&repo_dir, &commit_msg)?;
 
-        // 7. 写入 DB — skill_versions 表
-        let file_count = unpacked.files.len() as i32;
-        let total_size = unpacked.total_size_bytes as i64;
-        tokio::runtime::Handle::current()
-            .block_on(async {
-                version_repo
-                    .create(NewSkillVersion {
-                        skill_name: metadata.name.clone(),
-                        version: version.clone(),
-                        git_commit_hash: Some(commit_hash.clone()),
-                        git_tag: Some(tag_name.clone()),
-                        changelog: Some(commit_msg.clone()),
-                        file_count,
-                        total_size_bytes: total_size,
-                        uploaded_by: author_identity_id,
-                        git_remote_url: None,
-                    })
-                    .await
-            })
-            .map_err(|e| AppError::InternalError(format!("Failed to record version: {}", e)))?;
+        // 7. 写入 skill 到 registry（文件系统 + DB + 搜索索引）
+        // tags/description：首次上传用 ZIP 中的值，更新上传继承 DB 当前值
+        let (desc, tgs) = if latest_version.is_none() {
+            (metadata.description.clone(), metadata.tags.clone())
+        } else {
+            let current = tokio::runtime::Handle::current().block_on(async {
+                skill_repo.find_latest_by_name(&metadata.name).await
+            }).unwrap_or(None);
+            (
+                current.as_ref().map(|s| s.description.clone()).unwrap_or_default(),
+                current.as_ref().map(|s| s.tags.clone()).unwrap_or_default(),
+            )
+        };
 
-        // 8. 写入 skill 到 registry（文件系统 + DB + 搜索索引）
         let new_skill = NewSkill {
             name: metadata.name.clone(),
-            description: metadata.description.clone(),
-            tags: metadata.tags.clone(),
+            description: desc,
+            tags: tgs,
             content: unpacked.skill_md_content.clone(),
             version: version.clone(),
             git_url: None,
@@ -259,32 +283,24 @@ impl SkillGitService {
         };
 
         let skill = tokio::runtime::Handle::current().block_on(async {
-            registry
-                .create_skill(new_skill, author_agent_id, search)
-                .await
+            registry.create_skill(new_skill, author_agent_id, search).await
         })?;
 
-        // 将所有文件从 Git 仓库同步到 skills_dir，确保 install 能读取完整文件
-        registry.sync_skill_files_from(&metadata.name, &repo_dir)?;
+        // 不 sync_skill_files_from、不写 skill_versions、不打 tag
+        // 这些操作在审核通过后由 approve_org_skill_handler 完成
 
         tokio::runtime::Handle::current()
             .block_on(async {
-                skill_repo
-                    .update_status(&skill.id, "pending_review", None, None)
-                    .await
+                skill_repo.update_status(&skill.id, "pending_review", None, None).await
             })
             .map_err(|e| AppError::InternalError(format!("Failed to update status: {}", e)))?;
 
-        // 9. 清理临时解压目录
+        // 8. 清理临时解压目录
         let _ = fs::remove_dir_all(&unpacked.extract_dir);
 
         info!(
             "Skill {} v{} uploaded (commit={}, files={}, is_new={})",
-            metadata.name,
-            version,
-            commit_hash,
-            unpacked.files.len(),
-            repo_is_new
+            metadata.name, version, commit_hash, unpacked.files.len(), repo_is_new
         );
 
         Ok(UploadResult {
@@ -292,7 +308,7 @@ impl SkillGitService {
             skill_name: metadata.name.clone(),
             version: version.clone(),
             git_commit: commit_hash,
-            git_tag: tag_name,
+            git_tag: String::new(), // tag 审核通过后才打
             git_repo_name: format!("skill-{}", metadata.name),
             is_new_skill: latest_version.is_none(),
             files: unpacked.files,
@@ -482,7 +498,7 @@ impl SkillGitService {
 
         // 清空旧文件 + 拷贝
         self.clean_working_dir(&repo_dir)?;
-        let mut total_size: u64 = 0;
+        let mut _total_size: u64 = 0;
         for rel_path in &files {
             let src = preview_dir.join(rel_path);
             let dst = repo_dir.join(rel_path);
@@ -492,28 +508,55 @@ impl SkillGitService {
             }
             fs::copy(&src, &dst)
                 .map_err(|e| AppError::InternalError(format!("Copy file failed: {}", e)))?;
-            total_size += fs::metadata(&src).map(|m| m.len()).unwrap_or(0) as u64;
+            _total_size += fs::metadata(&src).map(|m| m.len()).unwrap_or(0) as u64;
         }
 
-        // Git commit + tag
-        let tag_name = format!("v{}", version);
+        // 检查是否有实际变更：用 git diff 对比新旧文件
+        if !repo_is_new && latest_version.is_some() {
+            let diff_output = Command::new("git")
+                .current_dir(&repo_dir)
+                .args(["diff", "--stat", "HEAD"])
+                .output()
+                .map_err(|e| AppError::InternalError(format!("git diff failed: {}", e)))?;
+
+            let diff_stat = String::from_utf8_lossy(&diff_output.stdout);
+            if diff_stat.trim().is_empty() {
+                // 无变更，还原工作目录
+                let _ = Command::new("git")
+                    .current_dir(&repo_dir)
+                    .args(["checkout", "--", "."])
+                    .output();
+                return Err(AppError::ValidationError(
+                    "上传的内容与当前版本完全相同，无需更新".to_string(),
+                ));
+            }
+        }
+
+        // Git commit（不打 tag，审核通过后才打）
         let commit_msg = format!(
             "v{}: {} by {}",
             version,
-            if repo_is_new {
-                "Initial skill upload"
-            } else {
-                "New version upload"
-            },
+            if repo_is_new { "Initial skill upload" } else { "New version upload" },
             author_agent_id
         );
-        let commit_hash = self.git_commit_and_tag(&repo_dir, &commit_msg, &tag_name)?;
+        let commit_hash = self.git_commit_only(&repo_dir, &commit_msg)?;
 
-        // 写入 DB（先 skill 后 version）
+        // 写入 DB skill（不写 version、不 sync_skill_files_from、不打 tag）
+        // tags/description：首次上传用 ZIP 中的值，更新上传继承 DB 当前值
+        let (desc, tgs) = if latest_version.is_none() {
+            (metadata.description.clone(), metadata.tags.clone())
+        } else {
+            let current = skill_repo.find_latest_by_name(&metadata.name).await.unwrap_or(None);
+            (
+                current.as_ref().map(|s| s.description.clone()).unwrap_or_default(),
+                current.as_ref().map(|s| s.tags.clone()).unwrap_or_default(),
+            )
+        };
+
         let new_skill = NewSkill {
             name: metadata.name.clone(),
-            description: metadata.description.clone(),
-            tags: metadata.tags.clone(),
+            description: desc,
+            tags: tgs,
             content: skill_md_content,
             version: version.clone(),
             git_url: None,
@@ -528,34 +571,12 @@ impl SkillGitService {
             .create_skill(new_skill, author_agent_id, search)
             .await?;
 
-        // 将所有文件从 Git 仓库同步到 skills_dir，确保 install 能读取完整文件
-        registry.sync_skill_files_from(&metadata.name, &repo_dir)?;
-
-        version_repo
-            .create(NewSkillVersion {
-                skill_name: metadata.name.clone(),
-                version: version.clone(),
-                git_commit_hash: Some(commit_hash.clone()),
-                git_tag: Some(tag_name.clone()),
-                changelog: Some(commit_msg.clone()),
-                file_count: files.len() as i32,
-                total_size_bytes: total_size as i64,
-                uploaded_by: author_identity_id,
-                git_remote_url: None,
-            })
-            .await
-            .map_err(|e| AppError::InternalError(format!("Failed to record version: {}", e)))?;
-
         // 清理预览目录
         let _ = fs::remove_dir_all(&preview_dir);
 
         info!(
             "Skill {} v{} uploaded (commit={}, files={}, is_new={})",
-            metadata.name,
-            version,
-            commit_hash,
-            files.len(),
-            repo_is_new
+            metadata.name, version, commit_hash, files.len(), repo_is_new
         );
 
         Ok(UploadResult {
@@ -563,7 +584,7 @@ impl SkillGitService {
             skill_name: metadata.name.clone(),
             version: version.clone(),
             git_commit: commit_hash,
-            git_tag: tag_name,
+            git_tag: String::new(),
             git_repo_name: format!("skill-{}", metadata.name),
             is_new_skill: latest_version.is_none(),
             files,
@@ -734,7 +755,112 @@ impl SkillGitService {
         Ok(())
     }
 
-    /// Git add → commit → tag（在仓库目录中操作）
+    /// Git add → commit（不打 tag，审核通过后才打 tag）
+    fn git_commit_only(
+        &self,
+        repo_dir: &Path,
+        message: &str,
+    ) -> Result<String, AppError> {
+        // git add -A
+        let add = Command::new("git")
+            .current_dir(repo_dir)
+            .args(["add", "-A"])
+            .output()
+            .map_err(|e| AppError::InternalError(format!("git add failed: {}", e)))?;
+
+        if !add.status.success() {
+            let stderr = String::from_utf8_lossy(&add.stderr);
+            warn!("git add warning: {}", stderr);
+        }
+
+        // git commit
+        let commit = Command::new("git")
+            .current_dir(repo_dir)
+            .args(["commit", "-m", message, "--allow-empty"])
+            .output()
+            .map_err(|e| AppError::InternalError(format!("git commit failed: {}", e)))?;
+
+        if !commit.status.success() {
+            let stderr = String::from_utf8_lossy(&commit.stderr);
+            return Err(AppError::InternalError(format!(
+                "git commit failed: {}",
+                stderr
+            )));
+        }
+
+        // git rev-parse HEAD
+        let hash_output = Command::new("git")
+            .current_dir(repo_dir)
+            .args(["rev-parse", "HEAD"])
+            .output()
+            .map_err(|e| AppError::InternalError(format!("git rev-parse failed: {}", e)))?;
+
+        let commit_hash = String::from_utf8_lossy(&hash_output.stdout)
+            .trim()
+            .to_string();
+
+        if commit_hash.is_empty() {
+            return Err(AppError::InternalError(
+                "Failed to get commit hash".to_string(),
+            ));
+        }
+
+        Ok(commit_hash)
+    }
+
+    /// 审核通过后打 tag
+    pub fn git_tag_approved(
+        &self,
+        repo_dir: &Path,
+        tag_name: &str,
+        message: &str,
+    ) -> Result<(), AppError> {
+        let tag_output = Command::new("git")
+            .current_dir(repo_dir)
+            .args(["tag", "-a", tag_name, "-m", message])
+            .output()
+            .map_err(|e| AppError::InternalError(format!("git tag failed: {}", e)))?;
+
+        if !tag_output.status.success() {
+            let force_tag = Command::new("git")
+                .current_dir(repo_dir)
+                .args(["tag", "-af", tag_name, "-m", message])
+                .output()
+                .map_err(|e| AppError::InternalError(format!("git tag force failed: {}", e)))?;
+            if !force_tag.status.success() {
+                let stderr = String::from_utf8_lossy(&force_tag.stderr);
+                return Err(AppError::InternalError(format!(
+                    "git tag failed: {}",
+                    stderr
+                )));
+            }
+        }
+
+        info!("Tagged {} as {}", repo_dir.display(), tag_name);
+        Ok(())
+    }
+
+    /// 审核驳回后撤销最后一次 commit
+    pub fn git_reset_soft_head(&self, repo_dir: &Path) -> Result<(), AppError> {
+        let reset = Command::new("git")
+            .current_dir(repo_dir)
+            .args(["reset", "--soft", "HEAD~1"])
+            .output()
+            .map_err(|e| AppError::InternalError(format!("git reset failed: {}", e)))?;
+
+        if !reset.status.success() {
+            let stderr = String::from_utf8_lossy(&reset.stderr);
+            return Err(AppError::InternalError(format!(
+                "git reset failed: {}",
+                stderr
+            )));
+        }
+
+        info!("Reset HEAD~1 in {}", repo_dir.display());
+        Ok(())
+    }
+
+    /// Git add → commit → tag（在仓库目录中操作）— 保留兼容旧调用
     fn git_commit_and_tag(
         &self,
         repo_dir: &Path,
@@ -1001,6 +1127,7 @@ impl SkillGitService {
     }
 
     /// 获取特定版本的文件内容
+    /// 优先使用 git tag，若 tag 不存在则使用 HEAD
     pub fn get_file_at_version(
         &self,
         skill_name: &str,
@@ -1017,7 +1144,20 @@ impl SkillGitService {
         } else {
             format!("v{}", version)
         };
-        let ref_spec = format!("{}:{}", tag, file_path);
+
+        // 检查 tag 是否存在，不存在则用 HEAD
+        let ref_name = if Command::new("git")
+            .current_dir(&repo_dir)
+            .args(["rev-parse", &tag])
+            .output()
+            .map(|o| o.status.success())
+            .unwrap_or(false)
+        {
+            tag
+        } else {
+            "HEAD".to_string()
+        };
+        let ref_spec = format!("{}:{}", ref_name, file_path);
 
         let output = Command::new("git")
             .current_dir(&repo_dir)
@@ -1037,6 +1177,7 @@ impl SkillGitService {
     }
 
     /// 列出特定版本的所有文件
+    /// 优先使用 git tag，若 tag 不存在则使用 HEAD（pending_review 未打 tag 时）
     pub fn list_files_at_version(
         &self,
         skill_name: &str,
@@ -1053,17 +1194,30 @@ impl SkillGitService {
             format!("v{}", version)
         };
 
+        // 检查 tag 是否存在，不存在则用 HEAD
+        let ref_name = if Command::new("git")
+            .current_dir(&repo_dir)
+            .args(["rev-parse", &tag])
+            .output()
+            .map(|o| o.status.success())
+            .unwrap_or(false)
+        {
+            tag
+        } else {
+            "HEAD".to_string()
+        };
+
         let output = Command::new("git")
             .current_dir(&repo_dir)
-            .args(["ls-tree", "-r", "--name-only", "-z", &tag])
+            .args(["ls-tree", "-r", "--name-only", "-z", &ref_name])
             .output()
             .map_err(|e| AppError::InternalError(format!("git ls-tree failed: {}", e)))?;
 
         if !output.status.success() {
             let stderr = String::from_utf8_lossy(&output.stderr);
             return Err(AppError::InternalError(format!(
-                "Failed to list files at version {}: {}",
-                tag, stderr
+                "Failed to list files at {}: {}",
+                ref_name, stderr
             )));
         }
 
@@ -1321,6 +1475,142 @@ impl SkillGitService {
             new_version,
             git_commit: commit_hash,
             git_tag: new_tag,
+            file_count,
+            total_size_bytes: total_size as i64,
+        })
+    }
+
+    /// 回退到指定版本（仅 commit，不打 tag — 审核通过后再打 tag）
+    ///
+    /// 与 `rollback_version` 的区别：
+    /// - 只做 git commit，不打 git tag
+    /// - skill_versions 记录中 git_tag 为 None
+    /// - 审核通过后由 approve_org_skill_handler 打 tag + 生成 tarball
+    pub fn rollback_version_commit_only(
+        &self,
+        skill_name: &str,
+        target_version: &str,
+        author_identity_id: Uuid,
+        version_repo: &VersionRepository,
+    ) -> Result<RollbackResult, AppError> {
+        let repo_dir = self.repo_path(skill_name);
+        if !repo_dir.join(".git").exists() {
+            return Err(AppError::SkillNotFound(format!(
+                "Git repo for skill {} not found",
+                skill_name
+            )));
+        }
+
+        let target_tag = if target_version.starts_with('v') {
+            target_version.to_string()
+        } else {
+            format!("v{}", target_version)
+        };
+
+        // 1. 验证目标 tag 存在
+        let tag_check = Command::new("git")
+            .current_dir(&repo_dir)
+            .args(["rev-parse", &target_tag])
+            .output()
+            .map_err(|e| AppError::InternalError(format!("git rev-parse failed: {}", e)))?;
+
+        if !tag_check.status.success() {
+            return Err(AppError::SkillNotFound(format!(
+                "Version tag {} not found for skill {}",
+                target_tag, skill_name
+            )));
+        }
+
+        // 2. 获取最新版本号，计算新版本号
+        let latest = tokio::runtime::Handle::current()
+            .block_on(async { version_repo.get_latest_version(skill_name).await })
+            .map_err(|e| AppError::InternalError(e.to_string()))?;
+
+        let current_version = latest.unwrap_or_else(|| "1.0.0".to_string());
+        let new_version = {
+            let parsed = semver::Version::parse(&current_version).map_err(|e| {
+                AppError::ValidationError(format!("Invalid version {}: {}", current_version, e))
+            })?;
+            format!("{}.{}.{}", parsed.major, parsed.minor, parsed.patch + 1)
+        };
+
+        // 3. 清空工作目录，从目标 tag 检出文件
+        self.clean_working_dir(&repo_dir)?;
+
+        let checkout = Command::new("git")
+            .current_dir(&repo_dir)
+            .args(["checkout", &target_tag, "--", "."])
+            .output()
+            .map_err(|e| AppError::InternalError(format!("git checkout failed: {}", e)))?;
+
+        if !checkout.status.success() {
+            let stderr = String::from_utf8_lossy(&checkout.stderr);
+            return Err(AppError::InternalError(format!(
+                "Failed to checkout version {}: {}",
+                target_tag, stderr
+            )));
+        }
+
+        // 4. 读取并解析 SKILL.md
+        let skill_md_path = repo_dir.join("SKILL.md");
+        let _skill_md_content = fs::read_to_string(&skill_md_path).map_err(|e| {
+            AppError::InternalError(format!(
+                "SKILL.md not found at version {}: {}",
+                target_tag, e
+            ))
+        })?;
+
+        // 5. 获取文件列表和总大小
+        let mut file_paths: Vec<String> = Vec::new();
+        collect_files(&repo_dir, &repo_dir, &mut file_paths)
+            .map_err(|e| AppError::InternalError(format!("Failed to collect files: {}", e)))?;
+        let file_count = file_paths.len() as i32;
+        let total_size: u64 = file_paths
+            .iter()
+            .filter_map(|p| fs::metadata(repo_dir.join(p)).ok())
+            .map(|m| m.len())
+            .sum();
+
+        // 6. Git commit only（不打 tag，审核通过后再打）
+        let commit_msg = format!(
+            "v{}: Rollback from v{} to v{} by {}",
+            new_version, current_version, target_version, author_identity_id
+        );
+        let commit_hash = self.git_commit_only(&repo_dir, &commit_msg)?;
+
+        // 7. 写入 skill_versions 表（git_tag 为 None，审核通过后再补充）
+        tokio::runtime::Handle::current()
+            .block_on(async {
+                version_repo
+                    .create(NewSkillVersion {
+                        skill_name: skill_name.to_string(),
+                        version: new_version.clone(),
+                        git_commit_hash: Some(commit_hash.clone()),
+                        git_tag: None, // 审核通过后补充
+                        changelog: Some(commit_msg.clone()),
+                        file_count,
+                        total_size_bytes: total_size as i64,
+                        uploaded_by: Some(author_identity_id),
+                        git_remote_url: None,
+                    })
+                    .await
+            })
+            .map_err(|e| {
+                AppError::InternalError(format!("Failed to record rollback version: {}", e))
+            })?;
+
+        info!(
+            "Rollback (commit-only): skill={} {} -> {} (new: {}, commit={})",
+            skill_name, current_version, target_version, new_version, commit_hash
+        );
+
+        Ok(RollbackResult {
+            skill_name: skill_name.to_string(),
+            from_version: current_version,
+            target_version: target_version.to_string(),
+            new_version,
+            git_commit: commit_hash,
+            git_tag: String::new(), // 审核通过后才有 tag
             file_count,
             total_size_bytes: total_size as i64,
         })

@@ -31,7 +31,7 @@ export const adminNavRoutes = [
     icon: 'organizations',
     tabs: [
       { href: '/',             label: 'Organizations', icon: 'organizations', need: 'org:read' },
-      { href: '/groups',       label: 'Groups',        icon: 'groups',        need: 'group:read' },
+      { href: '/groups',       label: 'Groups',        icon: 'groups',        need: 'tenant:read' },
       { href: '/org-tools',    label: 'Org Tools',     icon: 'org-tools',     need: 'org:read' },
     ]
   },
@@ -40,8 +40,9 @@ export const adminNavRoutes = [
     label: 'Content',
     icon: 'skills',
     tabs: [
+      { href: '/marketplace',  label: 'Marketplace',   icon: 'marketplace',   need: null },
       { href: '/skills',       label: 'Skills',        icon: 'skills',        need: null },
-      { href: '/review',       label: 'Review',        icon: 'review',        need: null },
+      { href: '/review',       label: 'Review',        icon: 'review',        need: 'skill:approve_review' },
       { href: '/marketplace-roles', label: 'Marketplace Roles', icon: 'roles',  need: 'marketplace:role_assign' },
     ]
   },
@@ -59,7 +60,7 @@ export const adminNavRoutes = [
     label: 'System',
     icon: 'settings',
     tabs: [
-      { href: '/tenants',      label: 'Tenants',        icon: 'tenants',       need: 'system:admin:access' },
+      { href: '/tenants',      label: 'Tenants',        icon: 'tenants',       need: 'tenant:read' },
       { href: '/system-roles', label: 'System Roles',   icon: 'roles',          need: 'system:admin:access' },
       { href: '/sessions',     label: 'Sessions',        icon: 'sessions',      need: 'system:admin:access' },
       { href: '/audit',        label: 'Audit Logs',     icon: 'audit-logs',    need: 'system:admin:access' },

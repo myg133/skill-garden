@@ -83,8 +83,9 @@
       skill = { ...detail.metadata, content: detail.content };
       stats = detail.stats || (statsRes.data || statsRes);
 
-      // Load file list
+      // Load file list and version history in parallel
       loadFileList();
+      loadVersions();
     } catch (e) {
       error = e.message;
     } finally {
@@ -270,8 +271,12 @@
     tagSaveLoading = true;
     tagSaveError = '';
     try {
-      await api.updateSkill(skill.id, { tags: editTags });
+      const res = await api.updateSkill(skill.id, { tags: editTags });
       skill.tags = [...editTags];
+      // 如果返回了 marketplace_status 变化（listed → pending_update），更新本地状态
+      if (res.marketplace_status) {
+        skill.marketplace_status = res.marketplace_status;
+      }
       editingTags = false;
     } catch (e) {
       tagSaveError = e.message;
@@ -316,12 +321,12 @@
   }
 
   async function handleRequestDelist() {
-    const reason = prompt('请输入申请下架的原因（可选）：');
+    const reason = prompt('Enter delist reason (optional):');
     if (reason === null) return; // user cancelled
     requestDelistLoading = true;
     try {
       await api.requestMarketplaceDelist(id, reason || undefined);
-      addToast(`${skill.name} 下架申请已提交，等待审核`, 'success');
+      addToast(`${skill.name} delist request submitted, pending review`, 'success');
       skill.marketplace_status = 'pending_delist';
     } catch (e) {
       addToast(e.message, 'error');
@@ -371,11 +376,11 @@
   }
 
   async function handleCancelUpdate() {
-    if (!confirm('确定要取消此次更新吗？草稿内容将被丢弃。')) return;
+    if (!confirm('Cancel this update? Draft content will be discarded.')) return;
     marketplaceLoading = true;
     try {
       await api.cancelUpdate(id);
-      addToast(`${skill.name} 更新已取消`, 'success');
+      addToast(`${skill.name} update cancelled`, 'success');
       skill.marketplace_status = 'listed';
     } catch (e) {
       addToast(e.message, 'error');
@@ -384,11 +389,82 @@
     }
   }
 
-  // --- Upload New Version ---
+  // --- Version History ---
+  let versions = [];
+  let versionsLoading = false;
+  let versionsLoaded = false;
+  let rollbackLoading = false;
+
+  async function loadVersions() {
+    if (versionsLoaded || !skill) return;
+    versionsLoading = true;
+    try {
+      const res = await api.listSkillVersions(skill.name, { limit: 50 });
+      versions = (res.data || []).sort((a, b) => {
+        // Sort semver descending
+        const pa = a.version.split('.').map(Number);
+        const pb = b.version.split('.').map(Number);
+        for (let i = 0; i < 3; i++) {
+          if ((pb[i] || 0) !== (pa[i] || 0)) return (pb[i] || 0) - (pa[i] || 0);
+        }
+        return 0;
+      });
+      versionsLoaded = true;
+    } catch (e) {
+      // Silently ignore
+    } finally {
+      versionsLoading = false;
+    }
+  }
+
+  async function handleRollback(targetVersion) {
+    if (!confirm(`Rollback to v${targetVersion}?\n\nThis will create a new version (with content identical to v${targetVersion}) and submit for review.`)) return;
+    rollbackLoading = true;
+    try {
+      const res = await api.rollbackSkill(skill.name, targetVersion);
+      addToast(res.message || `Rollback submitted for review (new version: ${res.new_version})`, 'success');
+      // Reload to show new state
+      window.location.reload();
+    } catch (e) {
+      addToast(e.message, 'error');
+    } finally {
+      rollbackLoading = false;
+    }
+  }
+
+  function formatBytes(bytes) {
+    if (!bytes && bytes !== 0) return '-';
+    if (bytes < 1024) return bytes + ' B';
+    if (bytes < 1024 * 1024) return (bytes / 1024).toFixed(1) + ' KB';
+    return (bytes / (1024 * 1024)).toFixed(1) + ' MB';
+  }
+
+  function formatDate(dateStr) {
+    if (!dateStr) return '-';
+    try {
+      return new Date(dateStr).toLocaleString();
+    } catch {
+      return dateStr;
+    }
+  }
+
+  $: currentVersion = skill?.version || '';
+
+  // --- Upload New Version (preview + confirm flow) ---
   let uploadVersionLoading = false;
+  let showUploadModal = false;
+  let uploadStep = 'upload'; // 'upload' | 'preview' | 'confirming'
+  let uploadPreviewId = '';
+  let uploadPreviewMeta = null;
+  let uploadPreviewFiles = [];
+  let uploadPreviewTotalSize = 0;
+  let uploadSelectedFilePath = '';
+  let uploadSelectedFileContent = '';
+  let uploadSelectedFileLoading = false;
+  let uploadFileFetchCache = {};
+  let uploadedFileName = '';
 
   async function handleUploadVersion() {
-    // 创建隐藏的 file input
     const input = document.createElement('input');
     input.type = 'file';
     input.accept = '.zip';
@@ -396,23 +472,112 @@
       const file = e.target.files?.[0];
       if (!file) return;
       if (!file.name.endsWith('.zip')) {
-        addToast('请选择 .zip 文件', 'error');
+        addToast('Please select a .zip file', 'error');
         return;
       }
+      uploadedFileName = file.name;
+      uploadStep = 'upload';
       uploadVersionLoading = true;
+      showUploadModal = true;
       try {
-        const res = await api.uploadSkill(file);
-        addToast(res.message || '新版本上传成功，已提交审核', 'success');
-        // 刷新页面
-        window.location.reload();
+        const formData = new FormData();
+        formData.append('file', file);
+        const res = await api.previewSkillUpload(formData);
+        uploadPreviewId = res.preview_id;
+        uploadPreviewMeta = res.metadata;
+        uploadPreviewFiles = (res.files || []).sort((a, b) => {
+          if (a.path === 'SKILL.md') return -1;
+          if (b.path === 'SKILL.md') return 1;
+          const aDir = a.path.includes('/');
+          const bDir = b.path.includes('/');
+          if (aDir !== bDir) return aDir ? -1 : 1;
+          return a.path.localeCompare(b.path);
+        });
+        uploadPreviewTotalSize = res.total_size;
+        uploadStep = 'preview';
+        // Auto-select SKILL.md
+        const skillMd = uploadPreviewFiles.find(f => f.path === 'SKILL.md' || f.path.endsWith('/SKILL.md'));
+        if (skillMd) {
+          await uploadSelectFile(skillMd.path);
+        }
       } catch (e) {
         addToast(e.message, 'error');
+        showUploadModal = false;
       } finally {
         uploadVersionLoading = false;
       }
     };
     input.click();
   }
+
+  async function uploadSelectFile(filePath, _originalPath) {
+    const p = filePath || _originalPath || '';
+    if (uploadSelectedFilePath === p && uploadFileFetchCache[p]) {
+      uploadSelectedFileContent = uploadFileFetchCache[p];
+      return;
+    }
+    if (uploadFileFetchCache[p]) {
+      uploadSelectedFilePath = p;
+      uploadSelectedFileContent = uploadFileFetchCache[p];
+      return;
+    }
+    uploadSelectedFilePath = p;
+    uploadSelectedFileLoading = true;
+    try {
+      const res = await api.getPreviewFile(uploadPreviewId, p);
+      uploadSelectedFileContent = res.content;
+      uploadFileFetchCache[p] = res.content;
+    } catch (e) {
+      uploadSelectedFileContent = `Error loading file: ${e.message}`;
+    } finally {
+      uploadSelectedFileLoading = false;
+    }
+  }
+
+  async function handleConfirmUploadVersion() {
+    uploadStep = 'confirming';
+    try {
+      const data = {
+        owner_type: skill.owner_type || 'user',
+        owner_id: skill.owner_id,
+      };
+      if (skill.owner_type === 'organization' && skill.owner_id) {
+        data.organization_id = skill.owner_id;
+      }
+      const res = await api.confirmSkillUpload(uploadPreviewId, data);
+      addToast(res.message || 'New version uploaded successfully, submitted for review', 'success');
+      showUploadModal = false;
+      window.location.reload();
+    } catch (e) {
+      // 内容完全相同 → 用 warning 而非 error
+      if (e.message && (e.message.includes('identical') || e.message.includes('相同'))) {
+        addToast(e.message, 'warning');
+        showUploadModal = false;
+      } else {
+        addToast(e.message, 'error');
+        uploadStep = 'preview';
+      }
+    }
+  }
+
+  function closeUploadModal() {
+    showUploadModal = false;
+    uploadPreviewId = '';
+    uploadPreviewMeta = null;
+    uploadPreviewFiles = [];
+    uploadSelectedFilePath = '';
+    uploadSelectedFileContent = '';
+    uploadFileFetchCache = {};
+  }
+
+  function uploadFormatSize(bytes) {
+    if (!bytes && bytes !== 0) return '-';
+    if (bytes < 1024) return bytes + ' B';
+    if (bytes < 1024 * 1024) return (bytes / 1024).toFixed(1) + ' KB';
+    return (bytes / (1024 * 1024)).toFixed(1) + ' MB';
+  }
+
+  $: uploadFileTreeNodes = buildFileTree(uploadPreviewFiles);
 
   async function handleRelist() {
     marketplaceLoading = true;
@@ -432,7 +597,7 @@
     submitLoading = true;
     try {
       await api.submitSkillForReview(id);
-      addToast(`${skill.name} 已提交审核`, 'success');
+      addToast(`${skill.name} submitted for review`, 'success');
       skill.status = 'pending_review';
     } catch (e) {
       addToast(e.message, 'error');
@@ -559,13 +724,6 @@
               Submit for Review
             </button>
           {/if}
-          {#if skill.status === 'approved'}
-            <button on:click={handlePublish} disabled={publishLoading}
-              class="px-4 py-2 text-sm font-semibold bg-emerald-500 text-white rounded-xl hover:bg-emerald-600 disabled:opacity-50 transition-all duration-200 shadow-sm shadow-emerald-500/20 hover:shadow-md hover:shadow-emerald-500/30 active:scale-[0.97]">
-              {#if publishLoading}<svg class="w-4 h-4 animate-spin mr-1 inline" fill="none" viewBox="0 0 24 24"><circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"/><path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z"/></svg>{/if}
-              Publish
-            </button>
-          {/if}
           {#if skill.status === 'published' && (!skill.marketplace_status || skill.marketplace_status === 'rejected' || skill.marketplace_status === 'delisted')}
             <button on:click={handleSubmitToMarketplace} disabled={marketplaceLoading}
               class="px-4 py-2 text-sm font-semibold bg-blue-500 text-white rounded-xl hover:bg-blue-600 disabled:opacity-50 transition-all duration-200 shadow-sm shadow-blue-500/20 hover:shadow-md hover:shadow-blue-500/30 active:scale-[0.97]">
@@ -580,83 +738,92 @@
             <button on:click={handleRequestDelist} disabled={requestDelistLoading}
               class="px-4 py-2 text-sm font-semibold bg-rose-500 text-white rounded-xl hover:bg-rose-600 disabled:opacity-50 transition-all duration-200 shadow-sm shadow-rose-500/20 hover:shadow-md hover:shadow-rose-500/30 active:scale-[0.97]">
               {#if requestDelistLoading}<svg class="w-4 h-4 animate-spin mr-1 inline" fill="none" viewBox="0 0 24 24"><circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"/><path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z"/></svg>{/if}
-              申请下架
+              Request Delist
             </button>
           {/if}
           {#if skill.status !== 'draft'}
             <button on:click={handleUploadVersion} disabled={uploadVersionLoading}
               class="px-4 py-2 text-sm font-semibold bg-indigo-500 text-white rounded-xl hover:bg-indigo-600 disabled:opacity-50 transition-all duration-200 shadow-sm shadow-indigo-500/20 hover:shadow-md hover:shadow-indigo-500/30 active:scale-[0.97]">
               {#if uploadVersionLoading}<svg class="w-4 h-4 animate-spin mr-1 inline" fill="none" viewBox="0 0 24 24"><circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"/><path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z"/></svg>{/if}
-              上传新版本
+              Upload Version
             </button>
           {/if}
           {#if skill.marketplace_status === 'pending_update'}
             <span class="px-4 py-2 text-sm font-semibold bg-purple-50 text-purple-600 rounded-xl ring-1 ring-purple-600/20">Update Pending Review</span>
             <button on:click={handleCancelUpdate} disabled={marketplaceLoading}
-              class="px-4 py-2 text-sm font-semibold text-gray-500 border border-gray-300 rounded-xl hover:bg-gray-100 disabled:opacity-50 transition-all duration-200 active:scale-[0.97]">取消更新</button>
+              class="px-4 py-2 text-sm font-semibold text-gray-500 border border-gray-300 rounded-xl hover:bg-gray-100 disabled:opacity-50 transition-all duration-200 active:scale-[0.97]">Cancel Update</button>
           {/if}
           {#if skill.marketplace_status === 'pending_delist'}
             <span class="px-4 py-2 text-sm font-semibold bg-orange-50 text-orange-600 rounded-xl ring-1 ring-orange-600/20">Delist Request Pending</span>
           {/if}
         {/if}
 
+        <!-- Publish 按钮：作者始终可见（不限于非 admin） -->
+        {#if isOwner && skill.status === 'approved' && !$isAdmin && !isSuperAdmin}
+          <button on:click={handlePublish} disabled={publishLoading}
+            class="px-4 py-2 text-sm font-semibold bg-emerald-500 text-white rounded-xl hover:bg-emerald-600 disabled:opacity-50 transition-all duration-200 shadow-sm shadow-emerald-500/20 hover:shadow-md hover:shadow-emerald-500/30 active:scale-[0.97]">
+            {#if publishLoading}<svg class="w-4 h-4 animate-spin mr-1 inline" fill="none" viewBox="0 0 24 24"><circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"/><path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z"/></svg>{/if}
+            Publish
+          </button>
+        {/if}
+
         <!-- 2. 市场管理员/审核员操作（marketplace_admin / marketplace_reviewer） -->
         {#if isMarketAdmin && !isSuperAdmin && !$isAdmin}
           {#if skill.marketplace_status === 'pending_review'}
             <button on:click={handleMarketplaceApprove} disabled={marketplaceLoading}
-              class="px-4 py-2 text-sm font-semibold bg-emerald-500 text-white rounded-xl hover:bg-emerald-600 disabled:opacity-50 transition-all duration-200 shadow-sm shadow-emerald-500/20 hover:shadow-md hover:shadow-emerald-500/30 active:scale-[0.97]">通过</button>
+              class="px-4 py-2 text-sm font-semibold bg-emerald-500 text-white rounded-xl hover:bg-emerald-600 disabled:opacity-50 transition-all duration-200 shadow-sm shadow-emerald-500/20 hover:shadow-md hover:shadow-emerald-500/30 active:scale-[0.97]">Approve</button>
             <button on:click={handleMarketplaceReject} disabled={marketplaceLoading}
-              class="px-4 py-2 text-sm font-semibold bg-rose-500 text-white rounded-xl hover:bg-rose-600 disabled:opacity-50 transition-all duration-200 shadow-sm shadow-rose-500/20 hover:shadow-md hover:shadow-rose-500/30 active:scale-[0.97]">驳回</button>
+              class="px-4 py-2 text-sm font-semibold bg-rose-500 text-white rounded-xl hover:bg-rose-600 disabled:opacity-50 transition-all duration-200 shadow-sm shadow-rose-500/20 hover:shadow-md hover:shadow-rose-500/30 active:scale-[0.97]">Reject</button>
           {/if}
           {#if skill.marketplace_status === 'pending_update'}
-            <button on:click={() => { api.marketplaceApproveUpdate(id).then(() => { addToast('更新已批准', 'success'); skill.marketplace_status = 'listed'; }); }} disabled={marketplaceLoading}
-              class="px-4 py-2 text-sm font-semibold bg-emerald-500 text-white rounded-xl hover:bg-emerald-600 disabled:opacity-50 transition-all duration-200 shadow-sm shadow-emerald-500/20 hover:shadow-md hover:shadow-emerald-500/30 active:scale-[0.97]">批准更新</button>
-            <button on:click={() => { api.marketplaceRejectUpdate(id).then(() => { addToast('更新已驳回', 'success'); skill.marketplace_status = 'listed'; }); }} disabled={marketplaceLoading}
-              class="px-4 py-2 text-sm font-semibold bg-rose-500 text-white rounded-xl hover:bg-rose-600 disabled:opacity-50 transition-all duration-200 shadow-sm shadow-rose-500/20 hover:shadow-md hover:shadow-rose-500/30 active:scale-[0.97]">驳回</button>
+            <button on:click={() => { api.marketplaceApproveUpdate(id).then(() => { addToast('Update approved', 'success'); skill.marketplace_status = 'listed'; }); }} disabled={marketplaceLoading}
+              class="px-4 py-2 text-sm font-semibold bg-emerald-500 text-white rounded-xl hover:bg-emerald-600 disabled:opacity-50 transition-all duration-200 shadow-sm shadow-emerald-500/20 hover:shadow-md hover:shadow-emerald-500/30 active:scale-[0.97]">Approve Update</button>
+            <button on:click={() => { api.marketplaceRejectUpdate(id).then(() => { addToast('Update rejected', 'success'); skill.marketplace_status = 'listed'; }); }} disabled={marketplaceLoading}
+              class="px-4 py-2 text-sm font-semibold bg-rose-500 text-white rounded-xl hover:bg-rose-600 disabled:opacity-50 transition-all duration-200 shadow-sm shadow-rose-500/20 hover:shadow-md hover:shadow-rose-500/30 active:scale-[0.97]">Reject</button>
           {/if}
           {#if skill.marketplace_status === 'pending_delist'}
-            <button on:click={() => { api.marketplaceApproveDelist(id).then(() => { addToast('下架已批准', 'success'); skill.marketplace_status = 'delisted'; }); }} disabled={marketplaceLoading}
-              class="px-4 py-2 text-sm font-semibold bg-emerald-500 text-white rounded-xl hover:bg-emerald-600 disabled:opacity-50 transition-all duration-200 shadow-sm shadow-emerald-500/20 hover:shadow-md hover:shadow-emerald-500/30 active:scale-[0.97]">批准下架</button>
-            <button on:click={() => { api.marketplaceRejectDelist(id).then(() => { addToast('下架已驳回', 'success'); skill.marketplace_status = 'listed'; }); }} disabled={marketplaceLoading}
-              class="px-4 py-2 text-sm font-semibold bg-rose-500 text-white rounded-xl hover:bg-rose-600 disabled:opacity-50 transition-all duration-200 shadow-sm shadow-rose-500/20 hover:shadow-md hover:shadow-rose-500/30 active:scale-[0.97]">驳回</button>
+            <button on:click={() => { api.marketplaceApproveDelist(id).then(() => { addToast('Delist approved', 'success'); skill.marketplace_status = 'delisted'; }); }} disabled={marketplaceLoading}
+              class="px-4 py-2 text-sm font-semibold bg-emerald-500 text-white rounded-xl hover:bg-emerald-600 disabled:opacity-50 transition-all duration-200 shadow-sm shadow-emerald-500/20 hover:shadow-md hover:shadow-emerald-500/30 active:scale-[0.97]">Approve Delist</button>
+            <button on:click={() => { api.marketplaceRejectDelist(id).then(() => { addToast('Delist rejected', 'success'); skill.marketplace_status = 'listed'; }); }} disabled={marketplaceLoading}
+              class="px-4 py-2 text-sm font-semibold bg-rose-500 text-white rounded-xl hover:bg-rose-600 disabled:opacity-50 transition-all duration-200 shadow-sm shadow-rose-500/20 hover:shadow-md hover:shadow-rose-500/30 active:scale-[0.97]">Reject</button>
           {/if}
           {#if skill.marketplace_status === 'listed'}
             <button on:click={handleUnpublish} disabled={unpublishLoading}
-              class="px-4 py-2 text-sm font-semibold bg-amber-500 text-white rounded-xl hover:bg-amber-600 disabled:opacity-50 transition-all duration-200 shadow-sm shadow-amber-500/20 hover:shadow-md hover:shadow-amber-500/30 active:scale-[0.97]">下架</button>
+              class="px-4 py-2 text-sm font-semibold bg-amber-500 text-white rounded-xl hover:bg-amber-600 disabled:opacity-50 transition-all duration-200 shadow-sm shadow-amber-500/20 hover:shadow-md hover:shadow-amber-500/30 active:scale-[0.97]">Delist</button>
           {/if}
         {/if}
 
-        <!-- 3. super_admin / tenant_admin 操作（全部管理权限） -->
+        <!-- 3. super_admin / tenant_admin operations (full management) -->
         {#if $isAdmin || isSuperAdmin}
           {#if skill.marketplace_status === 'pending_review'}
             <button on:click={handleMarketplaceApprove} disabled={marketplaceLoading}
-              class="px-4 py-2 text-sm font-semibold bg-emerald-500 text-white rounded-xl hover:bg-emerald-600 disabled:opacity-50 transition-all duration-200 shadow-sm shadow-emerald-500/20 hover:shadow-md hover:shadow-emerald-500/30 active:scale-[0.97]">通过</button>
+              class="px-4 py-2 text-sm font-semibold bg-emerald-500 text-white rounded-xl hover:bg-emerald-600 disabled:opacity-50 transition-all duration-200 shadow-sm shadow-emerald-500/20 hover:shadow-md hover:shadow-emerald-500/30 active:scale-[0.97]">Approve</button>
             <button on:click={handleMarketplaceReject} disabled={marketplaceLoading}
-              class="px-4 py-2 text-sm font-semibold bg-rose-500 text-white rounded-xl hover:bg-rose-600 disabled:opacity-50 transition-all duration-200 shadow-sm shadow-rose-500/20 hover:shadow-md hover:shadow-rose-500/30 active:scale-[0.97]">驳回</button>
+              class="px-4 py-2 text-sm font-semibold bg-rose-500 text-white rounded-xl hover:bg-rose-600 disabled:opacity-50 transition-all duration-200 shadow-sm shadow-rose-500/20 hover:shadow-md hover:shadow-rose-500/30 active:scale-[0.97]">Reject</button>
           {/if}
           {#if skill.marketplace_status === 'listed'}
             <button on:click={handleUnpublish} disabled={unpublishLoading}
-              class="px-4 py-2 text-sm font-semibold bg-amber-500 text-white rounded-xl hover:bg-amber-600 disabled:opacity-50 transition-all duration-200 shadow-sm shadow-amber-500/20 hover:shadow-md hover:shadow-amber-500/30 active:scale-[0.97]">下架</button>
+              class="px-4 py-2 text-sm font-semibold bg-amber-500 text-white rounded-xl hover:bg-amber-600 disabled:opacity-50 transition-all duration-200 shadow-sm shadow-amber-500/20 hover:shadow-md hover:shadow-amber-500/30 active:scale-[0.97]">Delist</button>
           {/if}
           {#if skill.marketplace_status === 'delisted'}
             <button on:click={handleRelist} disabled={marketplaceLoading}
-              class="px-4 py-2 text-sm font-semibold bg-emerald-500 text-white rounded-xl hover:bg-emerald-600 disabled:opacity-50 transition-all duration-200 shadow-sm shadow-emerald-500/20 hover:shadow-md hover:shadow-emerald-500/30 active:scale-[0.97]">重新上架</button>
+              class="px-4 py-2 text-sm font-semibold bg-emerald-500 text-white rounded-xl hover:bg-emerald-600 disabled:opacity-50 transition-all duration-200 shadow-sm shadow-emerald-500/20 hover:shadow-md hover:shadow-emerald-500/30 active:scale-[0.97]">Relist</button>
           {/if}
           {#if (!skill.marketplace_status || skill.marketplace_status === 'rejected') && skill.status !== 'pending_review'}
             <button on:click={handlePublish} disabled={publishLoading}
-              class="px-4 py-2 text-sm font-semibold bg-emerald-500 text-white rounded-xl hover:bg-emerald-600 disabled:opacity-50 transition-all duration-200 shadow-sm shadow-emerald-500/20 hover:shadow-md hover:shadow-emerald-500/30 active:scale-[0.97]">上架</button>
+              class="px-4 py-2 text-sm font-semibold bg-emerald-500 text-white rounded-xl hover:bg-emerald-600 disabled:opacity-50 transition-all duration-200 shadow-sm shadow-emerald-500/20 hover:shadow-md hover:shadow-emerald-500/30 active:scale-[0.97]">List</button>
           {/if}
           {#if skill.marketplace_status === 'pending_update'}
-            <button on:click={() => { api.marketplaceApproveUpdate(id).then(() => { addToast('更新已批准', 'success'); skill.marketplace_status = 'listed'; }); }} disabled={marketplaceLoading}
-              class="px-4 py-2 text-sm font-semibold bg-emerald-500 text-white rounded-xl hover:bg-emerald-600 disabled:opacity-50 transition-all duration-200 shadow-sm shadow-emerald-500/20 hover:shadow-md hover:shadow-emerald-500/30 active:scale-[0.97]">批准更新</button>
-            <button on:click={() => { api.marketplaceRejectUpdate(id).then(() => { addToast('更新已驳回', 'success'); skill.marketplace_status = 'listed'; }); }} disabled={marketplaceLoading}
-              class="px-4 py-2 text-sm font-semibold bg-rose-500 text-white rounded-xl hover:bg-rose-600 disabled:opacity-50 transition-all duration-200 shadow-sm shadow-rose-500/20 hover:shadow-md hover:shadow-rose-500/30 active:scale-[0.97]">驳回</button>
+            <button on:click={() => { api.marketplaceApproveUpdate(id).then(() => { addToast('Update approved', 'success'); skill.marketplace_status = 'listed'; }); }} disabled={marketplaceLoading}
+              class="px-4 py-2 text-sm font-semibold bg-emerald-500 text-white rounded-xl hover:bg-emerald-600 disabled:opacity-50 transition-all duration-200 shadow-sm shadow-emerald-500/20 hover:shadow-md hover:shadow-emerald-500/30 active:scale-[0.97]">Approve Update</button>
+            <button on:click={() => { api.marketplaceRejectUpdate(id).then(() => { addToast('Update rejected', 'success'); skill.marketplace_status = 'listed'; }); }} disabled={marketplaceLoading}
+              class="px-4 py-2 text-sm font-semibold bg-rose-500 text-white rounded-xl hover:bg-rose-600 disabled:opacity-50 transition-all duration-200 shadow-sm shadow-rose-500/20 hover:shadow-md hover:shadow-rose-500/30 active:scale-[0.97]">Reject</button>
           {/if}
           {#if skill.marketplace_status === 'pending_delist'}
-            <button on:click={() => { api.marketplaceApproveDelist(id).then(() => { addToast('下架已批准', 'success'); skill.marketplace_status = 'delisted'; }); }} disabled={marketplaceLoading}
-              class="px-4 py-2 text-sm font-semibold bg-emerald-500 text-white rounded-xl hover:bg-emerald-600 disabled:opacity-50 transition-all duration-200 shadow-sm shadow-emerald-500/20 hover:shadow-md hover:shadow-emerald-500/30 active:scale-[0.97]">批准下架</button>
-            <button on:click={() => { api.marketplaceRejectDelist(id).then(() => { addToast('下架已驳回', 'success'); skill.marketplace_status = 'listed'; }); }} disabled={marketplaceLoading}
-              class="px-4 py-2 text-sm font-semibold bg-rose-500 text-white rounded-xl hover:bg-rose-600 disabled:opacity-50 transition-all duration-200 shadow-sm shadow-rose-500/20 hover:shadow-md hover:shadow-rose-500/30 active:scale-[0.97]">驳回</button>
+            <button on:click={() => { api.marketplaceApproveDelist(id).then(() => { addToast('Delist approved', 'success'); skill.marketplace_status = 'delisted'; }); }} disabled={marketplaceLoading}
+              class="px-4 py-2 text-sm font-semibold bg-emerald-500 text-white rounded-xl hover:bg-emerald-600 disabled:opacity-50 transition-all duration-200 shadow-sm shadow-emerald-500/20 hover:shadow-md hover:shadow-emerald-500/30 active:scale-[0.97]">Approve Delist</button>
+            <button on:click={() => { api.marketplaceRejectDelist(id).then(() => { addToast('Delist rejected', 'success'); skill.marketplace_status = 'listed'; }); }} disabled={marketplaceLoading}
+              class="px-4 py-2 text-sm font-semibold bg-rose-500 text-white rounded-xl hover:bg-rose-600 disabled:opacity-50 transition-all duration-200 shadow-sm shadow-rose-500/20 hover:shadow-md hover:shadow-rose-500/30 active:scale-[0.97]">Reject</button>
           {/if}
         {/if}
 
@@ -859,6 +1026,183 @@
             {/if}
           </div>
         </div>
+      </div>
+    </div>
+
+    <!-- Version History Panel -->
+    <div class="bg-white rounded-2xl border border-gray-200 shadow-card mt-5 overflow-hidden">
+      <div class="px-6 py-4 border-b border-gray-200 flex items-center justify-between">
+        <h2 class="font-semibold text-gray-800 text-sm">Version History</h2>
+        <button
+          on:click={loadVersions}
+          disabled={versionsLoading}
+          class="text-xs font-medium text-blue-600 hover:text-blue-700 transition-colors disabled:opacity-50"
+        >
+          {#if versionsLoading}
+            <svg class="w-3.5 h-3.5 animate-spin inline mr-1" fill="none" viewBox="0 0 24 24"><circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"/><path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z"/></svg>Loading...
+          {:else if versionsLoaded}
+            Refresh
+          {:else}
+            Load Versions
+          {/if}
+        </button>
+      </div>
+      {#if versionsLoaded && versions.length > 0}
+        <div class="overflow-x-auto">
+          <table class="w-full text-sm">
+            <thead>
+              <tr class="border-b border-gray-100 bg-gray-50">
+                <th class="text-left px-6 py-3 text-[11px] font-semibold text-gray-400 uppercase tracking-wider">Version</th>
+                <th class="text-left px-6 py-3 text-[11px] font-semibold text-gray-400 uppercase tracking-wider">Git Tag</th>
+                <th class="text-left px-6 py-3 text-[11px] font-semibold text-gray-400 uppercase tracking-wider">Files</th>
+                <th class="text-left px-6 py-3 text-[11px] font-semibold text-gray-400 uppercase tracking-wider">Size</th>
+                <th class="text-left px-6 py-3 text-[11px] font-semibold text-gray-400 uppercase tracking-wider">Created</th>
+                <th class="text-right px-6 py-3 text-[11px] font-semibold text-gray-400 uppercase tracking-wider">Actions</th>
+              </tr>
+            </thead>
+            <tbody>
+              {#each versions as v, i}
+                <tr class="border-b border-gray-50 hover:bg-gray-50/50 transition-colors {v.version === currentVersion ? 'bg-blue-50/30' : ''}">
+                  <td class="px-6 py-3">
+                    <div class="flex items-center gap-2">
+                      <span class="font-mono font-semibold text-gray-800">v{v.version}</span>
+                      {#if v.version === currentVersion}
+                        <span class="inline-flex items-center px-1.5 py-0.5 text-[10px] font-bold rounded bg-blue-100 text-blue-700">Current</span>
+                      {/if}
+                    </div>
+                  </td>
+                  <td class="px-6 py-3 font-mono text-xs text-gray-500">
+                    {v.git_tag || '-'}
+                  </td>
+                  <td class="px-6 py-3 text-gray-600">
+                    {v.file_count || 0}
+                  </td>
+                  <td class="px-6 py-3 text-gray-600">
+                    {formatBytes(v.total_size_bytes)}
+                  </td>
+                  <td class="px-6 py-3 text-gray-500 text-xs">
+                    {formatDate(v.created_at)}
+                  </td>
+                  <td class="px-6 py-3 text-right">
+                    {#if v.version !== currentVersion && isOwner}
+                      <button
+                        on:click={() => handleRollback(v.version)}
+                        disabled={rollbackLoading}
+                        class="px-3 py-1.5 text-xs font-semibold text-amber-600 bg-amber-50 hover:bg-amber-100 rounded-lg transition-colors disabled:opacity-50"
+                        title="Rollback to this version (creates new version and submits for review)"
+                      >
+                        Rollback
+                      </button>
+                    {:else if v.version === currentVersion}
+                      <span class="text-xs text-gray-400">-</span>
+                    {/if}
+                  </td>
+                </tr>
+              {/each}
+            </tbody>
+          </table>
+        </div>
+      {:else if versionsLoaded && versions.length === 0}
+        <div class="px-6 py-8 text-center text-gray-400 text-sm">
+          No version history
+        </div>
+      {:else}
+        <div class="px-6 py-8 text-center text-gray-400 text-sm">
+          Click "Load Versions" to view all versions
+        </div>
+      {/if}
+    </div>
+  {/if}
+
+  <!-- Upload New Version Modal (preview + confirm) -->
+  {#if showUploadModal}
+    <!-- svelte-ignore a11y_no_static_element_interactions -->
+    <div
+      class="fixed inset-0 z-50 flex items-center justify-center bg-black/50"
+      role="dialog"
+      aria-modal="true"
+      aria-label="Upload new version"
+      tabindex="-1"
+      on:click|self={closeUploadModal}
+      on:keydown|self={closeUploadModal}
+    >
+      <div class="bg-white rounded-2xl shadow-2xl w-full max-w-3xl max-h-[85vh] flex flex-col mx-4">
+        <!-- Header -->
+        <div class="px-6 py-4 border-b border-gray-200 flex items-center justify-between flex-shrink-0">
+          <div>
+            <h3 class="font-semibold text-gray-800">Upload New Version</h3>
+            <p class="text-xs text-gray-400 mt-0.5">Preview ZIP contents and confirm to submit for review</p>
+          </div>
+          <button on:click={closeUploadModal} class="text-gray-400 hover:text-gray-600 transition-colors">
+            <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"/></svg>
+          </button>
+        </div>
+
+        <!-- Uploading state -->
+        {#if uploadStep === 'upload'}
+          <div class="flex-1 flex items-center justify-center py-16">
+            <LoadingSpinner text="Analyzing ZIP package..." />
+          </div>
+        {:else if uploadStep === 'confirming'}
+          <div class="flex-1 flex items-center justify-center py-16">
+            <LoadingSpinner text="Submitting..." />
+          </div>
+        {:else if uploadStep === 'preview' && uploadPreviewMeta}
+          <!-- Preview body -->
+          <div class="flex-1 overflow-hidden flex">
+            <!-- File tree sidebar -->
+            <div class="w-52 flex-shrink-0 border-r border-gray-200 overflow-y-auto bg-gray-50">
+              <div class="px-3 py-2 text-[11px] font-semibold text-gray-400 uppercase tracking-wider">
+                {uploadPreviewFiles.length} files · {uploadFormatSize(uploadPreviewTotalSize)}
+              </div>
+              <div class="px-1 pb-2">
+                {#each uploadFileTreeNodes as node (node.path || node.name)}
+                  <FileTreeNode
+                    {node}
+                    selectedFilePath={uploadSelectedFilePath}
+                    selectFile={uploadSelectFile}
+                    formatSize={uploadFormatSize}
+                    fileIconColor={() => 'text-gray-400'}
+                    depth={0}
+                  />
+                {/each}
+              </div>
+            </div>
+            <!-- File content viewer -->
+            <div class="flex-1 overflow-y-auto p-4">
+              {#if uploadSelectedFileLoading}
+                <LoadingSpinner text="Loading file..." />
+              {:else if uploadSelectedFilePath}
+                <pre class="whitespace-pre-wrap text-sm text-gray-700 bg-gray-50 p-5 rounded-xl font-mono text-[13px] leading-relaxed border border-gray-200">{uploadSelectedFileContent}</pre>
+              {:else}
+                <div class="flex items-center justify-center h-full text-gray-400 text-sm">
+                  Select a file from the sidebar to preview
+                </div>
+              {/if}
+            </div>
+          </div>
+
+          <!-- Footer -->
+          <div class="px-6 py-4 border-t border-gray-200 flex items-center justify-between flex-shrink-0 bg-gray-50 rounded-b-2xl">
+            <div class="text-xs text-gray-500">
+              <span class="font-medium">{uploadedFileName}</span>
+              {#if uploadPreviewMeta.name}
+                · Skill: <span class="font-mono text-gray-700">{uploadPreviewMeta.name}</span>
+              {/if}
+              {#if uploadPreviewMeta.version}
+                · v<span class="font-mono text-gray-700">{uploadPreviewMeta.version}</span>
+              {/if}
+            </div>
+            <div class="flex items-center gap-2">
+              <button on:click={closeUploadModal}
+                class="px-4 py-2 text-sm font-semibold text-gray-600 bg-white border border-gray-300 rounded-xl hover:bg-gray-100 transition-colors"
+              >取消</button>
+              <button on:click={handleConfirmUploadVersion}
+                class="px-4 py-2 text-sm font-semibold text-white bg-emerald-500 rounded-xl hover:bg-emerald-600 transition-colors shadow-sm shadow-emerald-500/20"
+              >确认上传</button>
+            </div>
+          </div>
+        {/if}
       </div>
     </div>
   {/if}

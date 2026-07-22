@@ -87,19 +87,26 @@ async function request(path, options = {}) {
 
   const res = await fetch(`${API_BASE}${path}`, { ...options, headers });
 
-  // Token expired or unauthorized — save current path, clear token, redirect to login
+  // 401: 先检查是否为真正的 token 过期（响应包含 token 相关关键词），
+  // 否则只是权限不足，不清除 token
   if (res.status === 401) {
-    localStorage.removeItem('admin_token');
-    // 保存当前页面路径，登录成功后回跳
-    const currentPath = window.location.pathname + window.location.search;
-    if (currentPath !== '/login') {
-      localStorage.setItem('login_redirect', currentPath);
+    const err = await res.json().catch(() => ({}));
+    const msg = (err.error || err.message || '').toLowerCase();
+    // 只有 token 相关错误才清 token 跳登录
+    if (msg.includes('token') || msg.includes('expired') || msg.includes('invalid') || msg.includes('凭证')) {
+      localStorage.removeItem('admin_token');
+      const currentPath = window.location.pathname + window.location.search;
+      if (currentPath !== '/login') {
+        localStorage.setItem('login_redirect', currentPath);
+      }
+      try {
+        const { navigate } = await import('svelte-routing');
+        navigate('/login', { replace: true });
+      } catch {}
+      throw new ApiError(401, 'unauthorized', '会话已过期，请重新登录');
     }
-    try {
-      const { navigate } = await import('svelte-routing');
-      navigate('/login', { replace: true });
-    } catch {}
-    throw new ApiError(401, 'unauthorized', '会话已过期，请重新登录');
+    // 权限不足，正常抛错
+    throw new ApiError(res.status, err.code || '', humanize(res.status, err.error || err.message));
   }
 
   if (!res.ok) {
@@ -107,7 +114,7 @@ async function request(path, options = {}) {
     throw new ApiError(
       res.status,
       err.code || '',
-      humanize(res.status, err.message)
+      humanize(res.status, err.error || err.message)
     );
   }
 
@@ -127,7 +134,7 @@ async function requestNoAuth(path, options = {}) {
     throw new ApiError(
       res.status,
       err.code || '',
-      humanize(res.status, err.message)
+      humanize(res.status, err.error || err.message)
     );
   }
 
@@ -145,18 +152,23 @@ async function requestUpload(path, formData) {
     body: formData,
   });
 
-  // Token expired during upload — same redirect logic as request()
+  // 401: only clear token if it's a real token expiry, not permission denied
   if (res.status === 401) {
-    localStorage.removeItem('admin_token');
-    const currentPath = window.location.pathname + window.location.search;
-    if (currentPath !== '/login') {
-      localStorage.setItem('login_redirect', currentPath);
+    const err = await res.json().catch(() => ({}));
+    const msg = (err.error || err.message || '').toLowerCase();
+    if (msg.includes('token') || msg.includes('expired') || msg.includes('invalid') || msg.includes('凭证')) {
+      localStorage.removeItem('admin_token');
+      const currentPath = window.location.pathname + window.location.search;
+      if (currentPath !== '/login') {
+        localStorage.setItem('login_redirect', currentPath);
+      }
+      try {
+        const { navigate } = await import('svelte-routing');
+        navigate('/login', { replace: true });
+      } catch {}
+      throw new ApiError(401, 'unauthorized', '会话已过期，请重新登录');
     }
-    try {
-      const { navigate } = await import('svelte-routing');
-      navigate('/login', { replace: true });
-    } catch {}
-    throw new ApiError(401, 'unauthorized', '会话已过期，请重新登录');
+    throw new ApiError(res.status, err.code || '', humanize(res.status, err.error || err.message));
   }
 
   if (!res.ok) {
@@ -164,7 +176,7 @@ async function requestUpload(path, formData) {
     throw new ApiError(
       res.status,
       err.code || '',
-      humanize(res.status, err.message)
+      humanize(res.status, err.error || err.message)
     );
   }
 
@@ -521,6 +533,19 @@ export const api = {
 
   deleteSkill(id) {
     return request(`/skills/${id}`, { method: 'DELETE' });
+  },
+
+  // Version management
+  listSkillVersions(name, params = {}) {
+    const qs = new URLSearchParams(params).toString();
+    return request(`/skills/${encodeURIComponent(name)}/versions${qs ? `?${qs}` : ''}`);
+  },
+
+  rollbackSkill(name, version) {
+    return request(`/skills/${encodeURIComponent(name)}/rollback`, {
+      method: 'POST',
+      body: JSON.stringify({ version })
+    });
   },
 
   uploadSkill(formData) {

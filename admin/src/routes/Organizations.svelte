@@ -3,7 +3,7 @@
   import { Link } from 'svelte-routing';
   import { api } from '../lib/api.js';
   import { addToast } from '../stores/app.js';
-  import { hasPermission } from '../stores/permission.js';
+  import { hasPermission, hasSystemRole, permissionStore } from '../stores/permission.js';
   import { ACTIONS } from '../config/actions.js';
   import LoadingSpinner from '../components/LoadingSpinner.svelte';
   import EmptyState from '../components/EmptyState.svelte';
@@ -19,16 +19,32 @@
   let newOrgTenantId = '';
   let creating = false;
 
+  // 角色判断
+  $: isSystemAdmin = hasSystemRole('super_admin') || hasSystemRole('marketplace_admin');
+  $: isTenantAdmin = ($permissionStore.tenantRoles || []).some(t => t.role === 'tenant_admin');
+  $: isOrgOnlyUser = !isSystemAdmin && !isTenantAdmin && ($permissionStore.orgRoles || []).length > 0;
+  $: canManageTenants = isSystemAdmin || isTenantAdmin;
+
+  function orgRoleColor(role) {
+    const c = { owner: 'bg-amber-100 text-amber-700', admin: 'bg-blue-100 text-blue-700', reviewer: 'bg-purple-100 text-purple-700', developer: 'bg-emerald-100 text-emerald-700', member: 'bg-gray-100 text-gray-600' };
+    return c[role] || 'bg-gray-100 text-gray-600';
+  }
+
   onMount(async () => {
-    await Promise.all([loadOrganizations(), loadTenants()]);
+    if (canManageTenants) {
+      await Promise.all([loadOrganizations(), loadTenants()]);
+    } else {
+      await loadOrganizations();
+    }
   });
 
   async function loadTenants() {
+    if (!canManageTenants) return;
     try {
       const res = await api.listTenants({ limit: 100 });
       tenants = res.data || [];
     } catch (e) {
-      addToast('租户列表加载失败', 'warning');
+      // 静默失败
     }
   }
 
@@ -48,7 +64,7 @@
   }
 
   function getTenantName(org) {
-    return org.tenant_name || (org.tenant_id ? 'Loading...' : 'No Tenant');
+    return org.tenant_name || (org.tenant_id ? org.tenant_id.substring(0, 8) : '-');
   }
 
   function handleClearFilter() {
@@ -93,16 +109,24 @@
     <div class="flex items-center justify-between">
       <div>
         <h1 class="text-[28px] font-extrabold text-gray-800 tracking-tight">Organizations</h1>
-        <p class="text-gray-500 text-sm mt-1.5 font-medium">Manage tenant organizations and their tools</p>
+        <p class="text-gray-500 text-sm mt-1.5 font-medium">
+          {#if isSystemAdmin}
+            Manage all organizations across tenants
+          {:else if isTenantAdmin}
+            Manage organizations in your tenant
+          {:else}
+            Your organizations
+          {/if}
+        </p>
       </div>
       <div class="flex items-center gap-3">
+        {#if canManageTenants}
         <select
           bind:value={tenantFilter}
           on:change={() => loadOrganizations()}
           aria-label="Filter by tenant"
           class="px-4 py-2.5 bg-white border border-gray-200 rounded-xl text-sm text-gray-700 focus:outline-none focus:ring-2 focus:ring-brand-500/30 cursor-pointer"
         >
-          <option value="" disabled selected hidden>Filter by tenant</option>
           <option value="">All tenants</option>
           {#each tenants as tenant}
             <option value={tenant.id}>{tenant.name}</option>
@@ -115,6 +139,7 @@
           >
             Clear filter
           </button>
+        {/if}
         {/if}
         {#if hasPermission(ACT.create)}
         <button
@@ -161,7 +186,11 @@
               <h3 class="text-gray-900 font-semibold text-[15px] truncate mb-0.5 group-hover:text-blue-600 transition-colors">
                 {org.name}
               </h3>
-              <p class="text-gray-400 text-xs font-mono truncate">{org.id}</p>
+              <div class="flex items-center gap-2 mt-1">
+                {#if org.my_role}
+                  <span class="inline-flex items-center px-1.5 py-0.5 text-[10px] font-semibold rounded {orgRoleColor(org.my_role)}">{org.my_role}</span>
+                {/if}
+              </div>
             </div>
           </div>
           <div class="mt-4 pt-4 border-t border-gray-100 flex items-center justify-between">
@@ -194,6 +223,7 @@
           class="w-full px-4 py-3 border border-gray-200 rounded-xl text-sm input-focus outline-none font-medium bg-white text-gray-900"
         />
       </div>
+      {#if canManageTenants}
       <div>
         <label for="org-tenant" class="block text-xs font-semibold text-gray-500 uppercase tracking-wider mb-2">Tenant</label>
         <select
@@ -201,12 +231,13 @@
           bind:value={newOrgTenantId}
           class="w-full px-4 py-3 border border-gray-200 rounded-xl text-sm input-focus outline-none font-medium bg-white text-gray-900"
         >
-          <option value="" disabled selected hidden>Select tenant (optional)</option>
+          <option value="">No tenant</option>
           {#each tenants as tenant}
             <option value={tenant.id}>{tenant.name}</option>
           {/each}
         </select>
       </div>
+      {/if}
       <div class="flex gap-3 justify-end pt-1">
         <button
           on:click={() => { showCreateModal = false; newOrgName = ''; }}

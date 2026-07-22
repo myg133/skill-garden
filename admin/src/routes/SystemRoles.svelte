@@ -322,8 +322,9 @@
 
       {#if addForm.role === 'tenant_admin'}
       <div>
-        <label class="block text-xs font-semibold text-gray-500 uppercase tracking-wider mb-2">Tenant *</label>
+        <label for="add-tenant-select" class="block text-xs font-semibold text-gray-500 uppercase tracking-wider mb-2">Tenant *</label>
         <select
+          id="add-tenant-select"
           bind:value={addForm.tenant_id}
           class="w-full px-4 py-3 border border-gray-200 rounded-xl text-sm input-focus outline-none font-medium bg-white text-gray-900"
         >

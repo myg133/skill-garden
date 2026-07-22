@@ -222,6 +222,19 @@ impl PermissionService {
             _ => {}
         }
 
+        // 2. tenant_admin 对其租户下所有 skill 拥有全部权限
+        match self.is_any_admin(identity_id).await {
+            Ok(true) => return Ok(()),
+            Err(e) => {
+                tracing::error!(
+                    identity_id = %identity_id,
+                    error = %e,
+                    "Failed to check tenant_admin for skill permission"
+                );
+            }
+            _ => {}
+        }
+
         // 辅助：是否是 Skill 的所有者
         let is_owner = skill_owner_type == "user"
             && (skill_owner_id == Some(identity_id)
@@ -279,7 +292,21 @@ impl PermissionService {
                     if let Some(org_id) = skill_owner_id {
                         match self.get_org_role(identity_id, org_id).await {
                             Ok(Some(role)) if role >= OrgRole::Developer => return Ok(()),
-                            Ok(_) => {}
+                            Ok(Some(role)) => {
+                                tracing::warn!(
+                                    identity_id = %identity_id,
+                                    org_id = %org_id,
+                                    role = %role,
+                                    "Update/SubmitReview denied: role too low (need >= Developer)"
+                                );
+                            }
+                            Ok(None) => {
+                                tracing::warn!(
+                                    identity_id = %identity_id,
+                                    org_id = %org_id,
+                                    "Update/SubmitReview denied: user is not a member of this org"
+                                );
+                            }
                             Err(e) => {
                                 tracing::error!(
                                     identity_id = %identity_id,
@@ -289,7 +316,19 @@ impl PermissionService {
                                 );
                             }
                         }
+                    } else {
+                        tracing::warn!(
+                            identity_id = %identity_id,
+                            owner_type = %skill_owner_type,
+                            "Update/SubmitReview denied: organization skill has no owner_id"
+                        );
                     }
+                } else {
+                    tracing::warn!(
+                        identity_id = %identity_id,
+                        owner_type = %skill_owner_type,
+                        "Update/SubmitReview denied: skill owner_type is not 'user' or 'organization'"
+                    );
                 }
                 Err("无权修改此 Skill".to_string())
             }

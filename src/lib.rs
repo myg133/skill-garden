@@ -130,12 +130,11 @@ pub struct AppState {
     pub permission: services::PermissionService,
     pub download_token_repo: db::repositories::DownloadTokenRepository,
     pub data_dir: PathBuf,
-    pub skills_dir: PathBuf,
 }
 
 #[cfg(feature = "server")]
 impl AppState {
-    pub async fn new(data_dir: PathBuf, skills_dir: PathBuf) -> anyhow::Result<Self> {
+    pub async fn new(data_dir: PathBuf) -> anyhow::Result<Self> {
         let storage = services::StorageService::new(data_dir.clone());
 
         let pool = sqlx::PgPool::connect(
@@ -157,7 +156,6 @@ impl AppState {
 
         let download_token_repo = db::repositories::DownloadTokenRepository::new(pool.clone());
         let registry = services::RegistryService::new(
-            skills_dir.clone(),
             data_dir.join("registry"),
             skill_repo.clone(),
             download_token_repo.clone(),
@@ -238,7 +236,6 @@ impl AppState {
             permission,
             download_token_repo,
             data_dir,
-            skills_dir,
         })
     }
 }

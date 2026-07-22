@@ -3,8 +3,9 @@
   import { Link } from 'svelte-routing';
   import { api } from '../lib/api.js';
   import { addToast } from '../stores/app.js';
-  import { hasPermission } from '../stores/permission.js';
+  import { hasPermission, hasOrgRole, permissionStore } from '../stores/permission.js';
   import { ACTIONS } from '../config/actions.js';
+  import { selectedOrg } from '../stores/org.js';
   import LoadingSpinner from '../components/LoadingSpinner.svelte';
   import Icon from '../components/Icon.svelte';
   import OrgOverviewHeader from '../components/OrgOverviewHeader.svelte';
@@ -32,6 +33,12 @@
   let editing = false;
   let editName = '';
   let activeTab = 'members';
+  let deleting = false;
+
+  // --- Register tool modal ---
+  let showRegisterToolModal = false;
+  let newTool = { name: '', tool_id: '', description: '', schema: '', implementation: '' };
+  let registeringTool = false;
 
   // --- Invite modal ---
   let showInviteModal = false;
@@ -50,6 +57,13 @@
   // --- Computed ---
   $: memberCount = members.length;
   $: activeSessionCount = sessions.filter(s => s.status === 'active').length;
+  // 组织级权限判断（基于当前用户在组织中的角色）
+  $: isOrgOwner = hasOrgRole(id, 'owner');
+  $: isOrgAdmin = hasOrgRole(id, 'owner', 'admin');
+  $: isOrgReviewer = hasOrgRole(id, 'owner', 'admin', 'reviewer');
+  $: isOrgDeveloper = hasOrgRole(id, 'owner', 'admin', 'reviewer', 'developer');
+  $: isTenantOrSuper = ($permissionStore.tenantRoles || []).some(t => t.role === 'tenant_admin')
+    || ($permissionStore.systemRoles || []).some(r => r === 'super_admin');
 
   // --- Reactive tab loading ---
   $: if (activeTab === 'members' && organization) { loadMembers(); }
@@ -99,6 +113,55 @@
       addToast('Organization updated', 'success');
     } catch (e) {
       addToast(e.message, 'error');
+    }
+  }
+
+  async function handleDeleteOrg() {
+    if (!confirm(`确定要永久删除组织 "${organization.name}" 吗？此操作不可撤销。`)) return;
+    deleting = true;
+    try {
+      await api.deleteOrganization(id);
+      addToast(`组织 "${organization.name}" 已删除`, 'success');
+      // 导航回组织列表
+      const { navigate } = await import('svelte-routing');
+      navigate('/organizations', { replace: true });
+    } catch (e) {
+      addToast(e.message, 'error');
+    } finally {
+      deleting = false;
+    }
+  }
+
+  async function handleRegisterTool() {
+    if (!newTool.name.trim() || !newTool.tool_id.trim()) return;
+    registeringTool = true;
+    try {
+      let schema, implementation;
+      try {
+        schema = newTool.schema.trim() ? JSON.parse(newTool.schema) : {};
+        implementation = newTool.implementation.trim() ? JSON.parse(newTool.implementation) : {};
+      } catch {
+        addToast('Invalid JSON in schema or implementation', 'error');
+        registeringTool = false;
+        return;
+      }
+      await api.registerOrgTool({
+        org_id: organization.id,
+        tool_id: newTool.tool_id,
+        name: newTool.name,
+        description: newTool.description,
+        schema,
+        implementation
+      });
+      addToast('Tool registered', 'success');
+      showRegisterToolModal = false;
+      newTool = { name: '', tool_id: '', description: '', schema: '', implementation: '' };
+      const res = await api.listApprovedTools(organization.id);
+      orgTools = res.data || [];
+    } catch (e) {
+      addToast(e.message, 'error');
+    } finally {
+      registeringTool = false;
     }
   }
 
@@ -272,11 +335,13 @@
       {activeSessionCount}
       toolCount={orgTools.length}
       {activeTab}
-      canEdit={hasPermission(ACT_ORG.editSettings)}
+      canEdit={isOrgAdmin || isTenantOrSuper}
+      canDelete={isOrgOwner || isTenantOrSuper}
       onStartEdit={startEdit}
       onUpdate={handleUpdate}
       onCancelEdit={() => editing = false}
       onTabChange={key => activeTab = key}
+      onDeleteOrg={handleDeleteOrg}
     />
 
     <!-- Members Tab -->
@@ -284,9 +349,9 @@
       <OrgMembersTab
         {members}
         {orgRoles}
-        canInviteMember={hasPermission(ACT_ORG.inviteMember)}
-        canManageRoles={hasPermission(ACT_ORG.manageRoles)}
-        canRemoveMember={hasPermission(ACT_ORG.removeMember)}
+        canInviteMember={isOrgAdmin || isTenantOrSuper}
+        canManageRoles={isOrgAdmin || isTenantOrSuper}
+        canRemoveMember={isOrgAdmin || isTenantOrSuper}
         onInvite={() => { showInviteModal = true; inviteForm = { email: '', role: 'member' }; }}
         onUpdateRole={handleUpdateRole}
         onRemoveMember={handleRemoveMember}
@@ -349,8 +414,17 @@
 
         {#if activeTab === 'tools'}
           <div class="bg-white rounded-xl border border-gray-200 shadow-card">
-            <div class="px-6 py-4 border-b border-gray-100">
+            <div class="px-6 py-4 border-b border-gray-100 flex items-center justify-between">
               <h2 class="font-semibold text-gray-900 text-sm">Registered Tools</h2>
+              {#if isOrgAdmin || isTenantOrSuper}
+              <button
+                on:click={() => showRegisterToolModal = true}
+                class="btn-primary px-4 py-2 rounded-xl font-semibold text-sm flex items-center gap-2"
+              >
+                <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 4v16m8-8H4"/></svg>
+                Register Tool
+              </button>
+              {/if}
             </div>
             <div class="p-4 max-h-80 overflow-y-auto">
               {#if orgTools.length === 0}
@@ -371,6 +445,59 @@
       </div>
     {/if}
 
+    <!-- Register Tool Modal -->
+    {#if showRegisterToolModal}
+    <!-- svelte-ignore a11y-click-events-have-key-events a11y-no-static-element-interactions -->
+    <div class="fixed inset-0 bg-black/40 flex items-center justify-center z-50" on:click|self={() => showRegisterToolModal = false}>
+      <div class="bg-white rounded-2xl p-6 w-full max-w-lg shadow-elevated border border-gray-200 max-h-[85vh] overflow-y-auto">
+        <div class="flex items-center justify-between mb-5">
+          <h2 class="text-lg font-semibold text-gray-800">Register Tool</h2>
+          <button on:click={() => showRegisterToolModal = false}
+            class="p-2 text-gray-400 hover:text-gray-600 hover:bg-gray-100 rounded-xl transition-all">
+            <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M6 18L18 6M6 6l12 12"/></svg>
+          </button>
+        </div>
+        <div class="space-y-4">
+          <div>
+            <label for="tool-name" class="block text-sm font-semibold text-gray-500 mb-2">Tool Name</label>
+            <input id="tool-name" type="text" bind:value={newTool.name} placeholder="e.g., github-cli, docker-tool"
+              class="w-full px-4 py-2.5 border border-gray-200 rounded-xl text-sm input-focus outline-none bg-white text-gray-900" />
+          </div>
+          <div>
+            <label for="tool-id" class="block text-sm font-semibold text-gray-500 mb-2">Tool ID</label>
+            <input id="tool-id" type="text" bind:value={newTool.tool_id} placeholder="e.g., github_issue_lister"
+              class="w-full px-4 py-2.5 border border-gray-200 rounded-xl text-sm input-focus outline-none bg-white text-gray-900" />
+          </div>
+          <div>
+            <label for="tool-desc" class="block text-sm font-semibold text-gray-500 mb-2">Description</label>
+            <input id="tool-desc" type="text" bind:value={newTool.description} placeholder="Describe what this tool does"
+              class="w-full px-4 py-2.5 border border-gray-200 rounded-xl text-sm input-focus outline-none bg-white text-gray-900" />
+          </div>
+          <div>
+            <label for="tool-schema" class="block text-sm font-semibold text-gray-500 mb-2">Schema (JSON) <span class="text-gray-400 font-normal text-xs">— 定义工具接受的输入参数</span></label>
+            <textarea id="tool-schema" bind:value={newTool.schema} rows="5"
+              placeholder={'{"type":"object","properties":{"repo":{"type":"string","description":"仓库名"}},"required":["repo"]}'}
+              class="w-full px-4 py-2.5 border border-gray-200 rounded-xl text-sm input-focus outline-none font-mono bg-white resize-none"></textarea>
+          </div>
+          <div>
+            <label for="tool-impl" class="block text-sm font-semibold text-gray-500 mb-2">Implementation (JSON) <span class="text-gray-400 font-normal text-xs">— 指定镜像、容器内执行的命令和超时</span></label>
+            <textarea id="tool-impl" bind:value={newTool.implementation} rows="5"
+              placeholder={'{"docker_image":"ghcr.io/myorg/shared-image:v1","cmd":["python","/app/tools/issue_lister.py"],"timeout_seconds":60}'}
+              class="w-full px-4 py-2.5 border border-gray-200 rounded-xl text-sm input-focus outline-none font-mono bg-white resize-none"></textarea>
+          </div>
+          <div class="flex gap-3 justify-end pt-1">
+            <button on:click={() => showRegisterToolModal = false}
+              class="px-4 py-2.5 text-gray-500 hover:text-gray-800 font-semibold text-sm transition-all rounded-lg hover:bg-gray-50">Cancel</button>
+            <button on:click={handleRegisterTool} disabled={registeringTool || !newTool.name.trim() || !newTool.tool_id.trim()}
+              class="btn-primary px-5 py-2.5 rounded-xl font-semibold text-sm disabled:opacity-50">
+              {registeringTool ? 'Registering...' : 'Register'}
+            </button>
+          </div>
+        </div>
+      </div>
+    </div>
+    {/if}
+
     <!-- Groups Tab -->
     {#if activeTab === 'groups'}
       <OrgGroupsTab
@@ -379,10 +506,10 @@
         {loadingGroups}
         {groupTypes}
         {orgRoles}
-        canCreateGroup={hasPermission(ACT_GRP.create)}
-        canEditGroup={hasPermission(ACT_GRP.edit)}
-        canDeleteGroup={hasPermission(ACT_GRP.delete)}
-        canManageMembers={hasPermission(ACT_GDT.addMember)}
+        canCreateGroup={isOrgAdmin || isTenantOrSuper}
+        canEditGroup={isOrgAdmin || isTenantOrSuper}
+        canDeleteGroup={isOrgAdmin || isTenantOrSuper}
+        canManageMembers={isOrgAdmin || isTenantOrSuper}
         onRefreshGroups={handleGroupsAction}
         onAddMember={group => { selectedGroupForAdd = group; showAddMemberModal = true; addMemberForm = { agent_id: '', role: 'member' }; }}
       />
@@ -397,11 +524,11 @@
       <div class="space-y-4">
         <div>
           <label for="invite-email" class="block text-xs font-semibold text-gray-500 uppercase tracking-wider mb-2">Email</label>
-          <input id="invite-email" type="email" bind:value={inviteForm.email} placeholder="Enter email address" class="w-full px-4 py-3 border border-gray-200 rounded-lg text-sm input-focus outline-none font-medium bg-white" />
+          <input id="invite-email" type="email" bind:value={inviteForm.email} placeholder="Enter email address" class="w-full px-4 py-3 border border-gray-200 rounded-lg text-sm input-focus outline-none font-medium bg-white text-gray-900" />
         </div>
         <div>
           <label for="invite-role" class="block text-xs font-semibold text-gray-500 uppercase tracking-wider mb-2">Role</label>
-          <select id="invite-role" bind:value={inviteForm.role} class="w-full px-4 py-3 border border-gray-200 rounded-lg text-sm input-focus outline-none font-medium bg-white">
+          <select id="invite-role" bind:value={inviteForm.role} class="w-full px-4 py-3 border border-gray-200 rounded-lg text-sm input-focus outline-none font-medium bg-white text-gray-900">
             {#each orgRoles as role}<option value={role}>{role}</option>{/each}
           </select>
         </div>
@@ -422,11 +549,11 @@
       <div class="space-y-4">
         <div>
           <label for="add-member-id" class="block text-xs font-semibold text-gray-500 uppercase tracking-wider mb-2">Identity ID (UUID)</label>
-          <input id="add-member-id" type="text" bind:value={addMemberForm.agent_id} placeholder="e.g. 550e8400-e29b-41d4-a716-446655440000" class="w-full px-4 py-3 border border-gray-200 rounded-lg text-sm input-focus outline-none font-medium bg-white" />
+          <input id="add-member-id" type="text" bind:value={addMemberForm.agent_id} placeholder="e.g. 550e8400-e29b-41d4-a716-446655440000" class="w-full px-4 py-3 border border-gray-200 rounded-lg text-sm input-focus outline-none font-medium bg-white text-gray-900" />
         </div>
         <div>
           <label for="add-member-role" class="block text-xs font-semibold text-gray-500 uppercase tracking-wider mb-2">Role</label>
-          <select id="add-member-role" bind:value={addMemberForm.role} class="w-full px-4 py-3 border border-gray-200 rounded-lg text-sm input-focus outline-none font-medium bg-white">
+          <select id="add-member-role" bind:value={addMemberForm.role} class="w-full px-4 py-3 border border-gray-200 rounded-lg text-sm input-focus outline-none font-medium bg-white text-gray-900">
             {#each orgRoles as role}<option value={role}>{role}</option>{/each}
           </select>
         </div>

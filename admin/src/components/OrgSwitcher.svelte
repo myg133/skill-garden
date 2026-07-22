@@ -11,7 +11,7 @@
   let open = false;
   let loading = true;
 
-  $: showDropdown = ($isAdmin || ($permissionStore.loaded && isAnyAdmin())) && orgs.length > 0;
+  $: showDropdown = $permissionStore.loaded && orgs.length > 0;
 
   $: orgs = $userOrgs || [];
 

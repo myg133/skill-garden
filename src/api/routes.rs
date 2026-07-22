@@ -40,9 +40,9 @@ pub fn create_api_router(state: ApiState) -> Router<ApiState> {
         )
         .route(
             "/api/v1/skills/:id/approve",
-            post(approve_org_skill_handler),
+            post(approve_skill_handler),
         )
-        .route("/api/v1/skills/:id/reject", post(reject_org_skill_handler))
+        .route("/api/v1/skills/:id/reject", post(reject_skill_handler))
         .route("/api/v1/skills/:id/publish", post(publish_skill_handler))
         .route(
             "/api/v1/skills/:id/submit-to-marketplace",
@@ -79,6 +79,11 @@ pub fn create_api_router(state: ApiState) -> Router<ApiState> {
         .route(
             "/api/v1/skills/:name/tags",
             get(list_skill_git_tags_handler),
+        )
+        // Version rollback (author / org member)
+        .route(
+            "/api/v1/skills/:name/rollback",
+            post(rollback_skill_handler),
         )
         // GitLab remote sync
         .route(
@@ -171,10 +176,6 @@ pub fn create_api_router(state: ApiState) -> Router<ApiState> {
         )
         // Admin routes (under /api/v1/admin)
         .route("/api/v1/admin/stats", get(get_admin_stats_handler))
-        .route(
-            "/api/v1/admin/skills/:skill_name/rollback",
-            post(rollback_skill_handler),
-        )
         .route(
             "/api/v1/admin/skills/:id/unpublish",
             post(admin_unpublish_skill_handler),

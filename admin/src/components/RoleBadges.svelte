@@ -3,8 +3,7 @@
 
   export let className = '';
 
-  // 合并 systemRoles 和 tenantRoles 中的 admin 角色用于右上角徽章显示
-  // tenant_admin 可能来自 system scope 或 tenant scope，合并后去重
+  // 合并 systemRoles + tenantRoles + orgRoles（去重按最高角色显示）
   $: displayRoles = (() => {
     const roles = [...($permissionStore.systemRoles || [])];
     const seen = new Set(roles);
@@ -14,10 +13,24 @@
         seen.add('tenant_admin');
       }
     }
+    // 展示用户的组织角色（去重，按最高角色显示）
+    const orgRoles = $permissionStore.orgRoles || [];
+    const orgRoleOrder = ['owner', 'admin', 'reviewer', 'developer', 'member'];
+    for (const r of orgRoleOrder) {
+      if (orgRoles.some(o => o.role === r) && !seen.has(r)) {
+        roles.push(`org:${r}`);
+        seen.add(r);
+      }
+    }
     return roles;
   })();
 
   function roleLabel(role) {
+    if (role.startsWith('org:')) {
+      const r = role.slice(4);
+      const labels = { owner: 'Org Owner', admin: 'Org Admin', reviewer: 'Org Reviewer', developer: 'Org Developer', member: 'Org Member' };
+      return labels[r] || r;
+    }
     const baseRole = role.startsWith('tenant_admin:') ? 'tenant_admin' : role;
     switch (baseRole) {
       case 'super_admin': return 'Super Admin';
@@ -29,6 +42,11 @@
   }
 
   function roleColorClass(role) {
+    if (role.startsWith('org:')) {
+      const r = role.slice(4);
+      const colors = { owner: 'bg-amber-100 text-amber-700', admin: 'bg-blue-100 text-blue-700', reviewer: 'bg-purple-100 text-purple-700', developer: 'bg-emerald-100 text-emerald-700', member: 'bg-gray-100 text-gray-600' };
+      return colors[r] || 'bg-gray-100 text-gray-600';
+    }
     const baseRole = role.startsWith('tenant_admin:') ? 'tenant_admin' : role;
     switch (baseRole) {
       case 'super_admin': return 'bg-red-100 text-red-700';

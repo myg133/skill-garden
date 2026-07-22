@@ -158,7 +158,7 @@ async fn require_admin(state: &ApiState, agent_context: &AgentContext) -> Result
         return Ok(identity_id);
     }
 
-    Err(ApiError::Unauthorized("Admin access required".to_string()))
+    Err(ApiError::Forbidden("Admin access required".to_string()))
 }
 
 /// 市场管理员权限检查（super_admin / marketplace_admin / marketplace_reviewer）
@@ -181,7 +181,7 @@ async fn require_marketplace_admin(state: &ApiState, agent_context: &AgentContex
         return Ok(identity_id);
     }
 
-    Err(ApiError::Unauthorized("Marketplace admin access required".to_string()))
+    Err(ApiError::Forbidden("Marketplace admin access required".to_string()))
 }
 
 /// 市场管理员权限检查（仅 super_admin / marketplace_admin，不含 marketplace_reviewer）
@@ -202,7 +202,7 @@ async fn require_marketplace_admin_only(state: &ApiState, agent_context: &AgentC
         return Ok(identity_id);
     }
 
-    Err(ApiError::Unauthorized("Marketplace admin (full) access required".to_string()))
+    Err(ApiError::Forbidden("Marketplace admin (full) access required".to_string()))
 }
 
 pub async fn health_handler(State(state): State<ApiState>) -> Result<impl IntoResponse, ApiError> {
@@ -278,7 +278,7 @@ pub async fn create_tenant_handler(
         .await
         .map_err(|e| ApiError::InternalError(e.to_string()))?;
     if !is_super {
-        return Err(ApiError::Unauthorized("Super admin access required".to_string()));
+        return Err(ApiError::Forbidden("Super admin access required".to_string()));
     }
     let tenant = state
         .tenant
@@ -366,7 +366,7 @@ pub async fn delete_tenant_handler(
         .await
         .map_err(|e| ApiError::InternalError(e.to_string()))?;
     if !is_super {
-        return Err(ApiError::Unauthorized("Super admin access required".to_string()));
+        return Err(ApiError::Forbidden("Super admin access required".to_string()));
     }
     state
         .tenant
@@ -3181,6 +3181,23 @@ pub async fn publish_skill_handler(
         .await
         .map_err(|e| ApiError::BadRequest(format!("Failed to publish skill: {}", e)))?;
 
+    // 确保 release tarball 存在（审核通过时已生成，此处兜底）
+    let release_path = state.skill_git.releases_dir()
+        .join(&skill.name)
+        .join(format!("v{}.tar.gz", skill.version));
+    if !release_path.exists() {
+        let _ = state.skill_git.generate_release_tarball(&skill.name, &skill.version);
+    }
+
+    // 新版本发布后，旧版本不再对外可见
+    let _ = sqlx::query(
+        "UPDATE skills SET is_current = false WHERE name = $1 AND is_current = true AND id != $2"
+    )
+    .bind(&skill.name)
+    .bind(&skill.id)
+    .execute(state.agent_repo.pool())
+    .await;
+
     state
         .audit_repo
         .create(crate::db::repositories::audit::NewAuditLog {
@@ -3202,21 +3219,22 @@ pub async fn publish_skill_handler(
     ))
 }
 
-/// POST /api/v1/admin/skills/:skill_name/rollback — 管理员版本回退
+/// POST /api/v1/skills/:skill_name/rollback — 版本回退（创建新版本，走审核流程）
+/// 权限：skill 的作者或组织成员（与上传新版本一致）
+/// 流程：Git checkout 目标 tag → commit（不打 tag）→ 创建 pending_review skill → 等待审核
 pub async fn rollback_skill_handler(
     State(state): State<ApiState>,
     agent_context: AgentContext,
     axum::extract::Path((skill_name,)): axum::extract::Path<(String,)>,
     Json(body): Json<crate::api::models::RollbackSkillBody>,
 ) -> Result<impl IntoResponse, ApiError> {
-    require_marketplace_admin_only(&state, &agent_context).await?;
     let identity_id = agent_context.require_identity()?;
 
     let pool = state.agent_repo.pool().clone();
     let skill_repo = crate::db::repositories::skill::SkillRepository::new(pool.clone());
     let version_repo = crate::db::repositories::version::VersionRepository::new(pool);
 
-    // 1. 获取当前最新版本的 owner 信息
+    // 1. 获取当前最新版本的 owner 信息，并校验权限（作者或组织成员）
     let skill_list = skill_repo
         .list_by_name(&skill_name)
         .await
@@ -3225,10 +3243,29 @@ pub async fn rollback_skill_handler(
         .first()
         .ok_or_else(|| ApiError::NotFound(format!("Skill {} not found", skill_name)))?;
 
-    // 2. 执行 Git 回退：从 tag 恢复文件 + commit + tag + 写入 skill_versions
+    // 权限校验：必须是作者或组织成员
+    let is_author = latest.author_identity_id == Some(identity_id);
+    let is_owner_user = latest.owner_type == "user" && latest.owner_id == Some(identity_id);
+    if !is_author && !is_owner_user {
+        // 检查是否为组织成员
+        let org_ids = state
+            .permission
+            .get_user_org_ids(identity_id)
+            .await
+            .unwrap_or_default();
+        let is_org_member = latest.owner_type == "organization"
+            && latest.owner_id.map_or(false, |oid| org_ids.contains(&oid));
+        if !is_org_member {
+            return Err(ApiError::Forbidden(
+                "Only the skill author or organization member can rollback".to_string(),
+            ));
+        }
+    }
+
+    // 2. 执行 Git 回退：从 tag 恢复文件 + commit only（不打 tag） + 写入 skill_versions
     let result = state
         .skill_git
-        .rollback_version(&skill_name, &body.version, identity_id, &version_repo)
+        .rollback_version_commit_only(&skill_name, &body.version, identity_id, &version_repo)
         .map_err(|e| match e {
             crate::models::error::AppError::SkillNotFound(_) => ApiError::NotFound(format!(
                 "Version {} not found for skill {}",
@@ -3244,7 +3281,7 @@ pub async fn rollback_skill_handler(
     let meta = crate::services::skill_git::parse_skill_md_frontmatter(&skill_md_content)
         .map_err(|e| ApiError::BadRequest(format!("Failed to parse restored SKILL.md: {}", e)))?;
 
-    // 4. 通过 RegistryService 创建新版本的 skill 记录
+    // 4. 通过 RegistryService 创建新版本的 skill 记录（状态为 pending_review）
     let new_skill = crate::models::skill::NewSkill {
         name: skill_name.clone(),
         description: meta.description,
@@ -3275,25 +3312,7 @@ pub async fn rollback_skill_handler(
         .await
         .map_err(|e| ApiError::BadRequest(format!("Failed to create rolled-back skill: {}", e)))?;
 
-    // 5. 状态设为 published，visibility 设为 marketplace
-    skill_repo
-        .update_status(&skill.id, "published", None, None)
-        .await
-        .map_err(|e| ApiError::BadRequest(format!("Failed to set rollback skill status: {}", e)))?;
-    skill_repo
-        .update(&skill.id, None, None, None, Some("marketplace"))
-        .await
-        .map_err(|e| {
-            ApiError::BadRequest(format!("Failed to set marketplace visibility: {}", e))
-        })?;
-
-    // 6. 从 Git 仓库同步文件到 skills_dir（覆盖 create_skill 写入的 SKILL.md）
-    state
-        .registry
-        .sync_skill_files_from(&skill_name, &repo_dir)
-        .map_err(|e| ApiError::InternalError(format!("Failed to sync files: {}", e)))?;
-
-    // 7. 审计日志
+    // 5. 审计日志
     state
         .audit_repo
         .create(crate::db::repositories::audit::NewAuditLog {
@@ -3315,7 +3334,7 @@ pub async fn rollback_skill_handler(
         StatusCode::OK,
         Json(serde_json::json!({
             "message": format!(
-                "Skill {} rolled back from {} to {} (new version: {})",
+                "Skill {} rollback from {} to {} submitted for review (new version: {})",
                 skill_name, result.from_version, result.target_version, result.new_version
             ),
             "skill_name": skill_name,
@@ -3432,6 +3451,51 @@ pub async fn admin_publish_skill_handler(
             .update_status(&skill_id, "published", None, None)
             .await
             .map_err(|e| ApiError::BadRequest(format!("Failed to publish skill: {}", e)))?;
+
+        // 新版本发布后，旧版本不再对外可见
+        let _ = sqlx::query(
+            "UPDATE skills SET is_current = false WHERE name = $1 AND is_current = true AND id != $2"
+        )
+        .bind(&skill.name)
+        .bind(&skill.id)
+        .execute(state.agent_repo.pool())
+        .await;
+    }
+
+    // 如果该 Skill 之前未经过审核流程（没有 Git tag），现在补充版本管理
+    {
+        let repo_dir = state.skill_git.repo_path(&skill.name);
+        let tag_name = format!("v{}", skill.version);
+        let tag_exists = std::process::Command::new("git")
+            .current_dir(&repo_dir)
+            .args(["rev-parse", &tag_name])
+            .output()
+            .map(|o| o.status.success())
+            .unwrap_or(false);
+
+        if !tag_exists && repo_dir.join(".git").exists() {
+            let tag_msg = format!("v{}: Admin published", skill.version);
+            let _ = state.skill_git.git_tag_approved(&repo_dir, &tag_name, &tag_msg);
+            let _ = state.skill_git.generate_release_tarball(&skill.name, &skill.version);
+
+            // 统计文件数和总大小（从 git repo 统计）
+            let (file_count, total_size_bytes) = state.registry.count_skill_files(&repo_dir)
+                .unwrap_or((0, 0));
+
+            use crate::db::repositories::version::{VersionRepository, NewSkillVersion};
+            let version_repo = VersionRepository::new(state.agent_repo.pool().clone());
+            let _ = version_repo.create(NewSkillVersion {
+                skill_name: skill.name.clone(),
+                version: skill.version.clone(),
+                git_commit_hash: None,
+                git_tag: Some(tag_name),
+                changelog: Some(tag_msg),
+                file_count: file_count as i32,
+                total_size_bytes: total_size_bytes as i64,
+                uploaded_by: agent_context.require_identity().ok(),
+                git_remote_url: None,
+            }).await;
+        }
     }
 
     // 保存当前 visibility 作为 pre_marketplace_visibility
@@ -3850,7 +3914,7 @@ pub async fn marketplace_delist_handler(
     ))
 }
 
-pub async fn approve_org_skill_handler(
+pub async fn approve_skill_handler(
     State(state): State<ApiState>,
     Path(skill_id): Path<String>,
     AgentContext {
@@ -3891,6 +3955,38 @@ pub async fn approve_org_skill_handler(
         .await
         .map_err(|e| ApiError::BadRequest(format!("Failed to approve skill: {}", e)))?;
 
+    // Git tag + version_repo 写入 + tarball 生成
+    {
+        let repo_dir = state.skill_git.repo_path(&skill.name);
+        let tag_name = format!("v{}", skill.version);
+        let tag_msg = format!("v{}: Approved version", skill.version);
+
+        state.skill_git.git_tag_approved(&repo_dir, &tag_name, &tag_msg)
+            .map_err(|e| ApiError::InternalError(format!("Failed to tag version: {}", e)))?;
+
+        // 统计文件数和总大小（从 git repo 统计）
+        let (file_count, total_size_bytes) = state.registry.count_skill_files(&repo_dir)
+            .unwrap_or((0, 0));
+
+        use crate::db::repositories::version::{VersionRepository, NewSkillVersion};
+        let version_repo = VersionRepository::new(state.agent_repo.pool().clone());
+        version_repo.create(NewSkillVersion {
+            skill_name: skill.name.clone(),
+            version: skill.version.clone(),
+            git_commit_hash: None,
+            git_tag: Some(tag_name),
+            changelog: Some(tag_msg),
+            file_count: file_count as i32,
+            total_size_bytes: total_size_bytes as i64,
+            uploaded_by: reviewer_id,
+            git_remote_url: None,
+        }).await
+        .map_err(|e| ApiError::InternalError(format!("Failed to record version: {}", e)))?;
+
+        // 生成 tarball
+        let _ = state.skill_git.generate_release_tarball(&skill.name, &skill.version);
+    }
+
     state
         .audit_repo
         .create(crate::db::repositories::audit::NewAuditLog {
@@ -3912,7 +4008,7 @@ pub async fn approve_org_skill_handler(
     ))
 }
 
-pub async fn reject_org_skill_handler(
+pub async fn reject_skill_handler(
     State(state): State<ApiState>,
     Path(skill_id): Path<String>,
     AgentContext {
@@ -3953,6 +4049,14 @@ pub async fn reject_org_skill_handler(
         .update_status(&skill_id, "rejected", reviewer_id, body.reason.as_deref())
         .await
         .map_err(|e| ApiError::BadRequest(format!("Failed to reject skill: {}", e)))?;
+
+    // Git reset --soft HEAD~1 撤销审核中的 commit
+    {
+        let repo_dir = state.skill_git.repo_path(&skill.name);
+        if repo_dir.join(".git").exists() {
+            let _ = state.skill_git.git_reset_soft_head(&repo_dir);
+        }
+    }
 
     state
         .audit_repo
@@ -4030,53 +4134,70 @@ pub async fn download_skill_handler(
         token_record.api_key_id
     );
 
-    // 3. 找到 skill 目录
-    let skill_dir = state.registry.skill_dir_path(&name);
-    if !skill_dir.exists() || !skill_dir.is_dir() {
-        return Err(ApiError::NotFound(format!(
-            "Skill '{}' not found on disk",
-            name
-        )));
-    }
-
-    // 4. 在 blocking 线程池中生成 tar.gz
-    let tarball = tokio::task::spawn_blocking(move || -> Result<Vec<u8>, String> {
-        let mut buf = Vec::new();
-        let encoder = flate2::write::GzEncoder::new(&mut buf, flate2::Compression::default());
-        let mut tar_builder = tar::Builder::new(encoder);
-
-        tar_builder
-            .append_dir_all(".", &skill_dir)
-            .map_err(|e| format!("Failed to build tarball: {}", e))?;
-
-        let encoder = tar_builder
-            .into_inner()
-            .map_err(|e| format!("Failed to finalize tar: {}", e))?;
-        encoder
-            .finish()
-            .map_err(|e| format!("Failed to compress: {}", e))?;
-
-        Ok(buf)
-    })
-    .await
-    .map_err(|e| ApiError::InternalError(format!("Tarball generation failed: {}", e)))?
-    .map_err(|e| ApiError::InternalError(e))?;
-
     let filename = format!("{}-{}.tar.gz", name, version);
 
-    // 5. 返回文件流
-    let response = axum::response::Response::builder()
-        .status(StatusCode::OK)
-        .header("Content-Type", "application/gzip")
-        .header(
-            "Content-Disposition",
-            format!("attachment; filename=\"{}\"", filename),
-        )
-        .header("Content-Length", tarball.len().to_string())
-        .body(axum::body::Body::from(tarball))
-        .map_err(|e| ApiError::InternalError(format!("Failed to build response: {}", e)))?;
+    // 3. 优先使用预生成的 release tarball（审核通过后 git archive 生成）
+    let release_tarball_path = state
+        .skill_git
+        .releases_dir()
+        .join(&name)
+        .join(format!("v{}.tar.gz", version));
 
-    Ok(response)
+    if release_tarball_path.exists() {
+        let tarball = tokio::fs::read(&release_tarball_path).await.map_err(|e| {
+            tracing::error!("Failed to read release tarball: {}", e);
+            ApiError::InternalError("Failed to read release tarball".to_string())
+        })?;
+
+        tracing::info!(
+            "Serving pre-built release tarball: {}",
+            release_tarball_path.display()
+        );
+
+        let response = axum::response::Response::builder()
+            .status(StatusCode::OK)
+            .header("Content-Type", "application/gzip")
+            .header(
+                "Content-Disposition",
+                format!("attachment; filename=\"{}\"", filename),
+            )
+            .header("Content-Length", tarball.len().to_string())
+            .body(axum::body::Body::from(tarball))
+            .map_err(|e| ApiError::InternalError(format!("Failed to build response: {}", e)))?;
+
+        return Ok(response);
+    }
+
+    // 4. 无预生成 tarball — 实时从 git archive 生成并缓存到 releases
+    let _ = state.skill_git.generate_release_tarball(&name, &version);
+
+    // 重新读取刚生成的 tarball
+    if release_tarball_path.exists() {
+        let tarball = tokio::fs::read(&release_tarball_path).await.map_err(|e| {
+            tracing::error!("Failed to read release tarball: {}", e);
+            ApiError::InternalError("Failed to read release tarball".to_string())
+        })?;
+
+        tracing::info!("Served freshly generated release tarball: {}", release_tarball_path.display());
+
+        let response = axum::response::Response::builder()
+            .status(StatusCode::OK)
+            .header("Content-Type", "application/gzip")
+            .header(
+                "Content-Disposition",
+                format!("attachment; filename=\"{}\"", filename),
+            )
+            .header("Content-Length", tarball.len().to_string())
+            .body(axum::body::Body::from(tarball))
+            .map_err(|e| ApiError::InternalError(format!("Failed to build response: {}", e)))?;
+
+        return Ok(response);
+    }
+
+    return Err(ApiError::NotFound(format!(
+        "Release tarball not available for skill '{}' version {}",
+        name, version
+    )));
 }
 
 /// GET /api/v1/cli/download/:version/:target?token=...
@@ -6204,15 +6325,14 @@ pub async fn get_admin_status_handler(
 
     let data_dir = std::env::var("AION_HIVE_DATA_DIR").unwrap_or_else(|_| "./data".to_string());
 
-    let skills_dir =
-        std::env::var("AION_HIVE_SKILLS_DIR").unwrap_or_else(|_| format!("{}/skills", data_dir));
+    let releases_dir = format!("{}/releases", data_dir);
 
     let response = crate::api::models::AdminStatusResponse {
         version: env!("CARGO_PKG_VERSION").to_string(),
         transport_mode,
         http_port: port,
         data_dir,
-        skills_dir,
+        skills_dir: releases_dir,
         db_connected,
         db_url: sanitized_url,
         jwt_expiry_hours: 24,
@@ -7020,7 +7140,14 @@ pub async fn confirm_skill_upload_handler(
             &state.version_repo,
         )
         .await
-        .map_err(|e| ApiError::BadRequest(e.to_string()))?;
+        .map_err(|e| match e {
+            crate::models::error::AppError::ValidationError(ref msg)
+                if msg.contains("完全相同") =>
+            {
+                ApiError::BadRequest(msg.clone())
+            }
+            other => ApiError::BadRequest(other.to_string()),
+        })?;
 
     // Audit log
     state

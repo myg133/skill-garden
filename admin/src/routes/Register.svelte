@@ -12,8 +12,8 @@
   let showPassword = false;
 
   async function handleRegister() {
-    if (!username || !password) {
-      error = 'Username and password are required';
+    if (!username || !email || !password) {
+      error = 'Username, email and password are required';
       return;
     }
     if (password !== confirmPassword) {
@@ -76,12 +76,13 @@
         </div>
 
         <div>
-          <label for="reg-email" class="block text-xs font-semibold text-surface-600 uppercase tracking-wider mb-2">Email</label>
+          <label for="reg-email" class="block text-xs font-semibold text-surface-600 uppercase tracking-wider mb-2">Email <span class="text-rose-500">*</span></label>
           <input
             id="reg-email"
             type="email"
             bind:value={email}
-            placeholder="Your email (optional)"
+            required
+            placeholder="Your email address"
             class="w-full px-4 py-3 border border-surface-200 rounded-xl text-sm input-focus outline-none font-medium bg-surface-50/80 text-surface-800 placeholder:text-surface-500"
           />
         </div>

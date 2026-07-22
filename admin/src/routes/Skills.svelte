@@ -8,7 +8,7 @@
   import { ACTIONS } from '../config/actions.js';
   import { selectedOrg, isPersonalSpace } from '../stores/org.js';
 
-  $: skillLinkBase = ($isAdmin || ($permissionStore.loaded && isAnyAdmin())) ? '/skills' : '/user/skills';
+  $: skillLinkBase = ($isAdmin || ($permissionStore.loaded && (isAnyAdmin() || ($permissionStore.orgRoles || []).length > 0))) ? '/skills' : '/user/skills';
   const ACT = ACTIONS.Skills;
   import Badge from '../components/Badge.svelte';
   import EmptyState from '../components/EmptyState.svelte';
@@ -30,6 +30,7 @@
   // --- Org Context ---
   $: currentOrgId = $selectedOrg?.id || null;
   $: currentOrgName = $selectedOrg?.name || '';
+  $: currentOrgRole = $selectedOrg?.role || 'member';
   $: inPersonalSpace = !!$isPersonalSpace;
 
   let skills = [];
@@ -66,6 +67,22 @@
   function handleSort(key, dir) {
     sortKey = key;
     sortDir = dir;
+  }
+
+  function orgRoleLabel(role) {
+    const labels = { owner: 'Owner', admin: 'Admin', reviewer: 'Reviewer', developer: 'Developer', member: 'Member' };
+    return labels[role] || role;
+  }
+
+  function orgRoleBadgeColor(role) {
+    const colors = {
+      owner: 'bg-amber-100 text-amber-700',
+      admin: 'bg-blue-100 text-blue-700',
+      reviewer: 'bg-purple-100 text-purple-700',
+      developer: 'bg-emerald-100 text-emerald-700',
+      member: 'bg-gray-100 text-gray-600',
+    };
+    return colors[role] || 'bg-gray-100 text-gray-600';
   }
 
   // --- Create Modal State ---
@@ -110,24 +127,24 @@
       if (tagFilter) params.tag = tagFilter;
 
       // Phase 5-6: Apply context-aware filters
-      // 非管理员、非市场角色的普通用户：始终显示个人 Skill，不受 OrgSwitcher 影响
       const isAdminUser = $isAdmin || isSuperAdmin;
-      if (!isAdminUser && !isMarketplaceRole) {
+      const hasOrgRoles = ($permissionStore.orgRoles || []).length > 0;
+
+      if (isSuperAdmin) {
+        // super_admin: no extra filter (sees everything across all orgs)
+      } else if (!isAdminUser && !isMarketplaceRole && !hasOrgRoles) {
         params.scope_personal = true;
       } else if (isMarketplaceRole) {
-        // Marketplace admin/reviewer: tab-based views
         if (activeTab === 'marketplace-list') {
           params.marketplace_status = 'listed';
         } else if (activeTab === 'personal') {
           params.scope_personal = true;
         }
-        // marketplace-stats: load stats separately
       } else if (inPersonalSpace) {
         params.scope_personal = true;
       } else if (currentOrgId) {
         params.org_id = currentOrgId;
       }
-      // super_admin: no extra filter (sees everything)
 
       const res = await api.listSkills(params);
       skills = res.data || [];
@@ -189,7 +206,7 @@
   async function handleUnpublishSkill(skill) {
     try {
       await api.adminUnpublishSkill(skill.id);
-      addToast(`${skill.name} 已下架`, 'success');
+      addToast(`${skill.name} delisted`, 'success');
       skill.status = 'approved';
       skill.visibility = 'private';
     } catch (e) {
@@ -198,37 +215,37 @@
   }
 
   async function handleDeleteSkill(skill) {
-    // 上架中的市场 Skill 必须先申请下架，通过审核后才能删除
+    // Listed marketplace skills must request delist before deletion
     if (skill.marketplace_status === 'listed' || skill.marketplace_status === 'pending_delist') {
       if (skill.marketplace_status === 'listed') {
-        const reason = prompt(`"${skill.name}" 已上架到市场，需要先申请下架才能删除。\n请输入下架原因（可选）：`);
+        const reason = prompt(`"${skill.name}" is listed on marketplace. Request delist first.\nEnter delist reason (optional):`);
         if (reason === null) return;
         try {
           await api.requestMarketplaceDelist(skill.id, reason || undefined);
-          addToast(`${skill.name} 下架申请已提交，审核通过后可删除`, 'success');
+          addToast(`${skill.name} delist request submitted, can delete after approval`, 'success');
           skill.marketplace_status = 'pending_delist';
         } catch (e) {
-          addToast(`申请下架失败: ${e.message}`, 'error');
+          addToast(`Delist request failed: ${e.message}`, 'error');
         }
       } else {
-        addToast(`"${skill.name}" 下架申请审核中，审核通过后可删除`, 'warning');
+        addToast(`"${skill.name}" delist request pending, can delete after approval`, 'warning');
       }
       return;
     }
 
     let confirmMsg = '';
     if (skill.marketplace_status === 'pending_review') {
-      confirmMsg = `"${skill.name}" 正在市场审核中。删除将同时取消审核申请，确定删除？`;
+      confirmMsg = `"${skill.name}" is under marketplace review. Deleting will also cancel the review. Confirm?`;
     } else if (skill.marketplace_status === 'delisted') {
-      confirmMsg = `"${skill.name}" 已从市场下架，删除后将永久移除，确定删除？`;
+      confirmMsg = `"${skill.name}" has been delisted from marketplace. Delete permanently?`;
     } else {
-      confirmMsg = `确定要永久删除 "${skill.name}" 吗？此操作不可撤销。`;
+      confirmMsg = `Permanently delete "${skill.name}"? This action cannot be undone.`;
     }
     if (!confirm(confirmMsg)) return;
 
     try {
       await api.deleteSkill(skill.id);
-      addToast(`${skill.name} 已删除`, 'success');
+      addToast(`${skill.name} deleted`, 'success');
       loadSkills();
     } catch (e) {
       addToast(e.message, 'error');
@@ -238,7 +255,7 @@
   async function handleAdminPublishSkill(skill) {
     try {
       await api.adminPublishSkill(skill.id);
-      addToast(`${skill.name} 已上架`, 'success');
+      addToast(`${skill.name} listed`, 'success');
       skill.status = 'published';
       skill.visibility = 'marketplace';
     } catch (e) {
@@ -249,8 +266,18 @@
   async function handleSubmitReview(skill) {
     try {
       await api.submitSkillForReview(skill.id);
-      addToast(`${skill.name} 已提交审核`, 'success');
+      addToast(`${skill.name} submitted for review`, 'success');
       skill.status = 'pending_review';
+    } catch (e) {
+      addToast(e.message, 'error');
+    }
+  }
+
+  async function handlePublishSkill(skill) {
+    try {
+      await api.publishSkill(skill.id);
+      addToast(`${skill.name} published`, 'success');
+      skill.status = 'published';
     } catch (e) {
       addToast(e.message, 'error');
     }
@@ -258,10 +285,10 @@
 
   // --- Marketplace dual-track operations ---
   async function handleSubmitToMarketplace(skill) {
-    if (!confirm(`将 "${skill.name}" 提交到市场审核？`)) return;
+    if (!confirm(`Submit "${skill.name}" for marketplace review?`)) return;
     try {
       await api.submitToMarketplace(skill.id);
-      addToast(`${skill.name} 已提交市场审核`, 'success');
+      addToast(`${skill.name} submitted for marketplace review`, 'success');
       skill.marketplace_status = 'pending_review';
     } catch (e) {
       addToast(e.message, 'error');
@@ -269,10 +296,10 @@
   }
 
   async function handleMarketplaceDelist(skill) {
-    if (!confirm(`确定将 "${skill.name}" 从市场下架？该 Skill 不会被删除。`)) return;
+    if (!confirm(`Delist "${skill.name}" from marketplace? The skill will not be deleted.`)) return;
     try {
       await api.marketplaceDelist(skill.id);
-      addToast(`${skill.name} 已从市场下架`, 'success');
+      addToast(`${skill.name} delisted from marketplace`, 'success');
       skill.marketplace_status = 'delisted';
     } catch (e) {
       addToast(e.message, 'error');
@@ -280,10 +307,10 @@
   }
 
   async function handleMarketplaceRelist(skill) {
-    if (!confirm(`将 "${skill.name}" 重新上架到市场？`)) return;
+    if (!confirm(`Relist "${skill.name}" on marketplace?`)) return;
     try {
       await api.marketplaceRelist(skill.id);
-      addToast(`${skill.name} 已重新上架`, 'success');
+      addToast(`${skill.name} relisted`, 'success');
       skill.marketplace_status = 'listed';
     } catch (e) {
       addToast(e.message, 'error');
@@ -316,11 +343,11 @@
     selectedOrgId = '';
     showCreateModal = true;
 
-    // 加载用户所属组织列表
+    // Load user's organizations
     try {
       const res = await api.getUserOrgs();
       userOrgs = res.data || res || [];
-      // 如果恰好只属于一个组织，默认选中组织模式
+      // If user belongs to exactly one org, default to org mode
       if (userOrgs.length === 1) {
         ownerType = 'organization';
         selectedOrgId = userOrgs[0].id;
@@ -554,6 +581,7 @@
           Your personal skill space
         {:else if currentOrgId}
           Skills in {currentOrgName}
+          <span class="ml-2 inline-flex items-center px-2 py-0.5 text-xs rounded-full {orgRoleBadgeColor(currentOrgRole)}">{orgRoleLabel(currentOrgRole)}</span>
         {:else}
           Browse and manage all skills
         {/if}
@@ -758,7 +786,15 @@
                       <button
                         on:click={() => handleSubmitReview(skill)}
                         class="px-2.5 py-1 text-[11px] font-semibold bg-amber-50 text-amber-700 border border-amber-200 rounded-lg hover:bg-amber-100 transition-colors"
-                      >提交审核</button>
+                      >Submit Review</button>
+                    {/if}
+
+                    <!-- Publish (approved -> published) -->
+                    {#if skill.status === 'approved' && hasPermission(ACT.publishInternal)}
+                      <button
+                        on:click={() => handlePublishSkill(skill)}
+                        class="px-2.5 py-1 text-[11px] font-semibold bg-emerald-50 text-emerald-700 border border-emerald-200 rounded-lg hover:bg-emerald-100 transition-colors"
+                      >Publish</button>
                     {/if}
 
                     <!-- Marketplace operations (marketplace_admin / marketplace_reviewer) -->
@@ -768,19 +804,19 @@
                           <button
                             on:click={() => handleAdminPublishSkill(skill)}
                             class="px-2.5 py-1 text-[11px] font-semibold bg-amber-50 text-amber-700 border border-amber-200 rounded-lg hover:bg-amber-100 transition-colors"
-                          >精选</button>
+                          >Feature</button>
                         {/if}
                         {#if hasPermission(ACT.marketDelist)}
                           <button
                             on:click={() => handleMarketplaceDelist(skill)}
                             class="px-2.5 py-1 text-[11px] font-semibold bg-rose-50 text-rose-600 border border-rose-200 rounded-lg hover:bg-rose-100 transition-colors"
-                          >下架</button>
+                          >Delist</button>
                         {/if}
                       {:else if skill.marketplace_status === 'delisted' && hasPermission(ACT.marketRelist)}
                         <button
                           on:click={() => handleMarketplaceRelist(skill)}
                           class="px-2.5 py-1 text-[11px] font-semibold bg-emerald-50 text-emerald-700 border border-emerald-200 rounded-lg hover:bg-emerald-100 transition-colors"
-                        >重新上架</button>
+                        >Relist</button>
                       {/if}
                     {:else if skill.status === 'published'}
                       <!-- Submit to marketplace (org owner/admin) -->
@@ -788,11 +824,11 @@
                         <button
                           on:click={() => handleSubmitToMarketplace(skill)}
                           class="px-2.5 py-1 text-[11px] font-semibold bg-emerald-50 text-emerald-700 border border-emerald-200 rounded-lg hover:bg-emerald-100 transition-colors"
-                        >上架到市场</button>
+                        >List on Market</button>
                       {:else if skill.marketplace_status === 'pending_review'}
-                        <span class="text-[11px] text-amber-500 font-medium">市场审核中</span>
+                        <span class="text-[11px] text-amber-500 font-medium">Market Review</span>
                       {:else if skill.marketplace_status === 'listed'}
-                        <span class="text-[11px] text-emerald-500 font-medium">已上架市场</span>
+                        <span class="text-[11px] text-emerald-500 font-medium">Listed</span>
                       {/if}
                     {/if}
 
@@ -801,7 +837,7 @@
                     <button
                       on:click={() => handleDeleteSkill(skill)}
                       class="px-2.5 py-1 text-[11px] font-semibold bg-red-50 text-red-600 border border-red-200 rounded-lg hover:bg-red-100 transition-colors"
-                    >删除</button>
+                    >Delete</button>
                     {/if}
                   </div>
                 </td>
@@ -960,20 +996,20 @@
     <!-- Owner type selector -->
     {#if userOrgs.length > 0}
     <div class="flex-shrink-0 px-6 py-3 border-b border-gray-100 bg-white flex items-center gap-4">
-      <span class="text-xs font-semibold text-gray-500 uppercase tracking-wider">归属</span>
+      <span class="text-xs font-semibold text-gray-500 uppercase tracking-wider">Owner</span>
       <div class="flex items-center gap-3">
         <label class="flex items-center gap-1.5 cursor-pointer">
           <input type="radio" bind:group={ownerType} value="user" class="w-3.5 h-3.5 text-blue-600" />
-          <span class="text-sm text-gray-700">个人</span>
+          <span class="text-sm text-gray-700">Personal</span>
         </label>
         <label class="flex items-center gap-1.5 cursor-pointer">
           <input type="radio" bind:group={ownerType} value="organization" class="w-3.5 h-3.5 text-blue-600" />
-          <span class="text-sm text-gray-700">组织</span>
+          <span class="text-sm text-gray-700">Organization</span>
         </label>
       </div>
       {#if ownerType === 'organization'}
         <select bind:value={selectedOrgId} class="ml-2 px-3 py-1.5 border border-gray-200 rounded-lg text-sm text-gray-700 bg-white focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500">
-          <option value="">-- 选择组织 --</option>
+          <option value="">-- Select Organization --</option>
           {#each userOrgs as org (org.id)}
             <option value={org.id}>
               {org.name}{org.slug ? ` (@${org.slug})` : ''}{org.role ? ` · ${org.role}` : ''}
