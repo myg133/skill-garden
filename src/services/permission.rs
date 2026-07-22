@@ -206,6 +206,7 @@ impl PermissionService {
         skill_author_identity_id: Option<Uuid>,
         skill_status: &str,
         skill_visibility: &str,
+        skill_marketplace_status: Option<&str>,
         action: SkillAction,
     ) -> Result<(), String> {
         // 1. 超级管理员（system_role_assignments 表）拥有所有权限
@@ -251,6 +252,19 @@ impl PermissionService {
                                 );
                             }
                         }
+                    }
+                }
+                // 市场管理员可读取任何已提交市场的 Skill（marketplace_status 非空）
+                {
+                    let has_market_role = self
+                        .has_any_system_role(
+                            identity_id,
+                            &["super_admin", "marketplace_admin", "marketplace_reviewer"],
+                        )
+                        .await
+                        .unwrap_or(false);
+                    if has_market_role && skill_marketplace_status.is_some() {
+                        return Ok(());
                     }
                 }
                 Err("无权访问此 Skill".to_string())
@@ -670,6 +684,8 @@ impl PermissionService {
         for (_, role_name) in &ctx.group_roles {
             role_entries.push(("group".to_string(), role_name.clone()));
         }
+        // 所有已认证用户都有 personal 级别的 user 角色权限
+        role_entries.push(("personal".to_string(), "user".to_string()));
 
         // 一次 SQL 批量查询替代 N 次逐个查询
         if !role_entries.is_empty() {

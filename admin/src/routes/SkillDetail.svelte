@@ -3,7 +3,7 @@
   import { api } from '../lib/api.js';
   import { addToast } from '../stores/app.js';
   import { auth, isAdmin } from '../stores/auth.js';
-  import { hasPermission, permissionStore } from '../stores/permission.js';
+  import { hasPermission, permissionStore, isAnyAdmin } from '../stores/permission.js';
   import { useLocation } from 'svelte-routing';
   import Badge from '../components/Badge.svelte';
   import ReviewActions from '../components/ReviewActions.svelte';
@@ -27,20 +27,36 @@
   // 从市场进入的详情页强制只读，不允许编辑
   $: isMarketplaceView = $location.state?.readonly === true;
 
-  // 当前用户是否能编辑此 skill
-  // - 从市场进入 → 始终不可编辑
-  // - 管理员 → 始终可编辑
-  // - 市场管理员（marketplace_admin / marketplace_reviewer）→ 可编辑
-  // - 个人 Skill（owner_type=user）→ 已登录用户可编辑（后端兜底权限）
-  // - 组织 owner/admin/developer → 对该组织的 skill 可编辑
+  // ========== 角色判断 ==========
+  $: isSuperAdmin = ($permissionStore.systemRoles || []).includes('super_admin');
   $: isMarketAdmin = ($permissionStore.systemRoles || []).some(r => r === 'marketplace_admin' || r === 'marketplace_reviewer');
-  $: canEdit = !isMarketplaceView && ($isAdmin || isMarketAdmin || (skill && (
+  $: isMarketAdminOnly = ($permissionStore.systemRoles || []).includes('marketplace_admin');
+  $: isMarketReviewer = ($permissionStore.systemRoles || []).includes('marketplace_reviewer');
+  // 管理员（super_admin / tenant_admin / marketplace_admin / marketplace_reviewer）
+  $: isAnyAdminUser = $isAdmin || isAnyAdmin();
+
+  // 当前用户是否能编辑此 skill（tags / description / content）
+  // - 从市场进入 → 始终不可编辑
+  // - super_admin / tenant_admin → 可编辑任意 Skill
+  // - marketplace_admin / marketplace_reviewer → 可编辑任意已提交市场的 Skill
+  // - 个人 Skill owner → 可编辑
+  // - 组织 owner/admin/developer → 对该组织的 skill 可编辑
+  $: canEdit = !isMarketplaceView && ($isAdmin || isSuperAdmin || isMarketAdmin || (skill && (
     skill.owner_type === 'user' ||
     skill.author_name === $auth.username ||
     skill.author_agent_id === $auth.username ||
     (skill.owner_type === 'organization' && skill.owner_id &&
       ($permissionStore.orgRoles || []).some(r => r.org_id === skill.owner_id && ['owner', 'admin', 'developer'].includes(r.role)))
   )));
+
+  // Skill 作者（owner）判断 — 用于作者专属操作（上传新版本、申请下架等）
+  $: isOwner = skill && (
+    skill.owner_type === 'user' ||
+    skill.author_name === $auth.username ||
+    skill.author_agent_id === $auth.username ||
+    (skill.owner_type === 'organization' && skill.owner_id &&
+      ($permissionStore.orgRoles || []).some(r => r.org_id === skill.owner_id && ['owner', 'admin', 'developer'].includes(r.role)))
+  );
 
   // Tag editing state
   let editingTags = false;
@@ -354,6 +370,50 @@
     }
   }
 
+  async function handleCancelUpdate() {
+    if (!confirm('确定要取消此次更新吗？草稿内容将被丢弃。')) return;
+    marketplaceLoading = true;
+    try {
+      await api.cancelUpdate(id);
+      addToast(`${skill.name} 更新已取消`, 'success');
+      skill.marketplace_status = 'listed';
+    } catch (e) {
+      addToast(e.message, 'error');
+    } finally {
+      marketplaceLoading = false;
+    }
+  }
+
+  // --- Upload New Version ---
+  let uploadVersionLoading = false;
+
+  async function handleUploadVersion() {
+    // 创建隐藏的 file input
+    const input = document.createElement('input');
+    input.type = 'file';
+    input.accept = '.zip';
+    input.onchange = async (e) => {
+      const file = e.target.files?.[0];
+      if (!file) return;
+      if (!file.name.endsWith('.zip')) {
+        addToast('请选择 .zip 文件', 'error');
+        return;
+      }
+      uploadVersionLoading = true;
+      try {
+        const res = await api.uploadSkill(file);
+        addToast(res.message || '新版本上传成功，已提交审核', 'success');
+        // 刷新页面
+        window.location.reload();
+      } catch (e) {
+        addToast(e.message, 'error');
+      } finally {
+        uploadVersionLoading = false;
+      }
+    };
+    input.click();
+  }
+
   async function handleRelist() {
     marketplaceLoading = true;
     try {
@@ -486,123 +546,121 @@
         {#if canEdit && skill.status === 'pending_review'}
           <ReviewActions {skill} />
         {/if}
-        {#if canEdit && !$isAdmin}
-          <!-- Non-admin user (skill owner): internal lifecycle -->
+
+        <!-- ========== 操作按钮区（右对齐） ========== -->
+        <div class="flex items-center gap-2 ml-auto flex-shrink-0">
+
+        <!-- 1. 作者专属操作（非管理员，非市场管理员） -->
+        {#if isOwner && !isAnyAdminUser}
           {#if skill.status === 'draft' || skill.status === 'rejected'}
-            <button
-              on:click={handleSubmitReview}
-              disabled={submitLoading}
-              class="px-4 py-2 text-sm font-semibold bg-amber-500 text-white rounded-xl hover:bg-amber-600 disabled:opacity-50 transition-all duration-200 shadow-sm shadow-amber-500/20 hover:shadow-md hover:shadow-amber-500/30 active:scale-[0.97]"
-            >
-              {#if submitLoading}
-                <svg class="w-4 h-4 animate-spin mr-1 inline" fill="none" viewBox="0 0 24 24"><circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"/><path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z"/></svg>
-              {/if}
+            <button on:click={handleSubmitReview} disabled={submitLoading}
+              class="px-4 py-2 text-sm font-semibold bg-amber-500 text-white rounded-xl hover:bg-amber-600 disabled:opacity-50 transition-all duration-200 shadow-sm shadow-amber-500/20 hover:shadow-md hover:shadow-amber-500/30 active:scale-[0.97]">
+              {#if submitLoading}<svg class="w-4 h-4 animate-spin mr-1 inline" fill="none" viewBox="0 0 24 24"><circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"/><path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z"/></svg>{/if}
               Submit for Review
             </button>
           {/if}
           {#if skill.status === 'approved'}
-            <button
-              on:click={handlePublish}
-              disabled={publishLoading}
-              class="px-4 py-2 text-sm font-semibold bg-emerald-500 text-white rounded-xl hover:bg-emerald-600 disabled:opacity-50 transition-all duration-200 shadow-sm shadow-emerald-500/20 hover:shadow-md hover:shadow-emerald-500/30 active:scale-[0.97]"
-            >
-              {#if publishLoading}
-                <svg class="w-4 h-4 animate-spin mr-1 inline" fill="none" viewBox="0 0 24 24"><circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"/><path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z"/></svg>
-              {/if}
+            <button on:click={handlePublish} disabled={publishLoading}
+              class="px-4 py-2 text-sm font-semibold bg-emerald-500 text-white rounded-xl hover:bg-emerald-600 disabled:opacity-50 transition-all duration-200 shadow-sm shadow-emerald-500/20 hover:shadow-md hover:shadow-emerald-500/30 active:scale-[0.97]">
+              {#if publishLoading}<svg class="w-4 h-4 animate-spin mr-1 inline" fill="none" viewBox="0 0 24 24"><circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"/><path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z"/></svg>{/if}
               Publish
             </button>
           {/if}
           {#if skill.status === 'published' && (!skill.marketplace_status || skill.marketplace_status === 'rejected' || skill.marketplace_status === 'delisted')}
-            <button
-              on:click={handleSubmitToMarketplace}
-              disabled={marketplaceLoading}
-              class="px-4 py-2 text-sm font-semibold bg-blue-500 text-white rounded-xl hover:bg-blue-600 disabled:opacity-50 transition-all duration-200 shadow-sm shadow-blue-500/20 hover:shadow-md hover:shadow-blue-500/30 active:scale-[0.97]"
-            >
-              {#if marketplaceLoading}
-                <svg class="w-4 h-4 animate-spin mr-1 inline" fill="none" viewBox="0 0 24 24"><circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"/><path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z"/></svg>
-              {/if}
+            <button on:click={handleSubmitToMarketplace} disabled={marketplaceLoading}
+              class="px-4 py-2 text-sm font-semibold bg-blue-500 text-white rounded-xl hover:bg-blue-600 disabled:opacity-50 transition-all duration-200 shadow-sm shadow-blue-500/20 hover:shadow-md hover:shadow-blue-500/30 active:scale-[0.97]">
+              {#if marketplaceLoading}<svg class="w-4 h-4 animate-spin mr-1 inline" fill="none" viewBox="0 0 24 24"><circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"/><path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z"/></svg>{/if}
               Submit to Marketplace
             </button>
           {/if}
           {#if skill.marketplace_status === 'pending_review'}
-            <span class="px-4 py-2 text-sm font-semibold bg-amber-50 text-amber-600 rounded-xl ring-1 ring-amber-600/20">
-              Awaiting Market Review
-            </span>
+            <span class="px-4 py-2 text-sm font-semibold bg-amber-50 text-amber-600 rounded-xl ring-1 ring-amber-600/20">Awaiting Market Review</span>
           {/if}
           {#if skill.marketplace_status === 'listed'}
-            <button
-              on:click={handleRequestDelist}
-              disabled={requestDelistLoading}
-              class="px-4 py-2 text-sm font-semibold bg-rose-500 text-white rounded-xl hover:bg-rose-600 disabled:opacity-50 transition-all duration-200 shadow-sm shadow-rose-500/20 hover:shadow-md hover:shadow-rose-500/30 active:scale-[0.97]"
-            >
-              {#if requestDelistLoading}
-                <svg class="w-4 h-4 animate-spin mr-1 inline" fill="none" viewBox="0 0 24 24"><circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"/><path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z"/></svg>
-              {/if}
+            <button on:click={handleRequestDelist} disabled={requestDelistLoading}
+              class="px-4 py-2 text-sm font-semibold bg-rose-500 text-white rounded-xl hover:bg-rose-600 disabled:opacity-50 transition-all duration-200 shadow-sm shadow-rose-500/20 hover:shadow-md hover:shadow-rose-500/30 active:scale-[0.97]">
+              {#if requestDelistLoading}<svg class="w-4 h-4 animate-spin mr-1 inline" fill="none" viewBox="0 0 24 24"><circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"/><path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z"/></svg>{/if}
               申请下架
             </button>
           {/if}
-          {#if skill.marketplace_status === 'pending_delist'}
-            <span class="px-4 py-2 text-sm font-semibold bg-orange-50 text-orange-600 rounded-xl ring-1 ring-orange-600/20">
-              Delist Request Pending
-            </span>
+          {#if skill.status !== 'draft'}
+            <button on:click={handleUploadVersion} disabled={uploadVersionLoading}
+              class="px-4 py-2 text-sm font-semibold bg-indigo-500 text-white rounded-xl hover:bg-indigo-600 disabled:opacity-50 transition-all duration-200 shadow-sm shadow-indigo-500/20 hover:shadow-md hover:shadow-indigo-500/30 active:scale-[0.97]">
+              {#if uploadVersionLoading}<svg class="w-4 h-4 animate-spin mr-1 inline" fill="none" viewBox="0 0 24 24"><circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"/><path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z"/></svg>{/if}
+              上传新版本
+            </button>
           {/if}
-        {:else if $isAdmin}
-          <!-- Admin: marketplace operations -->
-          <div class="flex items-center gap-2">
-            {#if skill.marketplace_status === 'pending_review'}
-              <button
-                on:click={handleMarketplaceApprove}
-                disabled={marketplaceLoading}
-                class="px-4 py-2 text-sm font-semibold bg-emerald-500 text-white rounded-xl hover:bg-emerald-600 disabled:opacity-50 transition-all duration-200 shadow-sm shadow-emerald-500/20 hover:shadow-md hover:shadow-emerald-500/30 active:scale-[0.97]"
-              >
-                {#if marketplaceLoading}
-                  <svg class="w-4 h-4 animate-spin mr-1 inline" fill="none" viewBox="0 0 24 24"><circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"/><path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z"/></svg>
-                {/if}
-                通过
-              </button>
-              <button
-                on:click={handleMarketplaceReject}
-                disabled={marketplaceLoading}
-                class="px-4 py-2 text-sm font-semibold bg-rose-500 text-white rounded-xl hover:bg-rose-600 disabled:opacity-50 transition-all duration-200 shadow-sm shadow-rose-500/20 hover:shadow-md hover:shadow-rose-500/30 active:scale-[0.97]"
-              >
-                驳回
-              </button>
-            {/if}
-            {#if skill.marketplace_status === 'listed'}
-              <button
-                on:click={handleUnpublish}
-                disabled={unpublishLoading}
-                class="px-4 py-2 text-sm font-semibold bg-amber-500 text-white rounded-xl hover:bg-amber-600 disabled:opacity-50 transition-all duration-200 shadow-sm shadow-amber-500/20 hover:shadow-md hover:shadow-amber-500/30 active:scale-[0.97]"
-              >
-                {#if unpublishLoading}
-                  <svg class="w-4 h-4 animate-spin mr-1 inline" fill="none" viewBox="0 0 24 24"><circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"/><path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z"/></svg>
-                {/if}
-                下架
-              </button>
-            {/if}
-            {#if skill.marketplace_status === 'delisted'}
-              <button
-                on:click={handleRelist}
-                disabled={marketplaceLoading}
-                class="px-4 py-2 text-sm font-semibold bg-emerald-500 text-white rounded-xl hover:bg-emerald-600 disabled:opacity-50 transition-all duration-200 shadow-sm shadow-emerald-500/20 hover:shadow-md hover:shadow-emerald-500/30 active:scale-[0.97]"
-              >
-                重新上架
-              </button>
-            {/if}
-            {#if (!skill.marketplace_status || skill.marketplace_status === 'rejected') && skill.status !== 'pending_review'}
-              <button
-                on:click={handlePublish}
-                disabled={publishLoading}
-                class="px-4 py-2 text-sm font-semibold bg-emerald-500 text-white rounded-xl hover:bg-emerald-600 disabled:opacity-50 transition-all duration-200 shadow-sm shadow-emerald-500/20 hover:shadow-md hover:shadow-emerald-500/30 active:scale-[0.97]"
-              >
-                {#if publishLoading}
-                  <svg class="w-4 h-4 animate-spin mr-1 inline" fill="none" viewBox="0 0 24 24"><circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"/><path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z"/></svg>
-                {/if}
-                上架
-              </button>
-            {/if}
-          </div>
+          {#if skill.marketplace_status === 'pending_update'}
+            <span class="px-4 py-2 text-sm font-semibold bg-purple-50 text-purple-600 rounded-xl ring-1 ring-purple-600/20">Update Pending Review</span>
+            <button on:click={handleCancelUpdate} disabled={marketplaceLoading}
+              class="px-4 py-2 text-sm font-semibold text-gray-500 border border-gray-300 rounded-xl hover:bg-gray-100 disabled:opacity-50 transition-all duration-200 active:scale-[0.97]">取消更新</button>
+          {/if}
+          {#if skill.marketplace_status === 'pending_delist'}
+            <span class="px-4 py-2 text-sm font-semibold bg-orange-50 text-orange-600 rounded-xl ring-1 ring-orange-600/20">Delist Request Pending</span>
+          {/if}
         {/if}
+
+        <!-- 2. 市场管理员/审核员操作（marketplace_admin / marketplace_reviewer） -->
+        {#if isMarketAdmin && !isSuperAdmin && !$isAdmin}
+          {#if skill.marketplace_status === 'pending_review'}
+            <button on:click={handleMarketplaceApprove} disabled={marketplaceLoading}
+              class="px-4 py-2 text-sm font-semibold bg-emerald-500 text-white rounded-xl hover:bg-emerald-600 disabled:opacity-50 transition-all duration-200 shadow-sm shadow-emerald-500/20 hover:shadow-md hover:shadow-emerald-500/30 active:scale-[0.97]">通过</button>
+            <button on:click={handleMarketplaceReject} disabled={marketplaceLoading}
+              class="px-4 py-2 text-sm font-semibold bg-rose-500 text-white rounded-xl hover:bg-rose-600 disabled:opacity-50 transition-all duration-200 shadow-sm shadow-rose-500/20 hover:shadow-md hover:shadow-rose-500/30 active:scale-[0.97]">驳回</button>
+          {/if}
+          {#if skill.marketplace_status === 'pending_update'}
+            <button on:click={() => { api.marketplaceApproveUpdate(id).then(() => { addToast('更新已批准', 'success'); skill.marketplace_status = 'listed'; }); }} disabled={marketplaceLoading}
+              class="px-4 py-2 text-sm font-semibold bg-emerald-500 text-white rounded-xl hover:bg-emerald-600 disabled:opacity-50 transition-all duration-200 shadow-sm shadow-emerald-500/20 hover:shadow-md hover:shadow-emerald-500/30 active:scale-[0.97]">批准更新</button>
+            <button on:click={() => { api.marketplaceRejectUpdate(id).then(() => { addToast('更新已驳回', 'success'); skill.marketplace_status = 'listed'; }); }} disabled={marketplaceLoading}
+              class="px-4 py-2 text-sm font-semibold bg-rose-500 text-white rounded-xl hover:bg-rose-600 disabled:opacity-50 transition-all duration-200 shadow-sm shadow-rose-500/20 hover:shadow-md hover:shadow-rose-500/30 active:scale-[0.97]">驳回</button>
+          {/if}
+          {#if skill.marketplace_status === 'pending_delist'}
+            <button on:click={() => { api.marketplaceApproveDelist(id).then(() => { addToast('下架已批准', 'success'); skill.marketplace_status = 'delisted'; }); }} disabled={marketplaceLoading}
+              class="px-4 py-2 text-sm font-semibold bg-emerald-500 text-white rounded-xl hover:bg-emerald-600 disabled:opacity-50 transition-all duration-200 shadow-sm shadow-emerald-500/20 hover:shadow-md hover:shadow-emerald-500/30 active:scale-[0.97]">批准下架</button>
+            <button on:click={() => { api.marketplaceRejectDelist(id).then(() => { addToast('下架已驳回', 'success'); skill.marketplace_status = 'listed'; }); }} disabled={marketplaceLoading}
+              class="px-4 py-2 text-sm font-semibold bg-rose-500 text-white rounded-xl hover:bg-rose-600 disabled:opacity-50 transition-all duration-200 shadow-sm shadow-rose-500/20 hover:shadow-md hover:shadow-rose-500/30 active:scale-[0.97]">驳回</button>
+          {/if}
+          {#if skill.marketplace_status === 'listed'}
+            <button on:click={handleUnpublish} disabled={unpublishLoading}
+              class="px-4 py-2 text-sm font-semibold bg-amber-500 text-white rounded-xl hover:bg-amber-600 disabled:opacity-50 transition-all duration-200 shadow-sm shadow-amber-500/20 hover:shadow-md hover:shadow-amber-500/30 active:scale-[0.97]">下架</button>
+          {/if}
+        {/if}
+
+        <!-- 3. super_admin / tenant_admin 操作（全部管理权限） -->
+        {#if $isAdmin || isSuperAdmin}
+          {#if skill.marketplace_status === 'pending_review'}
+            <button on:click={handleMarketplaceApprove} disabled={marketplaceLoading}
+              class="px-4 py-2 text-sm font-semibold bg-emerald-500 text-white rounded-xl hover:bg-emerald-600 disabled:opacity-50 transition-all duration-200 shadow-sm shadow-emerald-500/20 hover:shadow-md hover:shadow-emerald-500/30 active:scale-[0.97]">通过</button>
+            <button on:click={handleMarketplaceReject} disabled={marketplaceLoading}
+              class="px-4 py-2 text-sm font-semibold bg-rose-500 text-white rounded-xl hover:bg-rose-600 disabled:opacity-50 transition-all duration-200 shadow-sm shadow-rose-500/20 hover:shadow-md hover:shadow-rose-500/30 active:scale-[0.97]">驳回</button>
+          {/if}
+          {#if skill.marketplace_status === 'listed'}
+            <button on:click={handleUnpublish} disabled={unpublishLoading}
+              class="px-4 py-2 text-sm font-semibold bg-amber-500 text-white rounded-xl hover:bg-amber-600 disabled:opacity-50 transition-all duration-200 shadow-sm shadow-amber-500/20 hover:shadow-md hover:shadow-amber-500/30 active:scale-[0.97]">下架</button>
+          {/if}
+          {#if skill.marketplace_status === 'delisted'}
+            <button on:click={handleRelist} disabled={marketplaceLoading}
+              class="px-4 py-2 text-sm font-semibold bg-emerald-500 text-white rounded-xl hover:bg-emerald-600 disabled:opacity-50 transition-all duration-200 shadow-sm shadow-emerald-500/20 hover:shadow-md hover:shadow-emerald-500/30 active:scale-[0.97]">重新上架</button>
+          {/if}
+          {#if (!skill.marketplace_status || skill.marketplace_status === 'rejected') && skill.status !== 'pending_review'}
+            <button on:click={handlePublish} disabled={publishLoading}
+              class="px-4 py-2 text-sm font-semibold bg-emerald-500 text-white rounded-xl hover:bg-emerald-600 disabled:opacity-50 transition-all duration-200 shadow-sm shadow-emerald-500/20 hover:shadow-md hover:shadow-emerald-500/30 active:scale-[0.97]">上架</button>
+          {/if}
+          {#if skill.marketplace_status === 'pending_update'}
+            <button on:click={() => { api.marketplaceApproveUpdate(id).then(() => { addToast('更新已批准', 'success'); skill.marketplace_status = 'listed'; }); }} disabled={marketplaceLoading}
+              class="px-4 py-2 text-sm font-semibold bg-emerald-500 text-white rounded-xl hover:bg-emerald-600 disabled:opacity-50 transition-all duration-200 shadow-sm shadow-emerald-500/20 hover:shadow-md hover:shadow-emerald-500/30 active:scale-[0.97]">批准更新</button>
+            <button on:click={() => { api.marketplaceRejectUpdate(id).then(() => { addToast('更新已驳回', 'success'); skill.marketplace_status = 'listed'; }); }} disabled={marketplaceLoading}
+              class="px-4 py-2 text-sm font-semibold bg-rose-500 text-white rounded-xl hover:bg-rose-600 disabled:opacity-50 transition-all duration-200 shadow-sm shadow-rose-500/20 hover:shadow-md hover:shadow-rose-500/30 active:scale-[0.97]">驳回</button>
+          {/if}
+          {#if skill.marketplace_status === 'pending_delist'}
+            <button on:click={() => { api.marketplaceApproveDelist(id).then(() => { addToast('下架已批准', 'success'); skill.marketplace_status = 'delisted'; }); }} disabled={marketplaceLoading}
+              class="px-4 py-2 text-sm font-semibold bg-emerald-500 text-white rounded-xl hover:bg-emerald-600 disabled:opacity-50 transition-all duration-200 shadow-sm shadow-emerald-500/20 hover:shadow-md hover:shadow-emerald-500/30 active:scale-[0.97]">批准下架</button>
+            <button on:click={() => { api.marketplaceRejectDelist(id).then(() => { addToast('下架已驳回', 'success'); skill.marketplace_status = 'listed'; }); }} disabled={marketplaceLoading}
+              class="px-4 py-2 text-sm font-semibold bg-rose-500 text-white rounded-xl hover:bg-rose-600 disabled:opacity-50 transition-all duration-200 shadow-sm shadow-rose-500/20 hover:shadow-md hover:shadow-rose-500/30 active:scale-[0.97]">驳回</button>
+          {/if}
+        {/if}
+
+        </div>
       </div>
     </div>
 

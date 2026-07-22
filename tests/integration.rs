@@ -39,6 +39,9 @@ async fn test_search_add_and_search() {
         reviewed_by: None,
         reviewed_at: None,
         review_comment: None,
+        marketplace_status: None,
+        pre_marketplace_visibility: None,
+        draft_content: None,
     };
 
     search.add_skill(&skill).unwrap();
@@ -81,6 +84,9 @@ async fn test_search_delete() {
         reviewed_by: None,
         reviewed_at: None,
         review_comment: None,
+        marketplace_status: None,
+        pre_marketplace_visibility: None,
+        draft_content: None,
     };
 
     search.add_skill(&skill).unwrap();

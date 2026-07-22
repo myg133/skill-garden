@@ -314,6 +314,13 @@ export const api = {
     });
   },
 
+  updateIdentityStatus(id, disabled) {
+    return request(`/admin/users/${id}/disable`, {
+      method: 'PUT',
+      body: JSON.stringify({ disabled }),
+    });
+  },
+
   deleteIdentity(id) {
     return request(`/admin/identities/${id}`, { method: 'DELETE' });
   },
@@ -806,6 +813,23 @@ export const api = {
 
   marketplaceRejectDelist(skillId) {
     return request(`/admin/marketplace/${skillId}/reject-delist`, { method: 'POST' });
+  },
+
+  // Marketplace update review
+  marketplaceApproveUpdate(skillId) {
+    return request(`/admin/marketplace/${skillId}/approve-update`, { method: 'POST' });
+  },
+
+  marketplaceRejectUpdate(skillId) {
+    return request(`/admin/marketplace/${skillId}/reject-update`, { method: 'POST' });
+  },
+
+  cancelUpdate(skillId) {
+    return request(`/skills/${skillId}/cancel-update`, { method: 'POST' });
+  },
+
+  marketplaceStats() {
+    return request('/admin/marketplace/stats');
   },
 
   // Sandbox

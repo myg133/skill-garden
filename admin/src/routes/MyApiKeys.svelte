@@ -176,7 +176,7 @@
                     <p class="text-sm font-semibold text-gray-800">{key.name}</p>
                   </td>
                   <td class="px-6 py-4">
-                    <code class="text-xs font-mono bg-gray-100 px-2 py-1 rounded text-gray-600">{key.key_id || key.key_prefix || key.id}</code>
+                    <code class="text-xs font-mono bg-gray-100 px-2 py-1 rounded text-gray-800">{key.key_id || key.key_prefix || key.id}</code>
                   </td>
                   <td class="px-6 py-4">
                     <span class="px-2.5 py-1 rounded-full text-xs font-medium {getStatusColor(key.status)}">

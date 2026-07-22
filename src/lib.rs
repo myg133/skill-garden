@@ -186,7 +186,7 @@ impl AppState {
         let identity = services::admin::IdentityService::new(identity_repo.clone());
         let role = services::admin::RoleService::new(role_repo);
         let group = services::admin::GroupService::new(group_repo);
-        let api_key = services::admin::ApiKeyService::new(api_key_repo);
+        let api_key = services::admin::ApiKeyService::new(api_key_repo, identity.clone());
         let audit = services::admin::AuditService::new(audit_log_repo);
 
         let system_role_assignment_repo =

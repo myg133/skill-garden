@@ -110,9 +110,9 @@
       if (tagFilter) params.tag = tagFilter;
 
       // Phase 5-6: Apply context-aware filters
-      // 非管理员的普通用户：始终显示个人 Skill，不受 OrgSwitcher 影响
+      // 非管理员、非市场角色的普通用户：始终显示个人 Skill，不受 OrgSwitcher 影响
       const isAdminUser = $isAdmin || isSuperAdmin;
-      if (!isAdminUser) {
+      if (!isAdminUser && !isMarketplaceRole) {
         params.scope_personal = true;
       } else if (isMarketplaceRole) {
         // Marketplace admin/reviewer: tab-based views
@@ -152,15 +152,14 @@
 
   async function loadMarketStats() {
     try {
-      const [listedRes, pendingRes] = await Promise.all([
-        api.listSkills({ marketplace_status: 'listed', page_size: 1 }).catch(() => ({ total: 0 })),
-        api.listSkills({ marketplace_status: 'pending_review', page_size: 1 }).catch(() => ({ total: 0 })),
-      ]);
+      const stats = await api.marketplaceStats();
       marketStats = {
-        listed: listedRes.total || 0,
-        pending: pendingRes.total || 0,
-        newThisMonth: 0,
-        downloads: 0,
+        listed: stats.listed || 0,
+        pending: stats.pending_review || 0,
+        pendingUpdate: stats.pending_update || 0,
+        pendingDelist: stats.pending_delist || 0,
+        newThisMonth: stats.new_this_month || 0,
+        downloads: stats.total_installs || 0,
       };
     } catch {
       // silently fail for stats
@@ -199,11 +198,26 @@
   }
 
   async function handleDeleteSkill(skill) {
-    // Marketplace-aware confirmation
+    // 上架中的市场 Skill 必须先申请下架，通过审核后才能删除
+    if (skill.marketplace_status === 'listed' || skill.marketplace_status === 'pending_delist') {
+      if (skill.marketplace_status === 'listed') {
+        const reason = prompt(`"${skill.name}" 已上架到市场，需要先申请下架才能删除。\n请输入下架原因（可选）：`);
+        if (reason === null) return;
+        try {
+          await api.requestMarketplaceDelist(skill.id, reason || undefined);
+          addToast(`${skill.name} 下架申请已提交，审核通过后可删除`, 'success');
+          skill.marketplace_status = 'pending_delist';
+        } catch (e) {
+          addToast(`申请下架失败: ${e.message}`, 'error');
+        }
+      } else {
+        addToast(`"${skill.name}" 下架申请审核中，审核通过后可删除`, 'warning');
+      }
+      return;
+    }
+
     let confirmMsg = '';
-    if (skill.marketplace_status === 'listed') {
-      confirmMsg = `"${skill.name}" 已上架到市场。删除后将从市场中移除且不可恢复，确定删除？`;
-    } else if (skill.marketplace_status === 'pending_review') {
+    if (skill.marketplace_status === 'pending_review') {
       confirmMsg = `"${skill.name}" 正在市场审核中。删除将同时取消审核申请，确定删除？`;
     } else if (skill.marketplace_status === 'delisted') {
       confirmMsg = `"${skill.name}" 已从市场下架，删除后将永久移除，确定删除？`;
@@ -521,33 +535,25 @@
   <div class="page-header flex items-center justify-between">
     <div>
       <h1 class="text-[28px] font-extrabold text-gray-800 tracking-tight">
-        {#if !$isAdmin && !isSuperAdmin}
-          My Skills
+        {#if isMarketplaceRole || $isAdmin || isSuperAdmin}
+          Skills
         {:else if inPersonalSpace}
           My Skills
         {:else if currentOrgName}
           {currentOrgName} Skills
-        {:else if isMarketplaceRole && activeTab === 'personal'}
-          My Skills
-        {:else if isSuperAdmin}
-          All Skills
         {:else}
           Skills
         {/if}
       </h1>
       <p class="text-gray-500 text-sm mt-1.5 font-medium">
-        {#if !$isAdmin && !isSuperAdmin}
-          Your personal skill space
+        {#if isMarketplaceRole}
+          Marketplace skill management and personal skills
+        {:else if $isAdmin || isSuperAdmin}
+          All skills across all tenants and organizations
         {:else if inPersonalSpace}
           Your personal skill space
         {:else if currentOrgId}
           Skills in {currentOrgName}
-        {:else if isMarketplaceRole && activeTab === 'marketplace-list'}
-          All marketplace-listed skills
-        {:else if isMarketplaceRole && activeTab === 'personal'}
-          Your personal skills
-        {:else if isSuperAdmin}
-          All skills across all tenants and organizations
         {:else}
           Browse and manage all skills
         {/if}
@@ -744,7 +750,7 @@
               <td class="px-6 py-4">
                 <span class="text-gray-600 text-sm font-semibold">{skill.install_count || 0}</span>
               </td>
-              <td class="px-6 py-4 text-gray-500 text-sm">{skill.created ? new Date(skill.created).toLocaleDateString() : 'N/A'}</td>
+              <td class="px-6 py-4 text-gray-500 text-sm">{(skill.created || skill.created_at) ? new Date(skill.created || skill.created_at).toLocaleDateString() : 'N/A'}</td>
                 <td class="px-6 py-4">
                   <div class="flex items-center gap-1.5">
                     <!-- Submit internal review -->

@@ -213,6 +213,24 @@ pub fn create_api_router(state: ApiState) -> Router<ApiState> {
             "/api/v1/admin/marketplace/:id/reject-delist",
             post(marketplace_reject_delist_handler),
         )
+        // Marketplace update review routes
+        .route(
+            "/api/v1/admin/marketplace/:id/approve-update",
+            post(marketplace_approve_update_handler),
+        )
+        .route(
+            "/api/v1/admin/marketplace/:id/reject-update",
+            post(marketplace_reject_update_handler),
+        )
+        .route(
+            "/api/v1/skills/:id/cancel-update",
+            post(cancel_update_handler),
+        )
+        // Marketplace stats
+        .route(
+            "/api/v1/admin/marketplace/stats",
+            get(marketplace_stats_handler),
+        )
         .route("/api/v1/admin/audit-logs", get(list_audit_logs_handler))
         .route("/api/v1/admin/status", get(get_admin_status_handler))
         // v0.4 multi-tenant routes

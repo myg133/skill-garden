@@ -22,8 +22,6 @@ export const adminNavRoutes = [
     icon: 'users',
     tabs: [
       { href: '/identities', label: 'Identities',    icon: 'identities',    need: 'system:admin:access' },
-      { href: '/profile',    label: 'My Profile',    icon: 'profile',       need: null },
-      { href: '/my-api-keys',label: 'My API Keys',   icon: 'my-api-keys',   need: null },
       { href: '/api-keys',   label: 'API Keys',      icon: 'api-keys',      need: 'system:admin:access' },
     ]
   },
@@ -42,10 +40,18 @@ export const adminNavRoutes = [
     label: 'Content',
     icon: 'skills',
     tabs: [
-      { href: '/marketplace',  label: 'Marketplace',   icon: 'marketplace',   need: null },
       { href: '/skills',       label: 'Skills',        icon: 'skills',        need: null },
       { href: '/review',       label: 'Review',        icon: 'review',        need: null },
       { href: '/marketplace-roles', label: 'Marketplace Roles', icon: 'roles',  need: 'marketplace:role_assign' },
+    ]
+  },
+  {
+    key: 'account',
+    label: 'Account',
+    icon: 'profile',
+    tabs: [
+      { href: '/profile',    label: 'My Profile',    icon: 'profile',       need: null },
+      { href: '/my-api-keys',label: 'My API Keys',   icon: 'my-api-keys',   need: null },
     ]
   },
   {

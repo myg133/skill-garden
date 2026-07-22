@@ -70,6 +70,9 @@ pub struct Skill {
     /// 提交市场前的原始可见性，撤市时恢复
     #[serde(skip_serializing_if = "Option::is_none")]
     pub pre_marketplace_visibility: Option<String>,
+    /// 待审核的更新草稿（JSONB），marketplace_status=pending_update 时有值
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub draft_content: Option<serde_json::Value>,
 }
 
 fn default_owner_type() -> String {
@@ -118,6 +121,7 @@ impl Skill {
             review_comment: None,
             marketplace_status: None,
             pre_marketplace_visibility: None,
+            draft_content: None,
         }
     }
 
@@ -164,6 +168,8 @@ pub struct SkillMetadata {
     /// 提交市场前的原始可见性，撤市时恢复
     #[serde(skip_serializing_if = "Option::is_none")]
     pub pre_marketplace_visibility: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub draft_content: Option<serde_json::Value>,
 }
 
 impl From<&Skill> for SkillMetadata {
@@ -190,6 +196,7 @@ impl From<&Skill> for SkillMetadata {
             review_comment: skill.review_comment.clone(),
             marketplace_status: skill.marketplace_status.clone(),
             pre_marketplace_visibility: skill.pre_marketplace_visibility.clone(),
+            draft_content: skill.draft_content.clone(),
         }
     }
 }

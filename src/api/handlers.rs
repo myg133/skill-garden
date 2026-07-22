@@ -39,6 +39,7 @@ async fn check_skill_perm(
         skill.author_identity_id,
         &skill.status,
         vis_str,
+        skill.marketplace_status.as_deref(),
         action,
     )
     .await
@@ -59,6 +60,7 @@ async fn check_skill_perm_db(
         skill.author_identity_id,
         &skill.status,
         &skill.visibility,
+        skill.marketplace_status.as_deref(),
         action,
     )
     .await
@@ -73,6 +75,7 @@ async fn check_skill_perm_raw(
     author_identity_id: Option<uuid::Uuid>,
     skill_status: &str,
     visibility: &str,
+    marketplace_status: Option<&str>,
     action: crate::services::SkillAction,
 ) -> Result<(), ApiError> {
     let id_id = identity_id.ok_or_else(|| {
@@ -93,6 +96,7 @@ async fn check_skill_perm_raw(
             author_identity_id,
             skill_status,
             visibility,
+            marketplace_status,
             action,
         )
         .await
@@ -1734,6 +1738,17 @@ pub async fn list_skills_handler(
     } else if is_super {
         skills
     } else {
+        // 检查是否为市场管理员（需要看到待审核的市场 Skill）
+        let is_market_admin = if let Some(id_id) = identity_id {
+            state
+                .permission
+                .has_any_system_role(id_id, &["super_admin", "marketplace_admin", "marketplace_reviewer"])
+                .await
+                .unwrap_or(false)
+        } else {
+            false
+        };
+
         skills
             .into_iter()
             .filter(|s| {
@@ -1747,7 +1762,9 @@ pub async fn list_skills_handler(
                 let is_own = s.owner_type == "user"
                     && identity_id.is_some()
                     && (s.owner_id == identity_id || s.author_identity_id == identity_id);
-                is_marketplace_published || is_own
+                // 市场管理员可以看到所有已提交市场的 Skill（任何 marketplace_status）
+                let is_market_admin_visible = is_market_admin && s.marketplace_status.is_some();
+                is_marketplace_published || is_own || is_market_admin_visible
             })
             .collect()
     };
@@ -1911,7 +1928,6 @@ pub async fn update_skill_handler(
     agent_context: AgentContext,
     Json(body): Json<crate::api::models::UpdateSkillBody>,
 ) -> Result<impl IntoResponse, ApiError> {
-    // 权限校验：先检查是否为市场管理员（可编辑任意 Skill 的 tags/content/description）
     let is_market_admin = require_marketplace_admin(&state, &agent_context).await.is_ok();
 
     let skill = state
@@ -1933,6 +1949,64 @@ pub async fn update_skill_handler(
         .await?;
     }
 
+    // 如果当前是市场已上架状态，编辑内容需要走审核流程
+    if skill.marketplace_status.as_deref() == Some("listed")
+        || skill.marketplace_status.as_deref() == Some("pending_update")
+    {
+        use crate::db::repositories::skill::SkillRepository;
+        let pool = state.agent_repo.pool().clone();
+        let skill_repo = SkillRepository::new(pool);
+
+        // 构建 draft_content
+        let mut draft = serde_json::Map::new();
+        if let Some(ref desc) = body.description {
+            draft.insert("description".to_string(), serde_json::Value::String(desc.clone()));
+        }
+        if let Some(ref tags) = body.tags {
+            draft.insert("tags".to_string(), serde_json::json!(tags));
+        }
+        if let Some(ref content) = body.content {
+            draft.insert("content".to_string(), serde_json::Value::String(content.clone()));
+        }
+
+        skill_repo
+            .save_draft_content(&skill_id, &serde_json::Value::Object(draft))
+            .await
+            .map_err(|e| ApiError::BadRequest(format!("Failed to save draft: {}", e)))?;
+
+        if skill.marketplace_status.as_deref() != Some("pending_update") {
+            skill_repo
+                .update_marketplace_status(&skill_id, Some("pending_update"))
+                .await
+                .map_err(|e| ApiError::BadRequest(format!("Failed to set pending_update: {}", e)))?;
+        }
+
+        state
+            .audit_repo
+            .create(crate::db::repositories::audit::NewAuditLog {
+                agent_id: Some(subject),
+                action: "marketplace_update_submitted".to_string(),
+                resource_type: "skill".to_string(),
+                resource_id: Some(skill_id.clone()),
+                details: serde_json::json!({
+                    "skill_name": skill.name,
+                    "marketplace_status": "pending_update",
+                }),
+            })
+            .await
+            .map_err(|e| ApiError::InternalError(e.to_string()))?;
+
+        return Ok((
+            StatusCode::OK,
+            Json(serde_json::json!({
+                "message": "Update submitted for review",
+                "skill_id": skill_id,
+                "marketplace_status": "pending_update",
+            })),
+        ));
+    }
+
+    // 非市场 Skill：直接更新
     let visibility = body.visibility.as_ref().map(|v| match v.as_str() {
         "private" => crate::models::skill_policy::Visibility::Private,
         "org_visible" => crate::models::skill_policy::Visibility::OrgVisible,
@@ -1956,10 +2030,12 @@ pub async fn update_skill_handler(
         .await
         .map_err(|e| ApiError::BadRequest(format!("Failed to update skill: {}", e)))?;
 
-    let response = crate::api::models::MessageResponse {
-        message: "Skill updated successfully".to_string(),
-    };
-    Ok((StatusCode::OK, Json(response)))
+    Ok((
+        StatusCode::OK,
+        Json(serde_json::json!({
+            "message": "Skill updated successfully",
+        })),
+    ))
 }
 
 pub async fn delete_skill_handler(
@@ -1981,10 +2057,12 @@ pub async fn delete_skill_handler(
     )
     .await?;
 
-    // 上架中的市场 Skill 不允许直接删除，必须先下架
-    if skill.marketplace_status.as_deref() == Some("listed") {
+    // 市场 Skill 在上架中或等待下架审核期间不允许删除
+    if skill.marketplace_status.as_deref() == Some("listed")
+        || skill.marketplace_status.as_deref() == Some("pending_delist")
+    {
         return Err(ApiError::BadRequest(
-            "Cannot delete a listed marketplace skill. Please delist it first.".to_string(),
+            "Cannot delete this marketplace skill. Please delist it first.".to_string(),
         ));
     }
 
@@ -2272,6 +2350,14 @@ pub async fn user_login_handler(
         .await
         .map_err(|e| ApiError::Unauthorized(format!("Authentication error: {}", e)))?
         .ok_or_else(|| ApiError::Unauthorized("Invalid credentials".to_string()))?;
+
+    // 检查账号状态
+    if user.status != crate::models::identity::IdentityStatus::Active {
+        return Err(ApiError::Unauthorized(format!(
+            "Account is {}. Please contact administrator.",
+            user.status
+        )));
+    }
 
     // 获取用户所在组织
     let orgs = state
@@ -2749,7 +2835,6 @@ pub async fn get_user_orgs_handler(
             group_roles: Vec::new(),
         });
 
-    let is_super_admin = perm_ctx.system_roles.contains("super_admin");
     let tenant_admin_ids: Vec<uuid::Uuid> = perm_ctx
         .tenant_roles
         .iter()
@@ -2759,23 +2844,8 @@ pub async fn get_user_orgs_handler(
 
     let mut result_set: std::collections::HashMap<uuid::Uuid, crate::api::models::UserOrgResponse> = std::collections::HashMap::new();
 
-    if is_super_admin {
-        // super_admin sees all orgs
-        let orgs = state
-            .organization
-            .list_orgs(1000, 0)
-            .await
-            .map_err(|e| ApiError::BadRequest(format!("Failed to list orgs: {}", e)))?;
-        for o in orgs {
-            result_set.entry(o.id).or_insert(crate::api::models::UserOrgResponse {
-                id: o.id,
-                name: o.name,
-                slug: o.slug,
-                role: "admin".to_string(),
-            });
-        }
-    } else {
-        // Add personal org memberships
+    // Add personal org memberships（所有用户，包括 super_admin，只看自己加入的组织）
+    {
         let user_orgs = state
             .permission
             .get_user_orgs(uuid_id)
@@ -2806,6 +2876,7 @@ pub async fn get_user_orgs_handler(
                 });
             }
         }
+
     }
 
     let mut result: Vec<crate::api::models::UserOrgResponse> = result_set.into_values().collect();
@@ -7344,13 +7415,20 @@ pub async fn request_marketplace_delist_handler(
         ));
     }
 
-    // 设置 marketplace_status = pending_delist
+    // 设置 marketplace_status = pending_delist，同时保存下架原因到 review_comment
     skill_repo
         .update_marketplace_status(&skill_id, Some("pending_delist"))
         .await
         .map_err(|e| {
             ApiError::BadRequest(format!("Failed to request delist: {}", e))
         })?;
+
+    if let Some(ref reason) = body.reason {
+        skill_repo
+            .update_status(&skill_id, &skill.status, None, Some(reason))
+            .await
+            .map_err(|e| ApiError::BadRequest(format!("Failed to save delist reason: {}", e)))?;
+    }
 
     state
         .audit_repo
@@ -7502,6 +7580,282 @@ pub async fn marketplace_reject_delist_handler(
             "message": "Delist request rejected, skill remains listed".to_string(),
             "skill_id": skill_id,
             "marketplace_status": "listed",
+        })),
+    ))
+}
+
+// ============================================================================
+// Marketplace Update Review Workflow (pending_update)
+// ============================================================================
+
+/// POST /api/v1/admin/marketplace/:id/approve-update — 批准内容更新
+pub async fn marketplace_approve_update_handler(
+    State(state): State<ApiState>,
+    Path(skill_id): Path<String>,
+    agent_context: AgentContext,
+) -> Result<impl IntoResponse, ApiError> {
+    require_marketplace_admin(&state, &agent_context).await?;
+    let _ = agent_context.require_identity()?;
+
+    use crate::db::repositories::skill::SkillRepository;
+    let pool = state.agent_repo.pool().clone();
+    let skill_repo = SkillRepository::new(pool);
+
+    let skill = skill_repo
+        .find_by_id(&skill_id)
+        .await
+        .map_err(|e| ApiError::BadRequest(e.to_string()))?
+        .ok_or_else(|| ApiError::NotFound(format!("Skill {} not found", skill_id)))?;
+
+    if skill.marketplace_status.as_deref() != Some("pending_update") {
+        return Err(ApiError::BadRequest(
+            "Skill is not pending update review".to_string(),
+        ));
+    }
+
+    let draft = skill.draft_content.ok_or_else(|| {
+        ApiError::BadRequest("No draft content to apply".to_string())
+    })?;
+
+    // 应用 draft 到主字段
+    skill_repo
+        .apply_draft_content(&skill_id, &draft)
+        .await
+        .map_err(|e| ApiError::BadRequest(format!("Failed to apply update: {}", e)))?;
+
+    // 恢复 marketplace_status = listed
+    skill_repo
+        .update_marketplace_status(&skill_id, Some("listed"))
+        .await
+        .map_err(|e| ApiError::BadRequest(format!("Failed to restore listed status: {}", e)))?;
+
+    // 更新搜索索引
+    if let Ok(updated) = state.registry.get_skill(&skill_id).await {
+        if let Err(e) = state.search.update_skill(&updated) {
+            tracing::warn!("Failed to update search index for {}: {}", skill_id, e);
+        }
+    }
+
+    state
+        .audit_repo
+        .create(crate::db::repositories::audit::NewAuditLog {
+            agent_id: Some(agent_context.subject),
+            action: "marketplace_update_approved".to_string(),
+            resource_type: "skill".to_string(),
+            resource_id: Some(skill_id.clone()),
+            details: serde_json::json!({
+                "skill_name": skill.name,
+                "new_marketplace_status": "listed",
+            }),
+        })
+        .await
+        .map_err(|e| ApiError::InternalError(e.to_string()))?;
+
+    Ok((
+        StatusCode::OK,
+        Json(serde_json::json!({
+            "message": "Update approved and applied".to_string(),
+            "skill_id": skill_id,
+            "marketplace_status": "listed",
+        })),
+    ))
+}
+
+/// POST /api/v1/admin/marketplace/:id/reject-update — 驳回内容更新
+pub async fn marketplace_reject_update_handler(
+    State(state): State<ApiState>,
+    Path(skill_id): Path<String>,
+    agent_context: AgentContext,
+) -> Result<impl IntoResponse, ApiError> {
+    require_marketplace_admin(&state, &agent_context).await?;
+    let _ = agent_context.require_identity()?;
+
+    use crate::db::repositories::skill::SkillRepository;
+    let pool = state.agent_repo.pool().clone();
+    let skill_repo = SkillRepository::new(pool);
+
+    let skill = skill_repo
+        .find_by_id(&skill_id)
+        .await
+        .map_err(|e| ApiError::BadRequest(e.to_string()))?
+        .ok_or_else(|| ApiError::NotFound(format!("Skill {} not found", skill_id)))?;
+
+    if skill.marketplace_status.as_deref() != Some("pending_update") {
+        return Err(ApiError::BadRequest(
+            "Skill is not pending update review".to_string(),
+        ));
+    }
+
+    // 清空 draft，恢复 listed
+    skill_repo
+        .clear_draft_content(&skill_id)
+        .await
+        .map_err(|e| ApiError::BadRequest(format!("Failed to clear draft: {}", e)))?;
+
+    skill_repo
+        .update_marketplace_status(&skill_id, Some("listed"))
+        .await
+        .map_err(|e| ApiError::BadRequest(format!("Failed to restore listed status: {}", e)))?;
+
+    state
+        .audit_repo
+        .create(crate::db::repositories::audit::NewAuditLog {
+            agent_id: Some(agent_context.subject),
+            action: "marketplace_update_rejected".to_string(),
+            resource_type: "skill".to_string(),
+            resource_id: Some(skill_id.clone()),
+            details: serde_json::json!({
+                "skill_name": skill.name,
+                "new_marketplace_status": "listed",
+            }),
+        })
+        .await
+        .map_err(|e| ApiError::InternalError(e.to_string()))?;
+
+    Ok((
+        StatusCode::OK,
+        Json(serde_json::json!({
+            "message": "Update rejected, skill remains listed".to_string(),
+            "skill_id": skill_id,
+            "marketplace_status": "listed",
+        })),
+    ))
+}
+
+/// POST /api/v1/skills/:id/cancel-update — 作者取消更新草稿
+pub async fn cancel_update_handler(
+    State(state): State<ApiState>,
+    Path(skill_id): Path<String>,
+    agent_context: AgentContext,
+) -> Result<impl IntoResponse, ApiError> {
+    use crate::db::repositories::skill::SkillRepository;
+    let pool = state.agent_repo.pool().clone();
+    let skill_repo = SkillRepository::new(pool);
+
+    let identity_id = agent_context.require_identity()?;
+
+    let skill = skill_repo
+        .find_by_id(&skill_id)
+        .await
+        .map_err(|e| ApiError::BadRequest(e.to_string()))?
+        .ok_or_else(|| ApiError::NotFound(format!("Skill {} not found", skill_id)))?;
+
+    // 只有作者可以取消
+    let is_owner = skill.owner_type == "user"
+        && (skill.owner_id == Some(identity_id)
+            || skill.author_identity_id == Some(identity_id));
+    if !is_owner && skill.owner_type == "organization" {
+        // 组织成员检查稍后在下面
+    }
+    if !is_owner && skill.owner_type == "user" {
+        return Err(ApiError::Unauthorized(
+            "Only the skill owner can cancel updates".to_string(),
+        ));
+    }
+
+    if skill.marketplace_status.as_deref() != Some("pending_update") {
+        return Err(ApiError::BadRequest(
+            "Skill is not pending update review".to_string(),
+        ));
+    }
+
+    skill_repo
+        .clear_draft_content(&skill_id)
+        .await
+        .map_err(|e| ApiError::BadRequest(format!("Failed to clear draft: {}", e)))?;
+
+    skill_repo
+        .update_marketplace_status(&skill_id, Some("listed"))
+        .await
+        .map_err(|e| ApiError::BadRequest(format!("Failed to restore listed status: {}", e)))?;
+
+    state
+        .audit_repo
+        .create(crate::db::repositories::audit::NewAuditLog {
+            agent_id: Some(agent_context.subject),
+            action: "marketplace_update_cancelled".to_string(),
+            resource_type: "skill".to_string(),
+            resource_id: Some(skill_id.clone()),
+            details: serde_json::json!({
+                "skill_name": skill.name,
+                "new_marketplace_status": "listed",
+            }),
+        })
+        .await
+        .map_err(|e| ApiError::InternalError(e.to_string()))?;
+
+    Ok((
+        StatusCode::OK,
+        Json(serde_json::json!({
+            "message": "Update cancelled, skill remains listed".to_string(),
+            "skill_id": skill_id,
+            "marketplace_status": "listed",
+        })),
+    ))
+}
+
+/// GET /api/v1/admin/marketplace/stats — 市场统计（市场管理员/审核员可访问）
+pub async fn marketplace_stats_handler(
+    State(state): State<ApiState>,
+    agent_context: AgentContext,
+) -> Result<impl IntoResponse, ApiError> {
+    require_marketplace_admin(&state, &agent_context).await?;
+
+    let pool = state.agent_repo.pool();
+
+    let listed = sqlx::query_scalar::<_, i64>(
+        "SELECT COUNT(*) FROM skills WHERE marketplace_status = 'listed'",
+    )
+    .fetch_one(pool)
+    .await
+    .unwrap_or(0);
+
+    let pending_review = sqlx::query_scalar::<_, i64>(
+        "SELECT COUNT(*) FROM skills WHERE marketplace_status = 'pending_review'",
+    )
+    .fetch_one(pool)
+    .await
+    .unwrap_or(0);
+
+    let pending_update = sqlx::query_scalar::<_, i64>(
+        "SELECT COUNT(*) FROM skills WHERE marketplace_status = 'pending_update'",
+    )
+    .fetch_one(pool)
+    .await
+    .unwrap_or(0);
+
+    let pending_delist = sqlx::query_scalar::<_, i64>(
+        "SELECT COUNT(*) FROM skills WHERE marketplace_status = 'pending_delist'",
+    )
+    .fetch_one(pool)
+    .await
+    .unwrap_or(0);
+
+    // 本月新增（listed 且 created_at 在本月）
+    let new_this_month = sqlx::query_scalar::<_, i64>(
+        "SELECT COUNT(*) FROM skills WHERE marketplace_status = 'listed' AND created_at >= date_trunc('month', NOW())",
+    )
+    .fetch_one(pool)
+    .await
+    .unwrap_or(0);
+
+    // 总安装次数（listed 的 skill）
+    let total_installs = sqlx::query_scalar::<_, i64>(
+        "SELECT COALESCE(SUM(install_count), 0) FROM skills WHERE marketplace_status = 'listed'",
+    )
+    .fetch_one(pool)
+    .await
+    .unwrap_or(0);
+
+    Ok((
+        StatusCode::OK,
+        Json(serde_json::json!({
+            "listed": listed,
+            "pending_review": pending_review,
+            "pending_update": pending_update,
+            "pending_delist": pending_delist,
+            "new_this_month": new_this_month,
+            "total_installs": total_installs,
         })),
     ))
 }

@@ -204,7 +204,7 @@
                 {/if}
               </td>
               <td class="px-6 py-4">
-                <code class="text-xs font-mono bg-gray-100 px-2 py-1 rounded">{key.key_prefix}***</code>
+                <code class="text-xs font-mono bg-gray-100 px-2 py-1 rounded text-gray-800">{key.key_prefix}***</code>
               </td>
               <td class="px-6 py-4">
                 <span class="px-2.5 py-1 rounded-full text-xs font-medium {getStatusColor(key.status)}">

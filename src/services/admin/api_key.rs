@@ -6,12 +6,15 @@ use crate::models::api_key::{
     UserCreateApiKeyRequest,
 };
 use crate::models::error::AppError;
+use crate::models::identity::IdentityStatus;
+use crate::services::admin::identity::IdentityService;
 use sha2::{Digest, Sha256};
 use uuid::Uuid;
 
 #[derive(Clone)]
 pub struct ApiKeyService {
     repo: ApiKeyRepository,
+    identity: IdentityService,
 }
 
 impl std::fmt::Debug for ApiKeyService {
@@ -21,8 +24,8 @@ impl std::fmt::Debug for ApiKeyService {
 }
 
 impl ApiKeyService {
-    pub fn new(repo: ApiKeyRepository) -> Self {
-        Self { repo }
+    pub fn new(repo: ApiKeyRepository, identity: IdentityService) -> Self {
+        Self { repo, identity }
     }
 
     pub async fn create(&self, request: CreateApiKeyRequest) -> Result<ApiKeyResponse, AppError> {
@@ -62,30 +65,40 @@ impl ApiKeyService {
     }
 
     /// 验证 API Key 明文，返回对应的 ApiKey 记录
-    /// 如果 key 无效、已禁用、已撤销或已过期则返回 None
+    /// 如果 key 无效、已禁用、已撤销、已过期，或关联 identity 被禁用则返回 None
     pub async fn validate(&self, key: &str) -> Result<Option<ApiKey>, AppError> {
         let key_hash = self.hash_key(key);
         let now = chrono::Utc::now();
 
-        self.repo
+        let result = self
+            .repo
             .find_by_key_hash(&key_hash)
             .await
-            .map_err(|e| AppError::InternalError(e.to_string()))
-            .map(|opt| {
-                opt.filter(|k| {
-                    // 状态必须是 active（禁用和撤销都会被拒绝）
-                    if !matches!(k.status, crate::models::api_key::ApiKeyStatus::Active) {
+            .map_err(|e| AppError::InternalError(e.to_string()))?
+            .filter(|k| {
+                if !matches!(k.status, crate::models::api_key::ApiKeyStatus::Active) {
+                    return false;
+                }
+                if let Some(ref expires_at) = k.expires_at {
+                    if *expires_at < now {
                         return false;
                     }
-                    // 过期时间比较：expires_at 不为空且已过期 → 拒绝
-                    if let Some(ref expires_at) = k.expires_at {
-                        if *expires_at < now {
-                            return false;
-                        }
-                    }
-                    true
-                })
-            })
+                }
+                true
+            });
+
+        // 检查关联 identity 的状态
+        if let Some(ref api_key) = result {
+            let identity = self.identity.get(api_key.identity_id).await
+                .map_err(|e| AppError::InternalError(e.to_string()))?;
+            if let Some(id) = identity {
+                if id.status != IdentityStatus::Active {
+                    return Ok(None);
+                }
+            }
+        }
+
+        Ok(result)
     }
 
     /// 更新 API Key 的最后使用时间

@@ -151,6 +151,7 @@ impl RegistryService {
             review_comment: db_skill.review_comment,
             marketplace_status: db_skill.marketplace_status,
             pre_marketplace_visibility: db_skill.pre_marketplace_visibility,
+            draft_content: db_skill.draft_content,
         };
         search.add_skill(&skill)?;
 
@@ -390,6 +391,7 @@ impl RegistryService {
             review_comment: db_skill.review_comment,
             marketplace_status: db_skill.marketplace_status,
             pre_marketplace_visibility: db_skill.pre_marketplace_visibility,
+            draft_content: db_skill.draft_content,
         };
         Ok(skill)
     }
@@ -567,6 +569,7 @@ impl RegistryService {
                 review_comment: m.review_comment,
                 marketplace_status: m.marketplace_status,
                 pre_marketplace_visibility: m.pre_marketplace_visibility,
+                draft_content: m.draft_content,
             })
             .collect())
     }
@@ -673,6 +676,7 @@ impl RegistryService {
                 review_comment: m.review_comment,
                 marketplace_status: m.marketplace_status,
                 pre_marketplace_visibility: m.pre_marketplace_visibility,
+                draft_content: m.draft_content,
             })
             .collect())
     }
@@ -878,6 +882,7 @@ dependencies: [{}]
             review_comment: meta.review_comment.clone(),
             marketplace_status: meta.marketplace_status.clone(),
             pre_marketplace_visibility: meta.pre_marketplace_visibility.clone(),
+            draft_content: None,
         })
     }
 
@@ -928,6 +933,7 @@ dependencies: [{}]
                                     review_comment: None,
                                     marketplace_status: None,
                                     pre_marketplace_visibility: None,
+                                    draft_content: None,
                                 },
                             ) {
                                 if !existing_ids.contains(&skill.id) {

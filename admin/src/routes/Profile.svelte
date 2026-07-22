@@ -275,38 +275,36 @@
         </div>
       </div>
 
+      {#if userOrgs.length > 0}
       <div class="space-y-6">
         <div class="bg-white rounded-2xl border border-gray-200 shadow-card">
           <div class="px-6 py-5 border-b border-emerald-100/60">
             <h2 class="font-semibold text-gray-800 text-sm">My Organizations ({userOrgs.length})</h2>
           </div>
           <div class="p-4">
-            {#if userOrgs.length === 0}
-              <p class="text-gray-400 text-sm text-center py-4">No organizations yet</p>
-            {:else}
-              <div class="space-y-3">
-                {#each userOrgs as org (org.id)}
-                  <a
-                    href={"/organizations/" + org.id}
-                    class="flex items-center gap-3 p-3 rounded-xl hover:bg-gray-50 transition-all group"
-                  >
-                    <div class="w-9 h-9 rounded-xl bg-blue-600 flex items-center justify-center text-white text-xs font-bold shadow-glow flex-shrink-0 group-hover:scale-105 transition-transform">
-                      {org.name[0]?.toUpperCase() || '?'}
-                    </div>
-                    <div class="flex-1 min-w-0">
-                      <p class="text-gray-800 font-semibold text-sm truncate">{org.name}</p>
-                      <p class="text-gray-400 text-xs truncate">{org.slug || '—'}</p>
-                    </div>
-                    <span class="px-2 py-1 rounded-full text-xs font-medium {getRoleColor(org.role)}">
-                      {org.role}
-                    </span>
-                  </a>
-                {/each}
-              </div>
-            {/if}
+            <div class="space-y-3">
+              {#each userOrgs as org (org.id)}
+                <a
+                  href={"/organizations/" + org.id}
+                  class="flex items-center gap-3 p-3 rounded-xl hover:bg-gray-50 transition-all group"
+                >
+                  <div class="w-9 h-9 rounded-xl bg-blue-600 flex items-center justify-center text-white text-xs font-bold shadow-glow flex-shrink-0 group-hover:scale-105 transition-transform">
+                    {org.name[0]?.toUpperCase() || '?'}
+                  </div>
+                  <div class="flex-1 min-w-0">
+                    <p class="text-gray-800 font-semibold text-sm truncate">{org.name}</p>
+                    <p class="text-gray-400 text-xs truncate">{org.slug || '—'}</p>
+                  </div>
+                  <span class="px-2 py-1 rounded-full text-xs font-medium {getRoleColor(org.role)}">
+                    {org.role}
+                  </span>
+                </a>
+              {/each}
+            </div>
           </div>
         </div>
       </div>
+      {/if}
     </div>
   {/if}
 </div>

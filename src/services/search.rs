@@ -304,6 +304,7 @@ mod tests {
             review_comment: None,
             marketplace_status: None,
             pre_marketplace_visibility: None,
+            draft_content: None,
         }
     }
 
