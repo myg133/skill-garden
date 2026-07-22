@@ -53,6 +53,7 @@ secrets/
 .gemini/
 .agents/
 .sisyphus/
+.codebuddy/
 
 # Rust
 **/*.rs.bk
