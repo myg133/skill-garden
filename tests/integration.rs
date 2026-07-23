@@ -46,7 +46,7 @@ async fn test_search_add_and_search() {
 
     search.add_skill(&skill).unwrap();
 
-    let results = search.search("searching", None, 10).unwrap();
+    let results = search.search("searching", None, 10, None).unwrap();
     assert!(
         !results.is_empty(),
         "Expected results for 'searching' query"
@@ -91,12 +91,12 @@ async fn test_search_delete() {
 
     search.add_skill(&skill).unwrap();
 
-    let results = search.search("temporary", None, 10).unwrap();
+    let results = search.search("temporary", None, 10, None).unwrap();
     assert!(!results.is_empty(), "Expected results before delete");
 
     search.delete_skill("skill-del-v1").unwrap();
 
-    let results = search.search("temporary", None, 10).unwrap();
+    let results = search.search("temporary", None, 10, None).unwrap();
     assert!(results.is_empty(), "Expected no results after delete");
 }
 

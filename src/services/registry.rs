@@ -150,7 +150,10 @@ impl RegistryService {
             pre_marketplace_visibility: db_skill.pre_marketplace_visibility,
             draft_content: db_skill.draft_content,
         };
-        search.add_skill(&skill)?;
+        // 只索引已发布的 skill（draft/pending_review 等不可被搜索）
+        if skill.status == "published" {
+            search.add_skill(&skill)?;
+        }
 
         info!("Created skill: {}", skill.id);
 
@@ -284,8 +287,14 @@ impl RegistryService {
         }
         self.save_index(&index)?;
 
-        // 更新搜索索引
-        search.update_skill(&skill)?;
+        // 更新搜索索引（published 则添加/更新，非 published 则移除）
+        if skill.status == "published" {
+            search.update_skill(&skill)?;
+        } else {
+            if let Err(e) = search.delete_skill(skill_id) {
+                tracing::warn!("Failed to remove skill {} from search index: {}", skill_id, e);
+            }
+        }
 
         info!("Updated skill: {} (file index)", skill_id);
 
@@ -326,8 +335,14 @@ impl RegistryService {
 
         // 重新从数据库读取完整信息并重建搜索索引
         let updated = self.get_skill(skill_id).await?;
-        if let Err(e) = search.update_skill(&updated) {
-            tracing::warn!("Failed to update search index for {}: {}", skill_id, e);
+        if updated.status == "published" {
+            if let Err(e) = search.update_skill(&updated) {
+                tracing::warn!("Failed to update search index for {}: {}", skill_id, e);
+            }
+        } else {
+            if let Err(e) = search.delete_skill(skill_id) {
+                tracing::warn!("Failed to remove skill {} from search index: {}", skill_id, e);
+            }
         }
 
         info!("Updated skill: {} (DB fallback)", skill_id);
@@ -386,6 +401,52 @@ impl RegistryService {
             draft_content: db_skill.draft_content,
         };
         Ok(skill)
+    }
+
+    /// 批量加载 skill 元数据（仅过滤字段，不含 content，用于搜索结果的可见性过滤）
+    pub async fn get_skills_meta_batch(&self, ids: &[&str]) -> Result<Vec<SkillMetadata>, AppError> {
+        let rows = self.skill_repo.find_meta_by_ids(ids).await.map_err(|e| {
+            AppError::InternalError(format!("Failed to batch load skill metadata: {}", e))
+        })?;
+        // 批量加载 tags（一次 IN 查询比 N 次单独查询高效，但简化起见逐个加载）
+        let mut skill_tags = std::collections::HashMap::new();
+        for row in &rows {
+            if let Ok(tags) = self.skill_repo.get_tags(&row.id).await {
+                skill_tags.insert(row.id.clone(), tags);
+            }
+        }
+        Ok(rows.into_iter().map(|row| {
+            let tags = skill_tags.get(&row.id).cloned().unwrap_or_default();
+            SkillMetadata {
+                id: row.id,
+                name: row.name,
+                description: row.description,
+                version: row.version,
+                author_agent_id: row.author_agent_id,
+                author_identity_id: row.author_identity_id,
+                author_name: row.author_name,
+                owner_type: row.owner_type,
+                owner_id: row.owner_id,
+                created: row.created_at,
+                updated: row.updated_at,
+                install_count: row.install_count as u32,
+                status: row.status,
+                git_url: row.git_url,
+                visibility: match row.visibility.as_str() {
+                    "private" => crate::models::skill_policy::Visibility::Private,
+                    "shared" => crate::models::skill_policy::Visibility::Shared,
+                    "marketplace" => crate::models::skill_policy::Visibility::Marketplace,
+                    _ => crate::models::skill_policy::Visibility::OrgVisible,
+                },
+                reviewed_by: row.reviewed_by,
+                reviewed_at: row.reviewed_at,
+                review_comment: row.review_comment,
+                marketplace_status: row.marketplace_status,
+                pre_marketplace_visibility: row.pre_marketplace_visibility,
+                draft_content: row.draft_content,
+                tags,
+            }
+        }).collect())
     }
 
     /// 获取 Skill 安装信息，返回下载链接而非文件内容

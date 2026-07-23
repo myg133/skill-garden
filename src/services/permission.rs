@@ -282,12 +282,62 @@ impl PermissionService {
                 }
                 Err("无权访问此 Skill".to_string())
             }
-            SkillAction::Update | SkillAction::SubmitReview => {
+            SkillAction::Update => {
                 // 个人所有者可写
                 if is_owner {
                     return Ok(());
                 }
-                // 组织 Developer 及以上可写
+                // 组织 Skill：Admin+ 可编辑任何，Developer 可编辑自己创建的（RBAC own scope）
+                if skill_owner_type == "organization" {
+                    if let Some(org_id) = skill_owner_id {
+                        match self.get_org_role(identity_id, org_id).await {
+                            Ok(Some(role)) if role >= OrgRole::Admin => return Ok(()),
+                            Ok(Some(role)) if role >= OrgRole::Developer => {
+                                // Developer own scope：只能编辑自己创建的
+                                if skill_author_identity_id == Some(identity_id) {
+                                    return Ok(());
+                                }
+                            }
+                            Ok(Some(role)) => {
+                                tracing::warn!(
+                                    identity_id = %identity_id,
+                                    org_id = %org_id,
+                                    role = %role,
+                                    "Update denied: role too low (need >= Developer)"
+                                );
+                            }
+                            Ok(None) => {
+                                tracing::warn!(
+                                    identity_id = %identity_id,
+                                    org_id = %org_id,
+                                    "Update denied: user is not a member of this org"
+                                );
+                            }
+                            Err(e) => {
+                                tracing::error!(
+                                    identity_id = %identity_id,
+                                    org_id = %org_id,
+                                    error = %e,
+                                    "Failed to get org role for Update permission"
+                                );
+                            }
+                        }
+                    }
+                } else {
+                    tracing::warn!(
+                        identity_id = %identity_id,
+                        owner_type = %skill_owner_type,
+                        "Update denied: skill owner_type is not 'user' or 'organization'"
+                    );
+                }
+                Err("无权修改此 Skill".to_string())
+            }
+            SkillAction::SubmitReview => {
+                // 个人所有者可提交审核
+                if is_owner {
+                    return Ok(());
+                }
+                // 组织 Developer 及以上可提交审核（RBAC: Developer+, org scope）
                 if skill_owner_type == "organization" {
                     if let Some(org_id) = skill_owner_id {
                         match self.get_org_role(identity_id, org_id).await {
@@ -297,14 +347,14 @@ impl PermissionService {
                                     identity_id = %identity_id,
                                     org_id = %org_id,
                                     role = %role,
-                                    "Update/SubmitReview denied: role too low (need >= Developer)"
+                                    "SubmitReview denied: role too low (need >= Developer)"
                                 );
                             }
                             Ok(None) => {
                                 tracing::warn!(
                                     identity_id = %identity_id,
                                     org_id = %org_id,
-                                    "Update/SubmitReview denied: user is not a member of this org"
+                                    "SubmitReview denied: user is not a member of this org"
                                 );
                             }
                             Err(e) => {
@@ -312,7 +362,7 @@ impl PermissionService {
                                     identity_id = %identity_id,
                                     org_id = %org_id,
                                     error = %e,
-                                    "Failed to get org role for Update/SubmitReview permission"
+                                    "Failed to get org role for SubmitReview permission"
                                 );
                             }
                         }
@@ -320,28 +370,34 @@ impl PermissionService {
                         tracing::warn!(
                             identity_id = %identity_id,
                             owner_type = %skill_owner_type,
-                            "Update/SubmitReview denied: organization skill has no owner_id"
+                            "SubmitReview denied: organization skill has no owner_id"
                         );
                     }
                 } else {
                     tracing::warn!(
                         identity_id = %identity_id,
                         owner_type = %skill_owner_type,
-                        "Update/SubmitReview denied: skill owner_type is not 'user' or 'organization'"
+                        "SubmitReview denied: skill owner_type is not 'user' or 'organization'"
                     );
                 }
-                Err("无权修改此 Skill".to_string())
+                Err("无权提交审核".to_string())
             }
             SkillAction::Delete => {
                 // 个人所有者可删除
                 if is_owner {
                     return Ok(());
                 }
-                // 组织 Admin 及以上可删除
+                // 组织 Skill：Admin+ 可删除任何，Developer 可删除自己创建的（RBAC own scope）
                 if skill_owner_type == "organization" {
                     if let Some(org_id) = skill_owner_id {
                         match self.get_org_role(identity_id, org_id).await {
                             Ok(Some(role)) if role >= OrgRole::Admin => return Ok(()),
+                            Ok(Some(role)) if role >= OrgRole::Developer => {
+                                // Developer own scope：只能删除自己创建的
+                                if skill_author_identity_id == Some(identity_id) {
+                                    return Ok(());
+                                }
+                            }
                             Ok(_) => {}
                             Err(e) => {
                                 tracing::error!(

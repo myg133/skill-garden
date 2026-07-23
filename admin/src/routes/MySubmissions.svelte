@@ -150,7 +150,7 @@
               {#each filteredSkills as skill}
                 <tr class="border-b border-gray-50 hover:bg-gray-50/50 transition-colors">
                   <td class="px-6 py-3.5">
-                    <Link to="/user/skills/{skill.id}" class="text-sm font-medium text-indigo-600 hover:text-indigo-700">{skill.name || 'Unnamed'}</Link>
+                    <Link to="/user/skills/{skill.id}?from=submissions" class="text-sm font-medium text-indigo-600 hover:text-indigo-700">{skill.name || 'Unnamed'}</Link>
                   </td>
                   <td class="px-6 py-3.5 text-xs text-gray-500">v{skill.version || '0.1.0'}</td>
                   <td class="px-6 py-3.5">
@@ -195,7 +195,7 @@
                         <span class="text-[10px] text-amber-500 italic">Awaiting review</span>
                       {/if}
                       {#if skill.status === 'published'}
-                        <Link to="/user/skills/{skill.id}" class="text-xs text-indigo-600 hover:text-indigo-700 font-medium">
+                        <Link to="/user/skills/{skill.id}?from=submissions" class="text-xs text-indigo-600 hover:text-indigo-700 font-medium">
                           View
                         </Link>
                       {/if}

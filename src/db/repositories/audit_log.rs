@@ -61,6 +61,7 @@ impl AuditLogRepository {
         tenant_id: Option<Uuid>,
         organization_id: Option<Uuid>,
         identity_id: Option<Uuid>,
+        identity_ids: Option<&[Uuid]>,
         action: Option<&str>,
         resource_type: Option<&str>,
         limit: i64,
@@ -79,15 +80,17 @@ impl AuditLogRepository {
             WHERE ($1::uuid IS NULL OR ale.tenant_id = $1)
               AND ($2::uuid IS NULL OR ale.organization_id = $2)
               AND ($3::uuid IS NULL OR ale.identity_id = $3)
-              AND ($4::text IS NULL OR ale.action = $4)
-              AND ($5::text IS NULL OR ale.resource_type = $5)
+              AND ($4::uuid[] IS NULL OR ale.identity_id = ANY($4::uuid[]))
+              AND ($5::text IS NULL OR ale.action = $5)
+              AND ($6::text IS NULL OR ale.resource_type = $6)
             ORDER BY ale.created_at DESC
-            LIMIT $6 OFFSET $7
+            LIMIT $7 OFFSET $8
             "#,
         )
         .bind(&tenant_id)
         .bind(&organization_id)
         .bind(&identity_id)
+        .bind(identity_ids)
         .bind(&action)
         .bind(&resource_type)
         .bind(limit)
@@ -104,6 +107,7 @@ impl AuditLogRepository {
         tenant_id: Option<Uuid>,
         organization_id: Option<Uuid>,
         identity_id: Option<Uuid>,
+        identity_ids: Option<&[Uuid]>,
         action: Option<&str>,
         resource_type: Option<&str>,
     ) -> DbResult<i64> {
@@ -113,13 +117,15 @@ impl AuditLogRepository {
             WHERE ($1::uuid IS NULL OR tenant_id = $1)
               AND ($2::uuid IS NULL OR organization_id = $2)
               AND ($3::uuid IS NULL OR identity_id = $3)
-              AND ($4::text IS NULL OR action = $4)
-              AND ($5::text IS NULL OR resource_type = $5)
+              AND ($4::uuid[] IS NULL OR identity_id = ANY($4::uuid[]))
+              AND ($5::text IS NULL OR action = $5)
+              AND ($6::text IS NULL OR resource_type = $6)
             "#,
         )
         .bind(&tenant_id)
         .bind(&organization_id)
         .bind(&identity_id)
+        .bind(identity_ids)
         .bind(&action)
         .bind(&resource_type)
         .fetch_one(&self.pool)
@@ -127,6 +133,31 @@ impl AuditLogRepository {
         .map_err(|e| DbError::QueryError(e.to_string()))?;
 
         Ok(row.0)
+    }
+
+    /// 给定一组 tenant_id，返回这些租户下所有 organization 内的 identity_id 去重列表。
+    /// 路径：tenants -> organizations -> org_memberships -> identities
+    /// 用于审计读路径：在写日志尚未补齐 tenant_id 时，按 identity 反查回退。
+    pub async fn list_identity_ids_by_tenants(
+        &self,
+        tenant_ids: &[Uuid],
+    ) -> DbResult<Vec<Uuid>> {
+        if tenant_ids.is_empty() {
+            return Ok(vec![]);
+        }
+        let rows: Vec<(Uuid,)> = sqlx::query_as(
+            r#"
+            SELECT DISTINCT om.identity_id
+            FROM org_memberships om
+            JOIN organizations o ON o.id = om.organization_id
+            WHERE o.tenant_id = ANY($1::uuid[])
+            "#,
+        )
+        .bind(tenant_ids)
+        .fetch_all(&self.pool)
+        .await
+        .map_err(|e| DbError::QueryError(e.to_string()))?;
+        Ok(rows.into_iter().map(|(id,)| id).collect())
     }
 }
 

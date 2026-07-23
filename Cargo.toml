@@ -23,6 +23,8 @@ server = [
     "dep:sha2",
     "dep:hex",
     "dep:hmac",
+    "dep:aes-gcm",
+    "dep:base64",
     "dep:flate2",
     "dep:tar",
     "dep:zip",
@@ -79,6 +81,8 @@ jsonwebtoken = { version = "9", optional = true }
 sha2 = { version = "0.10", optional = true }
 hex = { version = "0.4", optional = true }
 hmac = { version = "0.12", optional = true }
+aes-gcm = { version = "0.10", optional = true }
+base64 = { version = "0.22", optional = true }
 flate2 = { version = "1.0", optional = true }
 tar = { version = "0.4", optional = true }
 zip = { version = "2.2", optional = true }

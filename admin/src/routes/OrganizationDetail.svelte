@@ -447,9 +447,9 @@
 
     <!-- Register Tool Modal -->
     {#if showRegisterToolModal}
-    <!-- svelte-ignore a11y-click-events-have-key-events a11y-no-static-element-interactions -->
-    <div class="fixed inset-0 bg-black/40 flex items-center justify-center z-50" on:click|self={() => showRegisterToolModal = false}>
-      <div class="bg-white rounded-2xl p-6 w-full max-w-lg shadow-elevated border border-gray-200 max-h-[85vh] overflow-y-auto">
+    <button type="button" class="fixed inset-0 bg-black/40 flex items-center justify-center z-50 w-full border-0 cursor-default" aria-label="Close modal" on:click={() => showRegisterToolModal = false}>
+      <!-- svelte-ignore a11y-click-events-have-key-events a11y-no-static-element-interactions -->
+      <div class="bg-white rounded-2xl p-6 w-full max-w-lg shadow-elevated border border-gray-200 max-h-[85vh] overflow-y-auto" on:click|stopPropagation>
         <div class="flex items-center justify-between mb-5">
           <h2 class="text-lg font-semibold text-gray-800">Register Tool</h2>
           <button on:click={() => showRegisterToolModal = false}
@@ -495,7 +495,7 @@
           </div>
         </div>
       </div>
-    </div>
+    </button>
     {/if}
 
     <!-- Groups Tab -->

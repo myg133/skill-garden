@@ -41,21 +41,31 @@
   // - marketplace_admin / marketplace_reviewer → 可编辑任意已提交市场的 Skill
   // - 个人 Skill owner → 可编辑
   // - 组织 owner/admin/developer → 对该组织的 skill 可编辑
-  $: canEdit = !isMarketplaceView && ($isAdmin || isSuperAdmin || isMarketAdmin || (skill && (
-    skill.owner_type === 'user' ||
-    skill.author_name === $auth.username ||
-    skill.author_agent_id === $auth.username ||
-    (skill.owner_type === 'organization' && skill.owner_id &&
-      ($permissionStore.orgRoles || []).some(r => r.org_id === skill.owner_id && ['owner', 'admin', 'developer'].includes(r.role)))
+  // 组织 Skill 编辑权限（RBAC: Admin/Owner 编辑任何，Developer own scope 编辑自己创建的）
+  $: isOrgSkillAdmin = skill && skill.owner_type === 'organization' && skill.owner_id &&
+    ($permissionStore.orgRoles || []).some(r => r.org_id === skill.owner_id && ['owner', 'admin'].includes(r.role));
+  $: isOrgSkillDeveloper = skill && skill.owner_type === 'organization' && skill.owner_id &&
+    ($permissionStore.orgRoles || []).some(r => r.org_id === skill.owner_id && r.role === 'developer');
+
+  $: canEdit = !isMarketplaceView && (isSuperAdmin || isMarketAdmin || (skill && (
+    // 个人 Skill：只有作者本人可编辑
+    (skill.owner_type === 'user' && (
+      skill.author_name === $auth.username ||
+      skill.author_agent_id === $auth.username ||
+      skill.author_identity_id === $auth.identityId
+    )) ||
+    // 组织 Skill：tenant_admin 可编辑，或 org admin/owner/developer 可编辑
+    (skill.owner_type === 'organization' && ($isAdmin || isOrgSkillAdmin || isOrgSkillDeveloper))
   )));
 
-  // Skill 作者（owner）判断 — 用于作者专属操作（上传新版本、申请下架等）
+  // Skill 作者/管理员判断 — 用于作者专属操作（上传新版本、申请下架等）
   $: isOwner = skill && (
-    skill.owner_type === 'user' ||
-    skill.author_name === $auth.username ||
-    skill.author_agent_id === $auth.username ||
-    (skill.owner_type === 'organization' && skill.owner_id &&
-      ($permissionStore.orgRoles || []).some(r => r.org_id === skill.owner_id && ['owner', 'admin', 'developer'].includes(r.role)))
+    (skill.owner_type === 'user' && (
+      skill.author_name === $auth.username ||
+      skill.author_agent_id === $auth.username ||
+      skill.author_identity_id === $auth.identityId
+    )) ||
+    isOrgSkillAdmin
   );
 
   // Tag editing state
@@ -758,7 +768,7 @@
           {/if}
         {/if}
 
-        <!-- Publish 按钮：作者始终可见（不限于非 admin） -->
+        <!-- Publish 按钮：作者始终可见（非 admin） -->
         {#if isOwner && skill.status === 'approved' && !$isAdmin && !isSuperAdmin}
           <button on:click={handlePublish} disabled={publishLoading}
             class="px-4 py-2 text-sm font-semibold bg-emerald-500 text-white rounded-xl hover:bg-emerald-600 disabled:opacity-50 transition-all duration-200 shadow-sm shadow-emerald-500/20 hover:shadow-md hover:shadow-emerald-500/30 active:scale-[0.97]">
@@ -793,8 +803,9 @@
           {/if}
         {/if}
 
-        <!-- 3. super_admin / tenant_admin operations (full management) -->
-        {#if $isAdmin || isSuperAdmin}
+        <!-- 3. super_admin / tenant_admin operations (full management)
+             tenant_admin 仅对租户下的组织 skill 生效，个人 skill 不在范围内 -->
+        {#if isSuperAdmin || ($isAdmin && skill && skill.owner_type === 'organization')}
           {#if skill.marketplace_status === 'pending_review'}
             <button on:click={handleMarketplaceApprove} disabled={marketplaceLoading}
               class="px-4 py-2 text-sm font-semibold bg-emerald-500 text-white rounded-xl hover:bg-emerald-600 disabled:opacity-50 transition-all duration-200 shadow-sm shadow-emerald-500/20 hover:shadow-md hover:shadow-emerald-500/30 active:scale-[0.97]">Approve</button>
@@ -1116,15 +1127,11 @@
 
   <!-- Upload New Version Modal (preview + confirm) -->
   {#if showUploadModal}
-    <!-- svelte-ignore a11y_no_static_element_interactions -->
-    <div
-      class="fixed inset-0 z-50 flex items-center justify-center bg-black/50"
-      role="dialog"
-      aria-modal="true"
-      aria-label="Upload new version"
-      tabindex="-1"
-      on:click|self={closeUploadModal}
-      on:keydown|self={closeUploadModal}
+    <button
+      type="button"
+      class="fixed inset-0 z-50 flex items-center justify-center bg-black/50 w-full border-0 cursor-default"
+      aria-label="Close upload modal"
+      on:click={closeUploadModal}
     >
       <div class="bg-white rounded-2xl shadow-2xl w-full max-w-3xl max-h-[85vh] flex flex-col mx-4">
         <!-- Header -->
@@ -1204,6 +1211,6 @@
           </div>
         {/if}
       </div>
-    </div>
+    </button>
   {/if}
 </div>

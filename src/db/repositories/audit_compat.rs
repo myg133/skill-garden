@@ -134,6 +134,15 @@ impl AuditRepositoryCompat {
         })
     }
 
+    /// 给定 tenant_ids 列表，返回这些租户下所有 organization 内的 identity_id（去重）。
+    /// 走 AuditLogRepository.list_identity_ids_by_tenants 实现。
+    pub async fn list_identity_ids_by_tenants(
+        &self,
+        tenant_ids: &[Uuid],
+    ) -> DbResult<Vec<Uuid>> {
+        self.new_repo.list_identity_ids_by_tenants(tenant_ids).await
+    }
+
     /// Query with old-style filters (uses agent_id stored in details._legacy_agent_id)
     pub async fn list_with_filters(
         &self,
@@ -150,6 +159,7 @@ impl AuditRepositoryCompat {
                 None, // tenant_id
                 None, // organization_id
                 None, // identity_id — can't filter by identity_id in old API
+                None, // identity_ids — backward-compat API doesn't accept this
                 action,
                 resource_type,
                 limit,
@@ -217,7 +227,7 @@ impl AuditRepositoryCompat {
         // Count from new table
         let total = self
             .new_repo
-            .count(None, None, None, action, resource_type)
+            .count(None, None, None, None, action, resource_type)
             .await?;
 
         // If agent_id filter, we need to query all and count (inefficient but backward compat)

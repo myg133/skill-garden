@@ -257,6 +257,50 @@ impl SkillRepository {
         }
     }
 
+    /// 加载所有 Skill（用于索引重建），仅取 is_current=true 的最新版本
+    pub async fn list_all(&self) -> DbResult<Vec<Skill>> {
+        let rows = sqlx::query_as::<_, SkillRow>(
+            r#"SELECT id, name, description, version, author_agent_id, author_identity_id, owner_type, owner_id, compatibility, content, install_count, status, git_url, visibility, skill_tools, reviewed_by, reviewed_at, review_comment, admin_unpublished, marketplace_status, pre_marketplace_visibility, draft_content, created_at, updated_at
+               FROM skills WHERE is_current = true ORDER BY created_at DESC"#,
+        )
+        .fetch_all(&self.pool)
+        .await
+        .map_err(|e| DbError::QueryError(e.to_string()))?;
+        let mut skills = Vec::with_capacity(rows.len());
+        for row in rows {
+            let tags = self.get_tags(&row.id).await?;
+            skills.push(Skill {
+                id: row.id,
+                name: row.name,
+                description: row.description,
+                version: row.version,
+                author_agent_id: row.author_agent_id,
+                author_identity_id: row.author_identity_id,
+                owner_type: row.owner_type,
+                owner_id: row.owner_id,
+                compatibility: row.compatibility,
+                content: row.content,
+                install_count: row.install_count,
+                tags,
+                dependencies: vec![],
+                status: row.status,
+                git_url: row.git_url,
+                visibility: row.visibility,
+                tools: row.tools,
+                reviewed_by: row.reviewed_by,
+                reviewed_at: row.reviewed_at,
+                review_comment: row.review_comment,
+                admin_unpublished: row.admin_unpublished,
+                marketplace_status: row.marketplace_status,
+                pre_marketplace_visibility: row.pre_marketplace_visibility,
+                draft_content: row.draft_content,
+                created_at: row.created_at,
+                updated_at: row.updated_at,
+            });
+        }
+        Ok(skills)
+    }
+
     pub async fn list(&self, limit: i64, offset: i64) -> DbResult<Vec<SkillMetadata>> {
         self.list_sorted(limit, offset, "created").await
     }
@@ -901,7 +945,7 @@ impl SkillRepository {
         }
     }
 
-    async fn get_tags(&self, skill_id: &str) -> DbResult<Vec<String>> {
+    pub async fn get_tags(&self, skill_id: &str) -> DbResult<Vec<String>> {
         let tags: Vec<(String,)> = sqlx::query_as("SELECT tag FROM skill_tags WHERE skill_id = $1")
             .bind(skill_id)
             .fetch_all(&self.pool)
@@ -919,6 +963,31 @@ impl SkillRepository {
         .await
         .map_err(|e| DbError::QueryError(e.to_string()))?;
         Ok(deps.into_iter().map(|(d,)| d).collect())
+    }
+
+    /// 批量查询 Skill 元数据（仅过滤所需字段，不含 content/tags/dependencies）
+    pub async fn find_meta_by_ids(&self, ids: &[&str]) -> DbResult<Vec<SkillMetadataRow>> {
+        if ids.is_empty() {
+            return Ok(vec![]);
+        }
+        let placeholders: Vec<String> = ids.iter().enumerate().map(|(i, _)| format!("${}", i + 1)).collect();
+        let sql = format!(
+            r#"SELECT s.id, s.name, s.description, s.version, s.author_agent_id, s.author_identity_id,
+                      i.display_name AS author_name, s.owner_type, s.owner_id, s.install_count,
+                      s.status, s.git_url, s.visibility, s.reviewed_by, s.reviewed_at, s.review_comment,
+                      s.admin_unpublished, s.marketplace_status, s.pre_marketplace_visibility,
+                      s.draft_content, true AS is_current, s.created_at, s.updated_at
+               FROM skills s
+               LEFT JOIN identities i ON s.author_identity_id = i.id
+               WHERE s.id IN ({})
+               ORDER BY s.created_at DESC"#,
+            placeholders.join(", ")
+        );
+        let mut query = sqlx::query_as::<_, SkillMetadataRow>(&sql);
+        for id in ids {
+            query = query.bind(*id);
+        }
+        query.fetch_all(&self.pool).await.map_err(|e| DbError::QueryError(e.to_string()))
     }
 }
 
@@ -953,28 +1022,28 @@ struct SkillRow {
 
 #[derive(sqlx::FromRow)]
 #[allow(dead_code)]
-struct SkillMetadataRow {
-    id: String,
-    name: String,
-    description: String,
-    version: String,
-    author_agent_id: String,
-    author_identity_id: Option<Uuid>,
-    author_name: Option<String>,
-    owner_type: String,
-    owner_id: Option<Uuid>,
-    install_count: i32,
-    status: String,
-    git_url: Option<String>,
-    visibility: String,
-    reviewed_by: Option<Uuid>,
-    reviewed_at: Option<DateTime<Utc>>,
-    review_comment: Option<String>,
-    admin_unpublished: bool,
-    marketplace_status: Option<String>,
-    pre_marketplace_visibility: Option<String>,
-    draft_content: Option<serde_json::Value>,
-    is_current: Option<bool>,
-    created_at: DateTime<Utc>,
-    updated_at: DateTime<Utc>,
+pub struct SkillMetadataRow {
+    pub id: String,
+    pub name: String,
+    pub description: String,
+    pub version: String,
+    pub author_agent_id: String,
+    pub author_identity_id: Option<Uuid>,
+    pub author_name: Option<String>,
+    pub owner_type: String,
+    pub owner_id: Option<Uuid>,
+    pub install_count: i32,
+    pub status: String,
+    pub git_url: Option<String>,
+    pub visibility: String,
+    pub reviewed_by: Option<Uuid>,
+    pub reviewed_at: Option<DateTime<Utc>>,
+    pub review_comment: Option<String>,
+    pub admin_unpublished: bool,
+    pub marketplace_status: Option<String>,
+    pub pre_marketplace_visibility: Option<String>,
+    pub draft_content: Option<serde_json::Value>,
+    pub is_current: Option<bool>,
+    pub created_at: DateTime<Utc>,
+    pub updated_at: DateTime<Utc>,
 }

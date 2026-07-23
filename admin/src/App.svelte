@@ -45,8 +45,8 @@
   // 跟踪当前路径（Router 外部用，拦截 history API 和 popstate）
   const currentPath = writable(window.location.pathname);
 
-  // 只在需要组织上下文的页面显示组织切换器
-  $: showOrgSwitcher = /^\/(skills|review|organizations|groups|org-tools)(\/|$)/.test($currentPath);
+  // 只在需要组织上下文的页面显示组织切换器（排除详情页如 /skills/:id、/organizations/:id）
+  $: showOrgSwitcher = /^\/(skills|review|organizations|groups|org-tools)(\?|$)/.test($currentPath);
 
   // 仅 skill 相关页面保留 Personal Space 选项；组织/分组管理页面不展示个人空间
   $: showPersonalOption = /^\/(skills|review)(\/|$)/.test($currentPath);

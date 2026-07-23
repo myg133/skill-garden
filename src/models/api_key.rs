@@ -180,6 +180,9 @@ pub struct AuditLogQuery {
     pub organization_id: Option<Uuid>,
     #[serde(default)]
     pub identity_id: Option<Uuid>,
+    /// 按 identity 列表过滤（取并集）。优先级低于精确 identity_id。
+    #[serde(default)]
+    pub identity_ids: Option<Vec<Uuid>>,
     #[serde(default)]
     pub action: Option<String>,
     #[serde(default)]

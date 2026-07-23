@@ -365,7 +365,14 @@ async fn main() -> Result<()> {
     let data_dir = std::env::var("AION_HIVE_DATA_DIR")
         .map(PathBuf::from)
         .unwrap_or_else(|_| PathBuf::from("data"));
-
+    // 转为绝对路径，避免 tokio 线程中当前工作目录变化导致路径错误
+    let data_dir = if data_dir.is_absolute() {
+        data_dir
+    } else {
+        std::env::current_dir()
+            .unwrap_or_else(|_| PathBuf::from("."))
+            .join(&data_dir)
+    };
 
     std::fs::create_dir_all(&data_dir)?;
     std::fs::create_dir_all(&data_dir.join("registry"))?;

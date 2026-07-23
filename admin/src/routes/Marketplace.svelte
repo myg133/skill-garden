@@ -10,7 +10,7 @@
   import EmptyState from '../components/EmptyState.svelte';
   import LoadingSpinner from '../components/LoadingSpinner.svelte';
 
-  $: skillLinkBase = ($isAdmin || ($permissionStore.loaded && isAnyAdmin())) ? '/skills' : '/user/skills';
+  $: skillLinkBase = ($isAdmin || ($permissionStore.loaded && (isAnyAdmin() || ($permissionStore.orgRoles || []).length > 0))) ? '/skills' : '/user/skills';
   const ACT = ACTIONS.Marketplace;
 
   // Role detection for delist
@@ -186,7 +186,7 @@
           <div class="px-5 pt-5 pb-3 flex items-start justify-between">
             <div class="min-w-0 flex-1">
               <Link
-                to="{skillLinkBase}/{skill.id}"
+                to="{skillLinkBase}/{skill.id}?from=marketplace"
                 state={{ readonly: true }}
                 class="text-base font-bold text-gray-900 hover:text-blue-600 transition-colors truncate block"
               >
@@ -236,7 +236,7 @@
           <!-- Actions -->
           <div class="px-5 py-3 border-t border-gray-100 bg-gray-50 flex items-center justify-between">
             <Link
-              to="{skillLinkBase}/{skill.id}"
+              to="{skillLinkBase}/{skill.id}?from=marketplace"
               state={{ readonly: true }}
               class="inline-flex items-center gap-1.5 px-4 py-2 text-blue-600 rounded-lg text-sm font-semibold hover:bg-blue-50 transition-colors"
             >

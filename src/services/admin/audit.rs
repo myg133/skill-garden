@@ -69,6 +69,7 @@ impl AuditService {
                 query.tenant_id,
                 query.organization_id,
                 query.identity_id,
+                query.identity_ids.as_deref(),
                 query.action.as_deref(),
                 query.resource_type.as_deref(),
                 limit,
@@ -83,6 +84,7 @@ impl AuditService {
         tenant_id: Option<Uuid>,
         organization_id: Option<Uuid>,
         identity_id: Option<Uuid>,
+        identity_ids: Option<&[Uuid]>,
         action: Option<&str>,
         resource_type: Option<&str>,
     ) -> Result<i64, AppError> {
@@ -91,9 +93,21 @@ impl AuditService {
                 tenant_id,
                 organization_id,
                 identity_id,
+                identity_ids,
                 action,
                 resource_type,
             )
+            .await
+            .map_err(|e| AppError::InternalError(e.to_string()))
+    }
+
+    /// 给定 tenant_ids 列表，返回这些租户下所有 organization 内的 identity_id（去重）。
+    pub async fn list_identity_ids_by_tenants(
+        &self,
+        tenant_ids: &[Uuid],
+    ) -> Result<Vec<Uuid>, AppError> {
+        self.repo
+            .list_identity_ids_by_tenants(tenant_ids)
             .await
             .map_err(|e| AppError::InternalError(e.to_string()))
     }

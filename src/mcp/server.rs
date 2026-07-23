@@ -24,8 +24,9 @@ use crate::models::skill::NewSkill;
 use crate::services::admin::{ApiKeyService, IdentityService};
 use crate::services::{
     EvaluatorService, OrgToolService, PermissionService, RegistryService, SandboxService,
-    SearchService, SessionService, ToolRouterService,
+    SearchScope, SearchService, SessionService, ToolRouterService,
 };
+use crate::utils::cli_token;
 
 #[allow(dead_code)]
 pub struct McpServer {
@@ -43,6 +44,8 @@ pub struct McpServer {
     download_token_repo: DownloadTokenRepository,
     /// CLI 二进制文件存放根目录：cli-dist/
     cli_dir: std::path::PathBuf,
+    /// CLI token 加密密钥（32 bytes），None 表示未配置则加密 token 功能禁用
+    cli_encryption_key: Option<[u8; 32]>,
 }
 
 impl McpServer {
@@ -62,6 +65,8 @@ impl McpServer {
     ) -> Self {
         // Try to extract and verify JWT/API key from environment (for stdio transport)
         let agent_context = Self::extract_auth_from_env(&api_key, &identity);
+        // Load CLI token encryption key (optional — if not set, encryption is disabled)
+        let cli_encryption_key = cli_token::load_encryption_key().ok();
         Self {
             registry,
             search,
@@ -76,6 +81,7 @@ impl McpServer {
             permission,
             download_token_repo,
             cli_dir,
+            cli_encryption_key,
         }
     }
 
@@ -218,19 +224,37 @@ impl McpServer {
         auth_header: Option<&str>,
     ) -> Result<String, String> {
         // Extract per-request agent context from Authorization header.
-        // Supports two modes:
-        //   - API key mode:  Bearer sk_xxx     → validate key + lookup identity + auto-create session
-        //   - JWT mode:      Bearer eyJhbG...   → verify JWT (backward compat, no session)
-        //   - No auth:       no header          → anonymous (tools will reject)
+        // Supports three modes:
+        //   - CLI encrypted token: Bearer skc_xxx → decrypt → validate as API key
+        //   - API key mode:        Bearer sk_xxx  → validate key + lookup identity + auto-create session
+        //   - JWT mode:            Bearer eyJhb... → verify JWT (backward compat, no session)
+        //   - No auth:             no header       → anonymous (tools will reject)
         let agent_ctx = if let Some(token) = auth_header.and_then(|h| h.strip_prefix("Bearer ")) {
-            if is_api_key_format(token) {
+            // Step 1: Try CLI encrypted token (skc_ prefix)
+            let effective_token = if let Some(ref key) = self.cli_encryption_key {
+                match cli_token::decrypt_api_key(token, key) {
+                    Ok(Some(plain)) => {
+                        tracing::debug!("CLI encrypted token decrypted successfully");
+                        plain
+                    }
+                    Ok(None) => token.to_string(), // not an skc_ token, pass through
+                    Err(e) => {
+                        tracing::warn!("CLI token decryption failed: {}", e);
+                        token.to_string() // pass through, will fail validation later
+                    }
+                }
+            } else {
+                token.to_string()
+            };
+
+            if is_api_key_format(&effective_token) {
                 // Mask API key for safe logging (show only prefix + last 4 chars)
-                let masked = if token.len() > 10 {
-                    format!("{}...{}", &token[..6], &token[token.len() - 4..])
+                let masked = if effective_token.len() > 10 {
+                    format!("{}...{}", &effective_token[..6], &effective_token[effective_token.len() - 4..])
                 } else {
                     "***".to_string()
                 };
-                match Self::resolve_identity_from_api_key(&self.api_key, &self.identity, token)
+                match Self::resolve_identity_from_api_key(&self.api_key, &self.identity, &effective_token)
                     .await
                 {
                     Ok((mut ctx, org_id)) => {
@@ -268,14 +292,14 @@ impl McpServer {
                         tracing::warn!(
                             "MCP auth failed for API key {} ({} chars): {}",
                             masked,
-                            token.len(),
+                            effective_token.len(),
                             e
                         );
                         None
                     }
                 }
             } else {
-                let result = verify_token(token).map(AgentContext::from_claims).ok();
+                let result = verify_token(&effective_token).map(AgentContext::from_claims).ok();
                 if result.is_none() {
                     tracing::warn!("MCP auth failed: JWT verification failed");
                 }
@@ -450,26 +474,19 @@ impl McpServer {
                 });
                 let limit = args.get("limit").and_then(|v| v.as_u64()).unwrap_or(10) as usize;
 
-                match self.search.search(&query, tags.as_deref(), limit) {
+                // 构建搜索 scope（Tantivy 层面过滤，无需回 DB 查询）
+                let scope = {
+                    let identity_id = agent_ctx.and_then(|c| c.identity_id);
+                    let api_key_org = Self::api_key_org_id(agent_ctx);
+                    match (identity_id, api_key_org) {
+                        (Some(id), None) => Some(SearchScope::Personal { identity_id: id }),
+                        (Some(_), Some(org)) => Some(SearchScope::Organization { org_id: org }),
+                        _ => None,
+                    }
+                };
+                match self.search.search(&query, tags.as_deref(), limit, scope.as_ref()) {
                     Ok(results) => {
-                        let identity_id = agent_ctx.and_then(|c| c.identity_id);
-                        let org_ids = self.get_user_org_ids(identity_id).await.unwrap_or_default();
-                        let mut filtered = Vec::new();
-                        for r in results {
-                            if let Ok(skill) = self.registry.get_skill(&r.skill_id).await {
-                                let meta: crate::models::skill::SkillMetadata = (&skill).into();
-                                let visible =
-                                    crate::services::RegistryService::filter_skills_visible_to(
-                                        vec![meta],
-                                        identity_id,
-                                        &org_ids,
-                                    );
-                                if !visible.is_empty() {
-                                    filtered.push(r);
-                                }
-                            }
-                        }
-                        Self::json_success(serde_json::to_value(filtered).unwrap_or_default())
+                        Self::json_success(serde_json::to_value(results).unwrap_or_default())
                     }
                     Err(e) => Self::json_error(format!("Search failed: {}", e)),
                 }
@@ -490,11 +507,11 @@ impl McpServer {
                 {
                     Ok(skills) => {
                         let identity_id = agent_ctx.and_then(|c| c.identity_id);
-                        let org_ids = self.get_user_org_ids(identity_id).await.unwrap_or_default();
-                        let filtered = crate::services::RegistryService::filter_skills_visible_to(
+                        let api_key_org = Self::api_key_org_id(agent_ctx);
+                        let filtered = Self::filter_skills_visible_mcp(
                             skills,
                             identity_id,
-                            &org_ids,
+                            api_key_org,
                         );
                         let total = filtered.len();
                         Self::json_success(serde_json::json!({
@@ -515,38 +532,15 @@ impl McpServer {
                     Some(id) => {
                         match self.registry.get_skill(id).await {
                             Ok(skill) => {
-                                // 权限校验：与 HTTP get_skill_handler 一致
                                 let identity_id = agent_ctx.and_then(|c| c.identity_id);
-                                let org_ids =
-                                    self.get_user_org_ids(identity_id).await.unwrap_or_default();
-
-                                let visible = if let Some(id_id) = identity_id {
-                                    if skill.status == "published"
-                                        && matches!(
-                                            skill.visibility,
-                                            crate::models::skill_policy::Visibility::Marketplace
-                                        )
-                                    {
-                                        true
-                                    } else if skill.owner_type == "user"
-                                        && (skill.owner_id == Some(id_id)
-                                            || skill.author_identity_id == Some(id_id))
-                                    {
-                                        true
-                                    } else if skill.owner_type == "organization" {
-                                        skill.owner_id.map_or(false, |oid| org_ids.contains(&oid))
-                                    } else {
-                                        false
-                                    }
-                                } else {
-                                    skill.status == "published"
-                                        && matches!(
-                                            skill.visibility,
-                                            crate::models::skill_policy::Visibility::Marketplace
-                                        )
-                                };
-
-                                if visible {
+                                let api_key_org = Self::api_key_org_id(agent_ctx);
+                                let meta: crate::models::skill::SkillMetadata = (&skill).into();
+                                let visible = Self::filter_skills_visible_mcp(
+                                    vec![meta],
+                                    identity_id,
+                                    api_key_org,
+                                );
+                                if !visible.is_empty() {
                                     Self::json_success(
                                         serde_json::to_value(skill).unwrap_or_default(),
                                     )
@@ -578,7 +572,15 @@ impl McpServer {
                 match name {
                     Some(n) => match self.registry.list_versions(n).await {
                         Ok(versions) => {
-                            Self::json_success(serde_json::to_value(versions).unwrap_or_default())
+                            // 可见性过滤：只返回当前 API key 范围内可见的版本
+                            let identity_id = agent_ctx.and_then(|c| c.identity_id);
+                            let api_key_org = Self::api_key_org_id(agent_ctx);
+                            let filtered = Self::filter_skills_visible_mcp(
+                                versions,
+                                identity_id,
+                                api_key_org,
+                            );
+                            Self::json_success(serde_json::to_value(filtered).unwrap_or_default())
                         }
                         Err(e) => Self::json_error(format!("List versions failed: {}", e)),
                     },
@@ -592,11 +594,11 @@ impl McpServer {
                 match self.registry.list_skills_sorted(limit, 0, "installs").await {
                     Ok(skills) => {
                         let identity_id = agent_ctx.and_then(|c| c.identity_id);
-                        let org_ids = self.get_user_org_ids(identity_id).await.unwrap_or_default();
-                        let filtered = crate::services::RegistryService::filter_skills_visible_to(
+                        let api_key_org = Self::api_key_org_id(agent_ctx);
+                        let filtered = Self::filter_skills_visible_mcp(
                             skills,
                             identity_id,
-                            &org_ids,
+                            api_key_org,
                         );
                         Self::json_success(serde_json::to_value(filtered).unwrap_or_default())
                     }
@@ -629,6 +631,7 @@ impl McpServer {
 
                 match (name, description, content) {
                     (Some(name), Some(description), Some(content)) => {
+                        let identity_id = agent_ctx.and_then(|c| c.identity_id);
                         let agent_id = Self::resolve_agent_id(agent_ctx);
                         let author_identity_id = Self::resolve_owner_id(agent_ctx);
 
@@ -647,6 +650,18 @@ impl McpServer {
                                 }
                             });
 
+                        // 权限校验：个人 API key 不能创建组织 Skill，组织 API key 不能创建个人 Skill
+                        if mcp_owner_type == "organization" && caller_org_id.is_none() {
+                            return serde_json::to_value(&Self::json_error(
+                                "Cannot create organization skill with a personal API key".to_string(),
+                            )).unwrap_or_default();
+                        }
+                        if mcp_owner_type == "user" && caller_org_id.is_some() {
+                            return serde_json::to_value(&Self::json_error(
+                                "Cannot create personal skill with an organization API key".to_string(),
+                            )).unwrap_or_default();
+                        }
+
                         let (owner_type, owner_id, default_visibility) =
                             if mcp_owner_type == "organization" {
                                 // 优先 args 指定的 org_id，其次使用调用者关联的 org
@@ -655,6 +670,15 @@ impl McpServer {
                                     .and_then(|v| v.as_str())
                                     .and_then(|s| uuid::Uuid::parse_str(s).ok())
                                     .or(caller_org_id);
+
+                                // 校验用户是否属于该组织
+                                if let (Some(org_id), Some(id_id)) = (org_id, identity_id) {
+                                    if let Err(e) = self.check_org_membership(id_id, org_id).await {
+                                        return serde_json::to_value(&Self::json_error(e))
+                                            .unwrap_or_default();
+                                    }
+                                }
+
                                 ("organization".to_string(), org_id, "org_visible")
                             } else {
                                 ("user".to_string(), author_identity_id, "private")
@@ -741,16 +765,52 @@ impl McpServer {
 
                 match skill_id {
                     Some(id) => {
-                        let agent_id = Self::resolve_agent_id(agent_ctx);
-                        match self
-                            .registry
-                            .update_skill(id, update, &agent_id, &self.search)
-                            .await
-                        {
+                        // 先获取 skill 信息做权限校验
+                        match self.registry.get_skill(id).await {
                             Ok(skill) => {
-                                Self::json_success(serde_json::to_value(skill).unwrap_or_default())
+                                let identity_id = agent_ctx.and_then(|c| c.identity_id);
+                                let api_key_org = Self::api_key_org_id(agent_ctx);
+
+                                // 使用 MCP 可见性规则校验 Update 权限
+                                // 个人 API key 只能更新个人的 Skill
+                                // 组织 API key 只能更新该组织的 Skill
+                                let can_update = if let Some(id_id) = identity_id {
+                                    if let Some(key_org_id) = api_key_org {
+                                        // 组织 API key：只能更新该组织的 Skill
+                                        skill.owner_type == "organization"
+                                            && skill.owner_id == Some(key_org_id)
+                                    } else {
+                                        // 个人 API key：只能更新个人自己的 Skill
+                                        skill.owner_type == "user"
+                                            && (skill.owner_id == Some(id_id)
+                                                || skill.author_identity_id == Some(id_id))
+                                    }
+                                } else {
+                                    false
+                                };
+
+                                if !can_update {
+                                    return serde_json::to_value(&Self::json_error(
+                                        format!("Access denied: you cannot update skill {}", id),
+                                    ))
+                                    .unwrap_or_default();
+                                }
+
+                                let agent_id = Self::resolve_agent_id(agent_ctx);
+                                match self
+                                    .registry
+                                    .update_skill(id, update, &agent_id, &self.search)
+                                    .await
+                                {
+                                    Ok(skill) => Self::json_success(
+                                        serde_json::to_value(skill).unwrap_or_default(),
+                                    ),
+                                    Err(e) => {
+                                        Self::json_error(format!("Update skill failed: {}", e))
+                                    }
+                                }
                             }
-                            Err(e) => Self::json_error(format!("Update skill failed: {}", e)),
+                            Err(e) => Self::json_error(format!("Skill not found: {}", e)),
                         }
                     }
                     None => Self::json_error("skill_id is required".to_string()),
@@ -768,6 +828,33 @@ impl McpServer {
                 match skill_id {
                     Some(id) => match (identity_id, api_key_id) {
                         (Some(identity), Some(api_key)) => {
+                            // 可见性校验：必须先获取 skill 确认可见才允许安装
+                            match self.registry.get_skill(id).await {
+                                Ok(skill) => {
+                                    let api_key_org = Self::api_key_org_id(agent_ctx);
+                                    let meta: crate::models::skill::SkillMetadata = (&skill).into();
+                                    let visible = Self::filter_skills_visible_mcp(
+                                        vec![meta],
+                                        identity_id,
+                                        api_key_org,
+                                    );
+                                    if visible.is_empty() {
+                                        return serde_json::to_value(&Self::json_error(format!(
+                                            "Skill {} not found or not accessible with this API key",
+                                            id
+                                        )))
+                                        .unwrap_or_default();
+                                    }
+                                }
+                                Err(e) => {
+                                    return serde_json::to_value(&Self::json_error(format!(
+                                        "Skill not found: {}",
+                                        e
+                                    )))
+                                    .unwrap_or_default();
+                                }
+                            }
+
                             match self.registry.get_skill_files(id, identity, api_key).await {
                                 Ok(result) => {
                                     // 递增安装计数
@@ -1147,8 +1234,51 @@ impl McpServer {
                     .and_then(|v| v.as_str())
                     .unwrap_or("x86_64");
 
+                // 参数白名单校验
+                const VALID_PLATFORMS: &[&str] = &["auto", "linux", "macos", "darwin", "windows"];
+                const VALID_ARCHS: &[&str] = &["x86_64", "amd64", "aarch64", "arm64"];
+                if !VALID_PLATFORMS.contains(&platform) {
+                    return serde_json::to_value(&Self::json_error(format!(
+                        "Invalid platform: '{}'. Valid values: {}",
+                        platform,
+                        VALID_PLATFORMS.join(", ")
+                    )))
+                    .unwrap_or_default();
+                }
+                if !VALID_ARCHS.contains(&arch) {
+                    return serde_json::to_value(&Self::json_error(format!(
+                        "Invalid arch: '{}'. Valid values: {}",
+                        arch,
+                        VALID_ARCHS.join(", ")
+                    )))
+                    .unwrap_or_default();
+                }
+
                 let identity_id = agent_ctx.and_then(|c| c.identity_id);
                 let api_key_id = agent_ctx.and_then(|c| c.api_key_id);
+
+                // 速率限制：每个 identity 每分钟最多 3 次 cli.setup
+                if let Some(id) = identity_id {
+                    static LIMITS: tokio::sync::Mutex<
+                        Option<std::collections::HashMap<Uuid, (std::time::Instant, u32)>>,
+                    > = tokio::sync::Mutex::const_new(None);
+                    let mut limits = LIMITS.lock().await;
+                    let map = limits.get_or_insert_with(std::collections::HashMap::new);
+                    let now = std::time::Instant::now();
+                    let entry = map.entry(id).or_insert((now, 0));
+                    if now.duration_since(entry.0).as_secs() >= 60 {
+                        *entry = (now, 1);
+                    } else if entry.1 >= 3 {
+                        return serde_json::to_value(&Self::json_error(
+                            "Rate limit exceeded for cli.setup (max 3 per minute). Please try again later."
+                                .to_string(),
+                        ))
+                        .unwrap_or_default();
+                    } else {
+                        entry.1 += 1;
+                    }
+                }
+
                 // 优先从 HTTP 请求上下文获取原始 API key（HTTP/SSE 模式），
                 // 其次从环境变量获取（stdio 模式），最后回退到占位符
                 let api_key_token = agent_ctx.and_then(|c| c.raw_api_key.clone()).or_else(|| {
@@ -1171,7 +1301,19 @@ impl McpServer {
                             "skill-garden"
                         };
 
-                        let token_str = api_key_token.as_deref().unwrap_or("sk_<YOUR_API_KEY>");
+                        // 加密 API key 写入 config.toml（如果密钥已配置）
+                        let raw_token = api_key_token.as_deref().unwrap_or("sk_<YOUR_API_KEY>");
+                        let token_str = if let Some(ref key) = self.cli_encryption_key {
+                            match cli_token::encrypt_api_key(raw_token, key) {
+                                Ok(encrypted) => encrypted,
+                                Err(e) => {
+                                    tracing::warn!("Failed to encrypt CLI token: {}", e);
+                                    raw_token.to_string()
+                                }
+                            }
+                        } else {
+                            raw_token.to_string()
+                        };
 
                         // 生成 config.toml（含真实 API Key，写入 token 的 config_data，下载时嵌入 tar.gz）
                         let config_toml = format!(
@@ -1261,8 +1403,8 @@ token = "{token}"
                                 download_url: None,
                                 expires_in: 0,
                                 instructions: format!(
-                                    "CLI binary v{}/{} not available. Build and place it at cli-dist/{}/{}/{}",
-                                    version, target, version, target, filename
+                                    "CLI binary v{}/{} not available for this platform/arch combination",
+                                    version, target
                                 ),
                             };
                             Self::json_success(serde_json::to_value(result).unwrap_or_default())
@@ -1282,16 +1424,83 @@ token = "{token}"
             .unwrap_or(serde_json::json!({"error": "serialization failed"}))
     }
 
-    /// 获取用户所属的所有组织 ID 列表
-    /// 与 `filter_skills_visible_to` 保持一致的多组织支持
-    async fn get_user_org_ids(&self, identity_id: Option<Uuid>) -> Result<Vec<Uuid>, String> {
+    /// MCP 专用可见性过滤：基于 API Key 的 scope，不混合个人与组织
+    ///
+    /// 规则：
+    /// - API key 无 org_id（个人）：仅可见 个人所有的 Skill（任何状态）+ 市场已发布 Skill
+    /// - API key 有 org_id（组织）：仅可见 该组织所有的 Skill（任何状态）+ 市场已发布 Skill
+    ///   - 不能看到个人的 Skill（即使是该组织成员的个人 Skill）
+    fn filter_skills_visible_mcp(
+        skills: Vec<crate::models::skill::SkillMetadata>,
+        identity_id: Option<Uuid>,
+        api_key_org_id: Option<Uuid>,
+    ) -> Vec<crate::models::skill::SkillMetadata> {
         let Some(id_id) = identity_id else {
-            return Ok(vec![]);
+            // 未认证：只看市场已发布
+            return skills
+                .into_iter()
+                .filter(|s| {
+                    s.status == "published"
+                        && matches!(
+                            s.visibility,
+                            crate::models::skill_policy::Visibility::Marketplace
+                        )
+                })
+                .collect();
         };
-        self.permission
-            .get_user_org_ids(id_id)
+
+        skills
+            .into_iter()
+            .filter(|s| {
+                // 市场已发布 → 所有人可见
+                if s.status == "published"
+                    && matches!(
+                        s.visibility,
+                        crate::models::skill_policy::Visibility::Marketplace
+                    )
+                {
+                    return true;
+                }
+                // API key 属于个人（org_id = None）：仅看个人的 Skill
+                if api_key_org_id.is_none() {
+                    if s.owner_type == "user"
+                        && (s.owner_id == Some(id_id) || s.author_identity_id == Some(id_id))
+                    {
+                        return true;
+                    }
+                    return false;
+                }
+                // API key 属于组织（org_id = Some(org)）：仅看该组织的 Skill
+                if let Some(key_org_id) = api_key_org_id {
+                    if s.owner_type == "organization" && s.owner_id == Some(key_org_id) {
+                        return true;
+                    }
+                }
+                false
+            })
+            .collect()
+    }
+
+    /// 获取 API key 的 org_id（None = 个人 key）
+    fn api_key_org_id(agent_ctx: Option<&AgentContext>) -> Option<Uuid> {
+        agent_ctx.and_then(|c| c.org_id)
+    }
+
+    /// 检查 API key 所属身份是否是目标组织的成员
+    async fn check_org_membership(
+        &self,
+        identity_id: Uuid,
+        org_id: Uuid,
+    ) -> Result<(), String> {
+        let is_member = self
+            .permission
+            .is_org_member(identity_id, org_id)
             .await
-            .map_err(|e| format!("Failed to get org memberships: {}", e))
+            .map_err(|e| format!("Failed to check org membership: {}", e))?;
+        if !is_member {
+            return Err("You are not a member of this organization".to_string());
+        }
+        Ok(())
     }
 
     /// 归一化平台名 → 目录名（linux / macos / windows）

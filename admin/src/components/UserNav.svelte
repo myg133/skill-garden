@@ -7,7 +7,8 @@
   const location = useLocation();
 
   // 同步路由变化到 selectedNav，确保导航栏高亮与当前页面一致
-  $: $selectedNav = $location.pathname;
+  // 保留 from 参数用于恢复来源 tab 上下文
+  $: $selectedNav = $location.pathname + ($location.search || '');
 
   function handleNavigate(href) {
     navigate(href);
@@ -36,14 +37,23 @@
   ];
 
   // 用 $: 预计算高亮 map，模板直接查表，避免函数内 store 订阅失效
+  // 支持 ?from=xxx 参数保留来源 tab 高亮
   $: activeMap = (() => {
     const path = $location.pathname;
+    const from = new URLSearchParams($location.search || '').get('from') || '';
     const m = {};
-    for (const item of userNavItems) {
+    const allItems = [...userNavItems, ...orgNavItems];
+    for (const item of allItems) {
       if (item.href === '/user') {
         m[item.href] = path === '/user';
+      } else if (path === item.href) {
+        // 精确匹配
+        m[item.href] = true;
+      } else if (from && item.href.endsWith('/' + from)) {
+        // ?from=marketplace → 高亮 /user/marketplace tab
+        m[item.href] = true;
       } else {
-        m[item.href] = path === item.href || (path && path.startsWith(item.href + '/'));
+        m[item.href] = false;
       }
     }
     return m;

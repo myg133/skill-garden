@@ -161,6 +161,51 @@ impl AppState {
             download_token_repo.clone(),
         );
         let search = services::SearchService::new(&data_dir.join("search_index"))?;
+
+        // 索引为空时全量重建（仅索引 status=published 的 Skill）
+        if search.doc_count().unwrap_or(1) == 0 {
+            let all_skills = skill_repo.list_all().await.map_err(|e| {
+                AppError::InternalError(format!("Failed to load skills for index rebuild: {}", e))
+            })?;
+            let models: Vec<crate::models::Skill> = all_skills.into_iter().map(|s| crate::models::Skill {
+                id: s.id,
+                name: s.name,
+                description: s.description,
+                version: s.version,
+                author_agent_id: s.author_agent_id,
+                author_identity_id: s.author_identity_id,
+                owner_type: s.owner_type,
+                owner_id: s.owner_id,
+                compatibility: s.compatibility,
+                content: s.content,
+                install_count: s.install_count as u32,
+                tags: s.tags,
+                dependencies: s.dependencies,
+                status: s.status,
+                git_url: s.git_url,
+                created: s.created_at,
+                updated: s.updated_at,
+                // fields from repositories::Skill mapped to models::Skill
+                visibility: match s.visibility.as_str() {
+                    "private" => crate::models::skill_policy::Visibility::Private,
+                    "shared" => crate::models::skill_policy::Visibility::Shared,
+                    "marketplace" => crate::models::skill_policy::Visibility::Marketplace,
+                    _ => crate::models::skill_policy::Visibility::OrgVisible,
+                },
+                tools: s.tools,
+                reviewed_by: s.reviewed_by,
+                reviewed_at: s.reviewed_at,
+                review_comment: s.review_comment,
+                marketplace_status: s.marketplace_status,
+                pre_marketplace_visibility: s.pre_marketplace_visibility,
+                draft_content: s.draft_content,
+            }).collect();
+            match search.rebuild_from_skills(&models) {
+                Ok(n) => tracing::info!("Index rebuild complete: {} published skills indexed", n),
+                Err(e) => tracing::error!("Index rebuild failed: {}", e),
+            }
+        }
+
         let evaluator = services::EvaluatorService::new(data_dir.clone(), eval_repo);
 
         let organization = services::OrganizationService::new(org_repo);

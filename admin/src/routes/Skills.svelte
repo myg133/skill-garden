@@ -566,8 +566,6 @@
           Skills
         {:else if inPersonalSpace}
           My Skills
-        {:else if currentOrgName}
-          {currentOrgName} Skills
         {:else}
           Skills
         {/if}
@@ -725,7 +723,7 @@
           {#each sortedSkills as skill (skill.id)}
             <tr class="table-row hover:bg-gray-50">
               <td class="px-6 py-4">
-                <Link to="{skillLinkBase}/{skill.id}" class="text-blue-600 hover:text-blue-700 font-semibold text-sm transition-colors">
+                <Link to="{skillLinkBase}/{skill.id}?from=skills" class="text-blue-600 hover:text-blue-700 font-semibold text-sm transition-colors">
                   {skill.name}
                 </Link>
                 {#if skill.description}

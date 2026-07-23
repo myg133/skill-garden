@@ -146,6 +146,9 @@ pub struct AuditLogQuery {
     pub agent_id: Option<String>,
     pub action: Option<String>,
     pub resource_type: Option<String>,
+    pub tenant_id: Option<uuid::Uuid>,
+    pub organization_id: Option<uuid::Uuid>,
+    pub identity_id: Option<uuid::Uuid>,
     pub limit: Option<i64>,
     pub offset: Option<i64>,
 }

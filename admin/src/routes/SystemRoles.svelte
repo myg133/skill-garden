@@ -299,8 +299,9 @@
 
     <div class="space-y-4">
       <div>
-        <label class="block text-xs font-semibold text-gray-500 uppercase tracking-wider mb-2">User Email *</label>
+        <label for="add-email" class="block text-xs font-semibold text-gray-500 uppercase tracking-wider mb-2">User Email *</label>
         <input
+          id="add-email"
           type="email"
           bind:value={addForm.email}
           placeholder="user@example.com"
@@ -309,8 +310,9 @@
       </div>
 
       <div>
-        <label class="block text-xs font-semibold text-gray-500 uppercase tracking-wider mb-2">Role *</label>
+        <label for="add-role-select" class="block text-xs font-semibold text-gray-500 uppercase tracking-wider mb-2">Role *</label>
         <select
+          id="add-role-select"
           bind:value={addForm.role}
           class="w-full px-4 py-3 border border-gray-200 rounded-xl text-sm input-focus outline-none font-medium bg-white text-gray-900"
         >

@@ -10,8 +10,8 @@
   const SIDEBAR_KEY = 'sidebar_collapsed';
   const location = useLocation();
 
-  // 同步路由变化到 selectedNav
-  $: $selectedNav = $location.pathname;
+  // 同步路由变化到 selectedNav，保留 from 参数用于恢复来源 tab 上下文
+  $: $selectedNav = $location.pathname + ($location.search || '');
 
   function handleNavigate(href) {
     navigate(href);
@@ -91,12 +91,22 @@
   $: currentPath = $location.pathname;
 
   // 用 $: 预计算高亮 map（模板直接查表，避免函数内 store 订阅失效）
+  // 支持 ?from=xxx 参数保留来源 tab 高亮
   $: activeMap = (() => {
     const path = $location.pathname;
+    const from = new URLSearchParams($location.search || '').get('from') || '';
     const m = {};
     for (const group of filteredGroups) {
       for (const child of group.children) {
-        m[child.href] = path === child.href;
+        if (path === child.href) {
+          // 精确匹配
+          m[child.href] = true;
+        } else if (from && child.href.endsWith('/' + from)) {
+          // ?from=marketplace → 高亮 /marketplace tab
+          m[child.href] = true;
+        } else {
+          m[child.href] = false;
+        }
       }
     }
     return m;
@@ -104,9 +114,14 @@
 
   $: groupActiveMap = (() => {
     const path = $location.pathname;
+    const from = new URLSearchParams($location.search || '').get('from') || '';
     const m = {};
+    // 从 query 参数还原来源 tab
+    const effectivePath = from && /^\/.+\/.+/.test(path)
+      ? '/' + from
+      : path;
     for (const group of filteredGroups) {
-      m[group.key] = group.children.some(c => pathInGroup(c.href, path));
+      m[group.key] = group.children.some(c => pathInGroup(c.href, effectivePath));
     }
     return m;
   })();
@@ -114,7 +129,11 @@
   $: expandedGroups = {};
   $: {
     for (const group of filteredGroups) {
-      const isCurrentInGroup = group.children.some(c => pathInGroup(c.href, currentPath));
+      const from = new URLSearchParams($location.search || '').get('from') || '';
+      const effectivePath = from && /^\/.+\/.+/.test(currentPath)
+        ? '/' + from
+        : currentPath;
+      const isCurrentInGroup = group.children.some(c => pathInGroup(c.href, effectivePath));
       expandedGroups[group.key] = isCurrentInGroup
         ? true
         : manualCollapsed[group.key] === false;

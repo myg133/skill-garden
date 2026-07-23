@@ -208,10 +208,9 @@
 
 <!-- Register Modal -->
   {#if showRegisterModal}
-    <!-- svelte-ignore a11y-no-noninteractive-element-interactions -->
-    <div class="fixed inset-0 bg-black/40 flex items-center justify-center z-50 fade-in" on:click={() => showRegisterModal = false} on:keydown={(e) => e.key === 'Escape' && (showRegisterModal = false)} role="button" tabindex="0">
-      <!-- svelte-ignore a11y-no-noninteractive-element-interactions -->
-      <div class="bg-white rounded-2xl p-6 w-full max-w-lg shadow-elevated border border-gray-200 max-h-[85vh] overflow-y-auto" on:click|stopPropagation on:keydown|stopPropagation role="dialog" aria-modal="true">
+    <button type="button" class="fixed inset-0 bg-black/40 flex items-center justify-center z-50 w-full border-0 cursor-default" aria-label="Close modal" on:click={() => showRegisterModal = false}>
+      <!-- svelte-ignore a11y-click-events-have-key-events a11y-no-static-element-interactions -->
+      <div class="bg-white rounded-2xl p-6 w-full max-w-lg shadow-elevated border border-gray-200 max-h-[85vh] overflow-y-auto" on:click|stopPropagation>
         <div class="flex items-center justify-between mb-5">
           <h2 class="text-lg font-semibold text-gray-800">Register Tool</h2>
           <button
@@ -318,5 +317,5 @@
           </button>
     </div>
   </div>
-</div>
+</button>
 {/if}
