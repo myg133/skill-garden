@@ -1,5 +1,6 @@
 <script>
   import { auth, selectedNav } from '../stores/auth.js';
+  import { permissionStore } from '../stores/permission.js';
   import { api } from '../lib/api.js';
   import { navigate, link } from 'svelte-routing';
 
@@ -18,9 +19,32 @@
     error = '';
     try {
       const res = await api.adminLogin(username, password);
-      auth.login(res.token, res.user?.username || username);
-      $selectedNav = '/stats';
-      navigate('/stats', { replace: true });
+      const user = res.user || {};
+      const is_admin_user = user.is_admin || false;
+      
+      // 初始化权限 store
+      permissionStore.initFromLogin(user);
+      
+      // auth store（token 写入 localStorage，api 模块后续请求会携带）
+      auth.login(res.token, user.username || username, is_admin_user);
+      
+      // 立即从服务端拉取完整权限码（如 org:read、group:read），避免 Nav 因权限不全隐藏菜单
+      // App.svelte 的 onMount 只在首次挂载执行，登录页挂载时尚未认证会跳过 refresh
+      await permissionStore.refresh();
+      
+      // 检查是否有保存的回跳路径
+      const redirectPath = localStorage.getItem('login_redirect');
+      if (redirectPath) {
+        localStorage.removeItem('login_redirect');
+        $selectedNav = redirectPath;
+        navigate(redirectPath, { replace: true });
+      } else if (is_admin_user) {
+        $selectedNav = '/stats';
+        navigate('/stats', { replace: true });
+      } else {
+        $selectedNav = '/user';
+        navigate('/user', { replace: true });
+      }
     } catch (e) {
       error = e.message || 'Login failed';
     } finally {
@@ -38,9 +62,7 @@
 
   <div class="max-w-[420px] w-full relative slide-up">
     <div class="text-center mb-8">
-      <div class="inline-flex w-16 h-16 rounded-2xl gradient-brand items-center justify-center text-2xl font-bold mb-5 shadow-glow pulse-glow float-anim ring-1 ring-brand-400/20">
-        @
-      </div>
+      <img src="/images/logo.png" alt="AionHive" class="w-20 h-20 rounded-2xl mb-5 shadow-glow float-anim mx-auto block" />
       <h1 class="text-[28px] font-extrabold text-surface-800 tracking-tight">AionHive</h1>
       <p class="text-surface-500 text-sm mt-2 font-medium">Admin Console — Sign in to continue</p>
     </div>

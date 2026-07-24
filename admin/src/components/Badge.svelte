@@ -1,4 +1,4 @@
-<script>
+﻿<script>
   export let status = 'draft';
 
   const colors = {
@@ -7,8 +7,8 @@
     approved: 'bg-emerald-50 text-emerald-600 ring-1 ring-emerald-600/20',
     rejected: 'bg-rose-50 text-rose-600 ring-1 ring-rose-600/20',
     active: 'bg-emerald-50 text-emerald-600 ring-1 ring-emerald-600/20',
-    ended: 'bg-surface-100 text-surface-500 ring-1 ring-surface-600/10',
-    draft: 'bg-surface-100 text-surface-500 ring-1 ring-surface-600/10',
+    ended: 'bg-gray-100 text-gray-500 ring-1 ring-surface-600/10',
+    draft: 'bg-gray-100 text-gray-500 ring-1 ring-surface-600/10',
     pending: 'bg-amber-50 text-amber-600 ring-1 ring-amber-600/20',
   };
 

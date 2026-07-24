@@ -122,7 +122,7 @@ pub struct NewIdentity {
     pub metadata: Option<serde_json::Value>,
 }
 
-#[derive(Debug, Clone, Serialize)]
+#[derive(Debug, Clone, Serialize, Default)]
 pub struct IdentityUpdate {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub name: Option<String>,

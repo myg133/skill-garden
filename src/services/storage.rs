@@ -70,8 +70,8 @@ impl StorageService {
 
         // 创建临时文件
         let temp_path = path.with_extension("tmp");
-        let file = File::create(&temp_path)
-            .map_err(|e| AppError::RegistryWriteFailed(e.to_string()))?;
+        let file =
+            File::create(&temp_path).map_err(|e| AppError::RegistryWriteFailed(e.to_string()))?;
 
         let mut writer = BufWriter::new(file);
         writer
@@ -99,7 +99,11 @@ impl StorageService {
     }
 
     /// 原子写入 JSON 文件
-    pub fn atomic_write_json<T: serde::Serialize>(&self, path: &Path, data: &T) -> Result<(), AppError> {
+    pub fn atomic_write_json<T: serde::Serialize>(
+        &self,
+        path: &Path,
+        data: &T,
+    ) -> Result<(), AppError> {
         let content = serde_json::to_string_pretty(data)
             .map_err(|e| AppError::RegistryWriteFailed(e.to_string()))?;
         self.atomic_write(path, &content)
@@ -136,8 +140,7 @@ impl FileLock {
     pub fn try_lock(path: &Path) -> Result<Self, AppError> {
         // 确保目录存在
         if let Some(parent) = path.parent() {
-            fs::create_dir_all(parent)
-                .map_err(|e| AppError::RegistryLockFailed(e.to_string()))?;
+            fs::create_dir_all(parent).map_err(|e| AppError::RegistryLockFailed(e.to_string()))?;
         }
 
         let file = OpenOptions::new()

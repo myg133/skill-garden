@@ -12,8 +12,8 @@
   let showPassword = false;
 
   async function handleRegister() {
-    if (!username || !password) {
-      error = 'Username and password are required';
+    if (!username || !email || !password) {
+      error = 'Username, email and password are required';
       return;
     }
     if (password !== confirmPassword) {
@@ -46,9 +46,7 @@
 
   <div class="max-w-[420px] w-full relative slide-up">
     <div class="text-center mb-8">
-      <div class="inline-flex w-16 h-16 rounded-2xl gradient-brand items-center justify-center text-2xl font-bold mb-5 shadow-glow pulse-glow float-anim ring-1 ring-brand-400/20">
-        @
-      </div>
+      <img src="/images/logo.png" alt="AionHive" class="w-20 h-20 rounded-2xl mb-5 shadow-glow float-anim mx-auto block" />
       <h1 class="text-[28px] font-extrabold text-surface-800 tracking-tight">AionHive</h1>
       <p class="text-surface-500 text-sm mt-2 font-medium">Create your account</p>
     </div>
@@ -56,40 +54,41 @@
     <div class="bg-white/90 backdrop-blur-xl rounded-2xl shadow-elevated-lg p-8 border border-surface-200/60 ring-1 ring-brand-500/5">
       <form on:submit|preventDefault={handleRegister} class="space-y-4">
         <div>
-          <label for="reg-username" class="block text-xs font-semibold text-surface-500 uppercase tracking-wider mb-2">Username <span class="text-rose-500">*</span></label>
+          <label for="reg-username" class="block text-xs font-semibold text-surface-600 uppercase tracking-wider mb-2">Username <span class="text-rose-500">*</span></label>
           <input
             id="reg-username"
             type="text"
             bind:value={username}
             placeholder="Choose a username"
-            class="w-full px-4 py-3 border border-surface-200 rounded-xl text-sm input-focus outline-none font-medium bg-surface-50/80 placeholder:text-surface-300"
+            class="w-full px-4 py-3 border border-surface-200 rounded-xl text-sm input-focus outline-none font-medium bg-surface-50/80 text-surface-800 placeholder:text-surface-500"
           />
         </div>
 
         <div>
-          <label for="reg-display-name" class="block text-xs font-semibold text-surface-500 uppercase tracking-wider mb-2">Display Name</label>
+          <label for="reg-display-name" class="block text-xs font-semibold text-surface-600 uppercase tracking-wider mb-2">Display Name</label>
           <input
             id="reg-display-name"
             type="text"
             bind:value={displayName}
             placeholder="Your display name (optional)"
-            class="w-full px-4 py-3 border border-surface-200 rounded-xl text-sm input-focus outline-none font-medium bg-surface-50/80 placeholder:text-surface-300"
+            class="w-full px-4 py-3 border border-surface-200 rounded-xl text-sm input-focus outline-none font-medium bg-surface-50/80 text-surface-800 placeholder:text-surface-500"
           />
         </div>
 
         <div>
-          <label for="reg-email" class="block text-xs font-semibold text-surface-500 uppercase tracking-wider mb-2">Email</label>
+          <label for="reg-email" class="block text-xs font-semibold text-surface-600 uppercase tracking-wider mb-2">Email <span class="text-rose-500">*</span></label>
           <input
             id="reg-email"
             type="email"
             bind:value={email}
-            placeholder="Your email (optional)"
-            class="w-full px-4 py-3 border border-surface-200 rounded-xl text-sm input-focus outline-none font-medium bg-surface-50/80 placeholder:text-surface-300"
+            required
+            placeholder="Your email address"
+            class="w-full px-4 py-3 border border-surface-200 rounded-xl text-sm input-focus outline-none font-medium bg-surface-50/80 text-surface-800 placeholder:text-surface-500"
           />
         </div>
 
         <div>
-          <label for="reg-password" class="block text-xs font-semibold text-surface-500 uppercase tracking-wider mb-2">Password <span class="text-rose-500">*</span></label>
+          <label for="reg-password" class="block text-xs font-semibold text-surface-600 uppercase tracking-wider mb-2">Password <span class="text-rose-500">*</span></label>
           <div class="relative">
             {#if showPassword}
             <input
@@ -97,7 +96,7 @@
               type="text"
               bind:value={password}
               placeholder="At least 6 characters"
-              class="w-full px-4 pr-12 py-3 border border-surface-200 rounded-xl text-sm input-focus outline-none font-medium bg-surface-50/80 placeholder:text-surface-300"
+              class="w-full px-4 pr-12 py-3 border border-surface-200 rounded-xl text-sm input-focus outline-none font-medium bg-surface-50/80 text-surface-800 placeholder:text-surface-500"
             />
             {:else}
             <input
@@ -105,7 +104,7 @@
               type="password"
               bind:value={password}
               placeholder="At least 6 characters"
-              class="w-full px-4 pr-12 py-3 border border-surface-200 rounded-xl text-sm input-focus outline-none font-medium bg-surface-50/80 placeholder:text-surface-300"
+              class="w-full px-4 pr-12 py-3 border border-surface-200 rounded-xl text-sm input-focus outline-none font-medium bg-surface-50/80 text-surface-800 placeholder:text-surface-500"
             />
             {/if}
             <button
@@ -129,14 +128,14 @@
         </div>
 
         <div>
-          <label for="reg-confirm-password" class="block text-xs font-semibold text-surface-500 uppercase tracking-wider mb-2">Confirm Password <span class="text-rose-500">*</span></label>
+          <label for="reg-confirm-password" class="block text-xs font-semibold text-surface-600 uppercase tracking-wider mb-2">Confirm Password <span class="text-rose-500">*</span></label>
           {#if showPassword}
           <input
             id="reg-confirm-password"
             type="text"
             bind:value={confirmPassword}
             placeholder="Re-enter your password"
-            class="w-full px-4 py-3 border border-surface-200 rounded-xl text-sm input-focus outline-none font-medium bg-surface-50/80 placeholder:text-surface-300"
+            class="w-full px-4 py-3 border border-surface-200 rounded-xl text-sm input-focus outline-none font-medium bg-surface-50/80 text-surface-800 placeholder:text-surface-500"
           />
           {:else}
           <input
@@ -144,7 +143,7 @@
             type="password"
             bind:value={confirmPassword}
             placeholder="Re-enter your password"
-            class="w-full px-4 py-3 border border-surface-200 rounded-xl text-sm input-focus outline-none font-medium bg-surface-50/80 placeholder:text-surface-300"
+            class="w-full px-4 py-3 border border-surface-200 rounded-xl text-sm input-focus outline-none font-medium bg-surface-50/80 text-surface-800 placeholder:text-surface-500"
           />
           {/if}
         </div>

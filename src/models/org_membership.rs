@@ -14,7 +14,7 @@ pub struct OrgMembership {
     pub invited_by: Option<Uuid>,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(rename_all = "snake_case")]
 pub enum OrgRole {
     Owner,
@@ -22,6 +22,30 @@ pub enum OrgRole {
     Reviewer,
     Developer,
     Member,
+}
+
+/// 手动实现 PartialOrd，确保权限比较：Owner > Admin > Reviewer > Developer > Member
+/// 注意：`#[derive(PartialOrd)]` 按声明顺序从上到下递增（Owner=0 < Member=4），
+/// 这与权限层级相反，因此必须手动实现。
+impl PartialOrd for OrgRole {
+    fn partial_cmp(&self, other: &Self) -> Option<std::cmp::Ordering> {
+        Some(self.cmp(other))
+    }
+}
+
+impl Ord for OrgRole {
+    fn cmp(&self, other: &Self) -> std::cmp::Ordering {
+        fn rank(role: &OrgRole) -> u8 {
+            match role {
+                OrgRole::Member => 0,
+                OrgRole::Developer => 1,
+                OrgRole::Reviewer => 2,
+                OrgRole::Admin => 3,
+                OrgRole::Owner => 4,
+            }
+        }
+        rank(self).cmp(&rank(other))
+    }
 }
 
 impl Default for OrgRole {

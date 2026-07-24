@@ -1,4 +1,4 @@
-<script>
+﻿<script>
   import { createEventDispatcher } from 'svelte';
 
   export let show = false;
@@ -21,12 +21,13 @@
     }
     dispatch('submit', reason);
   }
+
+  $: if (!show) resetForm();
 </script>
-$: if (!show) resetForm();
 
 {#if show}
-<div class="fixed inset-0 bg-surface-900/40 backdrop-blur-sm flex items-center justify-center z-50 modal-overlay">
-  <div class="bg-slate-50 rounded-2xl p-6 w-full max-w-md shadow-elevated-lg border border-indigo-200 modal-content">
+<div class="fixed inset-0 bg-black/40 flex items-center justify-center z-50 modal-overlay">
+  <div class="bg-white rounded-2xl p-6 w-full max-w-md shadow-elevated-lg border border-gray-200 modal-content">
     <div class="flex items-center gap-3 mb-5">
       <div class="w-10 h-10 rounded-xl bg-rose-100 flex items-center justify-center">
         <svg class="w-5 h-5 text-rose-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -34,22 +35,22 @@ $: if (!show) resetForm();
         </svg>
       </div>
       <div>
-        <h3 class="font-semibold text-surface-800 text-[15px]">Reject Skill</h3>
-        <p class="text-surface-400 text-xs font-medium">&ldquo;{skillName}&rdquo;</p>
+        <h3 class="font-semibold text-gray-800 text-[15px]">Reject Skill</h3>
+        <p class="text-gray-400 text-xs font-medium">&ldquo;{skillName}&rdquo;</p>
       </div>
     </div>
 
     <div class="mb-4">
-      <label for="reject-reason" class="block text-xs font-semibold text-surface-500 uppercase tracking-wider mb-2">Rejection Reason</label>
+      <label for="reject-reason" class="block text-xs font-semibold text-gray-500 uppercase tracking-wider mb-2">Rejection Reason</label>
       <textarea
         id="reject-reason"
         bind:value={reason}
         placeholder="Explain why this skill is being rejected (min 10 characters)..."
         rows="4"
-        class="w-full px-4 py-3 border border-surface-200 rounded-xl text-sm input-focus outline-none transition-all resize-none font-medium bg-surface-50 text-surface-700 placeholder:text-surface-400"
+        class="w-full px-4 py-3 border border-gray-200 rounded-xl text-sm input-focus outline-none transition-all resize-none font-medium bg-white text-gray-700 placeholder:text-gray-400"
       ></textarea>
       <div class="flex justify-between mt-1.5">
-        <span class="text-surface-400 text-[11px]">{reason.length} / 10 min</span>
+        <span class="text-gray-400 text-[11px]">{reason.length} / 10 min</span>
         {#if error}
           <span class="text-rose-500 text-[11px] font-medium">{error}</span>
         {/if}
@@ -59,7 +60,7 @@ $: if (!show) resetForm();
     <div class="flex justify-end gap-3 pt-1">
       <button
         on:click={() => dispatch('cancel')}
-        class="px-4 py-2.5 text-surface-500 hover:text-surface-700 hover:bg-surface-100 rounded-xl font-semibold text-sm transition-all"
+        class="px-4 py-2.5 text-gray-500 hover:text-gray-700 hover:bg-gray-100 rounded-xl font-semibold text-sm transition-all"
       >
         Cancel
       </button>

@@ -1,5 +1,82 @@
 const API_BASE = '/api/v1';
 
+// ---------------------------------------------------------------------------
+// ApiError — 结构化错误，前端组件可根据 code/status 做差异化展示
+// ---------------------------------------------------------------------------
+export class ApiError extends Error {
+  /**
+   * @param {number} status    HTTP 状态码
+   * @param {string} code      后端返回的错误码（可选）
+   * @param {string} message   面向用户的友好消息
+   */
+  constructor(status, code, message) {
+    super(message);
+    this.name = 'ApiError';
+    this.status = status;
+    this.code = code || '';
+  }
+}
+
+// ---------------------------------------------------------------------------
+// 错误消息映射 — 将后端技术消息翻译为中文用户友好消息
+// ---------------------------------------------------------------------------
+const ERROR_MESSAGES = {
+  // 通用
+  unauthorized: '会话已过期，请重新登录',
+  forbidden: '您没有执行此操作的权限',
+  not_found: '请求的资源不存在',
+  validation_error: '输入参数不合法',
+  // Skill 权限
+  skill_not_found: 'Skill 不存在或已被删除',
+  permission_denied: '权限不足，请联系管理员',
+  // 身份相关
+  identity_not_found: '身份信息不存在',
+  identity_id_missing: '身份信息缺失，请使用新版 API Key 重新认证',
+  // API Key
+  api_key_not_found: 'API Key 不存在',
+  api_key_already_revoked: 'API Key 已被撤销',
+  // 组织
+  org_not_found: '组织不存在',
+  not_org_member: '您不是该组织的成员',
+  // Token
+  token_expired: '凭证已过期，请重新登录',
+  token_invalid: '凭证无效',
+};
+
+/**
+ * 尝试匹配错误消息中的关键词，返回中文友好翻译
+ */
+function humanize(status, rawMessage) {
+  if (!rawMessage) {
+    // 根据 HTTP 状态码返回通用描述
+    const defaults = {
+      400: '请求参数有误',
+      403: '您没有执行此操作的权限',
+      404: '请求的资源不存在',
+      409: '操作冲突，请检查后重试',
+      429: '请求太频繁，请稍后再试',
+      500: '服务器内部错误，请稍后重试',
+      502: '网关错误，请稍后重试',
+      503: '服务暂时不可用，请稍后重试',
+    };
+    return defaults[status] || `请求失败 (HTTP ${status})`;
+  }
+
+  // 按关键词匹配
+  const lower = rawMessage.toLowerCase();
+  for (const [key, msg] of Object.entries(ERROR_MESSAGES)) {
+    if (lower.includes(key.replace(/_/g, ' ')) || lower.includes(key)) {
+      return msg;
+    }
+  }
+
+  // 没有匹配到，返回原始消息（可能是后端已经返回的合理中文消息）
+  return rawMessage;
+}
+
+// ---------------------------------------------------------------------------
+// 请求核心
+// ---------------------------------------------------------------------------
 async function request(path, options = {}) {
   const token = localStorage.getItem('admin_token');
   const headers = {
@@ -10,9 +87,35 @@ async function request(path, options = {}) {
 
   const res = await fetch(`${API_BASE}${path}`, { ...options, headers });
 
+  // 401: 先检查是否为真正的 token 过期（响应包含 token 相关关键词），
+  // 否则只是权限不足，不清除 token
+  if (res.status === 401) {
+    const err = await res.json().catch(() => ({}));
+    const msg = (err.error || err.message || '').toLowerCase();
+    // 只有 token 相关错误才清 token 跳登录
+    if (msg.includes('token') || msg.includes('expired') || msg.includes('invalid') || msg.includes('凭证')) {
+      localStorage.removeItem('admin_token');
+      const currentPath = window.location.pathname + window.location.search;
+      if (currentPath !== '/login') {
+        localStorage.setItem('login_redirect', currentPath);
+      }
+      try {
+        const { navigate } = await import('svelte-routing');
+        navigate('/login', { replace: true });
+      } catch {}
+      throw new ApiError(401, 'unauthorized', '会话已过期，请重新登录');
+    }
+    // 权限不足，正常抛错
+    throw new ApiError(res.status, err.code || '', humanize(res.status, err.error || err.message));
+  }
+
   if (!res.ok) {
-    const err = await res.json().catch(() => ({ message: 'Request failed' }));
-    throw new Error(err.message || `HTTP ${res.status}`);
+    const err = await res.json().catch(() => ({}));
+    throw new ApiError(
+      res.status,
+      err.code || '',
+      humanize(res.status, err.error || err.message)
+    );
   }
 
   return res.json();
@@ -27,17 +130,63 @@ async function requestNoAuth(path, options = {}) {
   const res = await fetch(`${API_BASE}${path}`, { ...options, headers });
 
   if (!res.ok) {
-    const err = await res.json().catch(() => ({ message: 'Request failed' }));
-    throw new Error(err.message || `HTTP ${res.status}`);
+    const err = await res.json().catch(() => ({}));
+    throw new ApiError(
+      res.status,
+      err.code || '',
+      humanize(res.status, err.error || err.message)
+    );
+  }
+
+  return res.json();
+}
+
+async function requestUpload(path, formData) {
+  const token = localStorage.getItem('admin_token');
+  const headers = {};
+  if (token) headers.Authorization = `Bearer ${token}`;
+
+  const res = await fetch(`${API_BASE}${path}`, {
+    method: 'POST',
+    headers,
+    body: formData,
+  });
+
+  // 401: only clear token if it's a real token expiry, not permission denied
+  if (res.status === 401) {
+    const err = await res.json().catch(() => ({}));
+    const msg = (err.error || err.message || '').toLowerCase();
+    if (msg.includes('token') || msg.includes('expired') || msg.includes('invalid') || msg.includes('凭证')) {
+      localStorage.removeItem('admin_token');
+      const currentPath = window.location.pathname + window.location.search;
+      if (currentPath !== '/login') {
+        localStorage.setItem('login_redirect', currentPath);
+      }
+      try {
+        const { navigate } = await import('svelte-routing');
+        navigate('/login', { replace: true });
+      } catch {}
+      throw new ApiError(401, 'unauthorized', '会话已过期，请重新登录');
+    }
+    throw new ApiError(res.status, err.code || '', humanize(res.status, err.error || err.message));
+  }
+
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({}));
+    throw new ApiError(
+      res.status,
+      err.code || '',
+      humanize(res.status, err.error || err.message)
+    );
   }
 
   return res.json();
 }
 
 export const api = {
-  // Admin Auth
+  // Auth (统一登录 — 含 admin/user 角色)
   adminLogin(username, password) {
-    return requestNoAuth('/admin/login', {
+    return requestNoAuth('/auth/login', {
       method: 'POST',
       body: JSON.stringify({ username, password })
     });
@@ -75,6 +224,10 @@ export const api = {
     return request('/users/me');
   },
 
+  getMyPermissions() {
+    return request('/users/me/permissions');
+  },
+
   updateMe(data) {
     return request('/users/me', {
       method: 'PUT',
@@ -105,6 +258,20 @@ export const api = {
 
   revokeMyApiKey(id) {
     return request(`/api-keys/${id}`, { method: 'DELETE' });
+  },
+
+  disableMyApiKey(id) {
+    return request(`/api-keys/${id}`, {
+      method: 'PATCH',
+      body: JSON.stringify({ status: 'disabled' })
+    });
+  },
+
+  enableMyApiKey(id) {
+    return request(`/api-keys/${id}`, {
+      method: 'PATCH',
+      body: JSON.stringify({ status: 'active' })
+    });
   },
 
   // Tenants
@@ -159,8 +326,78 @@ export const api = {
     });
   },
 
+  updateIdentityStatus(id, disabled) {
+    return request(`/admin/users/${id}/disable`, {
+      method: 'PUT',
+      body: JSON.stringify({ disabled }),
+    });
+  },
+
   deleteIdentity(id) {
     return request(`/admin/identities/${id}`, { method: 'DELETE' });
+  },
+
+  // System Role Assignments
+  assignSystemRole(identity_id, role_name) {
+    return request('/admin/system-role-assignments', {
+      method: 'POST',
+      body: JSON.stringify({ identity_id, role_name })
+    });
+  },
+
+  revokeSystemRole(identity_id, role_name) {
+    return request('/admin/system-role-assignments', {
+      method: 'DELETE',
+      body: JSON.stringify({ identity_id, role_name })
+    });
+  },
+
+  listSystemRoleAssignments(params = {}) {
+    const qs = new URLSearchParams(params).toString();
+    return request(`/admin/system-role-assignments${qs ? `?${qs}` : ''}`);
+  },
+
+  getIdentitySystemRoles(id) {
+    return request(`/admin/identities/${id}/system-roles`);
+  },
+
+  // Marketplace Reviewer Assignments (marketplace_admin manages reviewers)
+  assignMarketplaceReviewer(identity_id) {
+    return request('/admin/marketplace-reviewers', {
+      method: 'POST',
+      body: JSON.stringify({ identity_id })
+    });
+  },
+
+  revokeMarketplaceReviewer(identity_id) {
+    return request('/admin/marketplace-reviewers', {
+      method: 'DELETE',
+      body: JSON.stringify({ identity_id })
+    });
+  },
+
+  listMarketplaceReviewers() {
+    return request('/admin/marketplace-reviewers');
+  },
+
+  // Tenant Role Assignments (tenant_admin manages org admins)
+  assignTenantRole(identity_id, tenant_id, role_name) {
+    return request('/admin/tenant-role-assignments', {
+      method: 'POST',
+      body: JSON.stringify({ identity_id, tenant_id, role_name })
+    });
+  },
+
+  revokeTenantRole(identity_id, tenant_id, role_name) {
+    return request('/admin/tenant-role-assignments', {
+      method: 'DELETE',
+      body: JSON.stringify({ identity_id, tenant_id, role_name })
+    });
+  },
+
+  listTenantRoleAssignments(params = {}) {
+    const qs = new URLSearchParams(params).toString();
+    return request(`/admin/tenant-role-assignments${qs ? `?${qs}` : ''}`);
   },
 
   // Groups
@@ -217,6 +454,20 @@ export const api = {
     return request(`/admin/api-keys/${id}`, { method: 'DELETE' });
   },
 
+  disableApiKey(id) {
+    return request(`/admin/api-keys/${id}`, {
+      method: 'PATCH',
+      body: JSON.stringify({ status: 'disabled' })
+    });
+  },
+
+  enableApiKey(id) {
+    return request(`/admin/api-keys/${id}`, {
+      method: 'PATCH',
+      body: JSON.stringify({ status: 'active' })
+    });
+  },
+
   // Audit Entries
   listAuditEntries(params = {}) {
     const qs = new URLSearchParams(params).toString();
@@ -229,18 +480,91 @@ export const api = {
     return request(`/skills${qs ? `?${qs}` : ''}`);
   },
 
+  // My Skills (user-facing — only current user's skills)
+  listMySkills() {
+    return request('/my-skills');
+  },
+
+  // Submit skill for review
+  submitSkillForReview(id, comment) {
+    return request(`/skills/${id}/submit-review`, {
+      method: 'POST',
+      body: JSON.stringify({ comment: comment || null })
+    });
+  },
+
+  // Publish approved skill
+  publishSkill(id) {
+    return request(`/skills/${id}/publish`, { method: 'POST' });
+  },
+
+  // Admin: unpublish a published skill (下架)
+  adminUnpublishSkill(id) {
+    return request(`/admin/skills/${id}/unpublish`, { method: 'POST' });
+  },
+
+  // Admin: republish a skill to marketplace (上架)
+  adminPublishSkill(id) {
+    return request(`/admin/skills/${id}/publish`, { method: 'POST' });
+  },
+
   getSkill(id) {
     return request(`/skills/${id}`);
+  },
+
+  getSkillFiles(id) {
+    return request(`/skills/${id}/files`);
+  },
+
+  getSkillFile(id, filePath) {
+    return request(`/skills/${id}/files/${encodeURIComponent(filePath)}`);
   },
 
   getSkillStats(id) {
     return request(`/skills/${id}/stats`);
   },
 
-  createSkill(body) {
-    return request('/skills', {
+  updateSkill(id, data) {
+    return request(`/skills/${id}`, {
+      method: 'PUT',
+      body: JSON.stringify(data)
+    });
+  },
+
+  deleteSkill(id) {
+    return request(`/skills/${id}`, { method: 'DELETE' });
+  },
+
+  // Version management
+  listSkillVersions(name, params = {}) {
+    const qs = new URLSearchParams(params).toString();
+    return request(`/skills/${encodeURIComponent(name)}/versions${qs ? `?${qs}` : ''}`);
+  },
+
+  rollbackSkill(name, version) {
+    return request(`/skills/${encodeURIComponent(name)}/rollback`, {
       method: 'POST',
-      body: JSON.stringify(body)
+      body: JSON.stringify({ version })
+    });
+  },
+
+  uploadSkill(formData) {
+    return requestUpload('/skills/upload', formData);
+  },
+
+  // Skill Upload Preview & Confirm
+  previewSkillUpload(formData) {
+    return requestUpload('/skills/upload/preview', formData);
+  },
+
+  getPreviewFile(previewId, filePath) {
+    return request(`/skills/upload/preview/${previewId}/files/${encodeURIComponent(filePath)}`);
+  },
+
+  confirmSkillUpload(previewId, data = {}) {
+    return request(`/skills/upload/preview/${previewId}/confirm`, {
+      method: 'POST',
+      body: JSON.stringify(data)
     });
   },
 
@@ -250,11 +574,11 @@ export const api = {
   },
 
   approveSkill(id) {
-    return request(`/admin/skills/${id}/approve`, { method: 'POST' });
+    return request(`/skills/${id}/approve`, { method: 'POST' });
   },
 
   rejectSkill(id, reason) {
-    return request(`/admin/skills/${id}/reject`, {
+    return request(`/skills/${id}/reject`, {
       method: 'POST',
       body: JSON.stringify({ reason })
     });
@@ -321,6 +645,14 @@ export const api = {
 
   deleteOrgTool(id) {
     return request(`/org-tools/${id}`, { method: 'DELETE' });
+  },
+
+  approveOrgTool(id) {
+    return request(`/org-tools/${id}/approve`, { method: 'POST' });
+  },
+
+  rejectOrgTool(id) {
+    return request(`/org-tools/${id}/reject`, { method: 'POST' });
   },
 
   listApprovedTools(orgId) {
@@ -463,5 +795,78 @@ export const api = {
       method: 'DELETE',
       body: JSON.stringify(data),
     });
+  },
+
+  // Marketplace
+  listMarketplaceSkills(params = {}) {
+    const qs = new URLSearchParams(params).toString();
+    return request(`/marketplace${qs ? `?${qs}` : ''}`);
+  },
+
+  // Marketplace review & lifecycle
+  submitToMarketplace(skillId) {
+    return request(`/skills/${skillId}/submit-to-marketplace`, { method: 'POST' });
+  },
+
+  marketplaceReviewApprove(skillId) {
+    return request(`/admin/marketplace/${skillId}/approve`, { method: 'POST' });
+  },
+
+  marketplaceReviewReject(skillId) {
+    return request(`/admin/marketplace/${skillId}/reject`, { method: 'POST' });
+  },
+
+  marketplaceRelist(skillId) {
+    return request(`/admin/marketplace/${skillId}/relist`, { method: 'POST' });
+  },
+
+  marketplaceDelist(skillId) {
+    return request(`/admin/marketplace/${skillId}/delist`, { method: 'POST' });
+  },
+
+  // Marketplace delist request workflow
+  requestMarketplaceDelist(skillId, reason) {
+    return request(`/skills/${skillId}/request-delist`, {
+      method: 'POST',
+      body: JSON.stringify({ reason }),
+    });
+  },
+
+  marketplaceApproveDelist(skillId) {
+    return request(`/admin/marketplace/${skillId}/approve-delist`, { method: 'POST' });
+  },
+
+  marketplaceRejectDelist(skillId) {
+    return request(`/admin/marketplace/${skillId}/reject-delist`, { method: 'POST' });
+  },
+
+  // Marketplace update review
+  marketplaceApproveUpdate(skillId) {
+    return request(`/admin/marketplace/${skillId}/approve-update`, { method: 'POST' });
+  },
+
+  marketplaceRejectUpdate(skillId) {
+    return request(`/admin/marketplace/${skillId}/reject-update`, { method: 'POST' });
+  },
+
+  cancelUpdate(skillId) {
+    return request(`/skills/${skillId}/cancel-update`, { method: 'POST' });
+  },
+
+  marketplaceStats() {
+    return request('/admin/marketplace/stats');
+  },
+
+  // Sandbox
+  listSandboxes() {
+    return request('/admin/sandboxes');
+  },
+
+  getSandboxHealth() {
+    return request('/admin/sandboxes/health');
+  },
+
+  removeSandbox(key) {
+    return request(`/admin/sandboxes/${encodeURIComponent(key)}`, { method: 'DELETE' });
   },
 };

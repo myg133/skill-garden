@@ -2,7 +2,9 @@ use sqlx::PgPool;
 use uuid::Uuid;
 
 use crate::db::error::{DbError, DbResult};
-use crate::models::group_permission_override::{GroupPermissionOverride, NewGroupPermissionOverride};
+use crate::models::group_permission_override::{
+    GroupPermissionOverride, NewGroupPermissionOverride,
+};
 
 #[derive(Clone)]
 pub struct GroupPermissionOverrideRepository {

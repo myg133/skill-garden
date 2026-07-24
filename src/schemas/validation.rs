@@ -10,6 +10,7 @@ pub const MAX_DESCRIPTION_LENGTH: usize = 2000;
 pub const MAX_CONTENT_LENGTH: usize = 500_000;
 
 /// 恶意内容模式
+/// 注意：`..` / `../` 不在列表中，由下方专门的路径穿越检查处理（需同时命中路径特征）
 const MALICIOUS_PATTERNS: &[&str] = &[
     "<script",
     "javascript:",
@@ -21,8 +22,6 @@ const MALICIOUS_PATTERNS: &[&str] = &[
     "innerHTML",
     "/etc/passwd",
     r"C:\Windows",
-    "..",
-    "../",
     "file://",
     "ftp://",
 ];
@@ -31,7 +30,9 @@ const MALICIOUS_PATTERNS: &[&str] = &[
 pub fn validate_skill_name(name: &str) -> Result<(), AppError> {
     // 检查长度
     if name.is_empty() {
-        return Err(AppError::InvalidSkillName("Name cannot be empty".to_string()));
+        return Err(AppError::InvalidSkillName(
+            "Name cannot be empty".to_string(),
+        ));
     }
     if name.len() > MAX_NAME_LENGTH {
         return Err(AppError::InvalidSkillName(format!(
@@ -122,7 +123,9 @@ pub fn validate_skill_content(content: &str, _name: &str) -> Result<(), AppError
 /// 验证版本号 (semver)
 pub fn validate_version(version: &str) -> Result<(), AppError> {
     if version.is_empty() {
-        return Err(AppError::InvalidVersion("Version cannot be empty".to_string()));
+        return Err(AppError::InvalidVersion(
+            "Version cannot be empty".to_string(),
+        ));
     }
 
     // 简单的 semver 验证
@@ -159,13 +162,24 @@ pub fn validate_description(desc: &str) -> Result<(), AppError> {
     Ok(())
 }
 
+/// 规范化描述文本：将换行符替换为空格，合并多个连续空格
+///
+/// 上传 SKILL.md 时某些描述会包含换行，保存到数据库时合并为一行。
+pub fn normalize_description(desc: &str) -> String {
+    desc.replace("\r\n", " ")
+        .replace('\n', " ")
+        .replace('\r', " ")
+        .split_whitespace()
+        .collect::<Vec<&str>>()
+        .join(" ")
+}
+
 /// 验证评价输入
-pub fn validate_evaluation_input(
-    skill_id: &str,
-    duration_ms: u64,
-) -> Result<(), AppError> {
+pub fn validate_evaluation_input(skill_id: &str, duration_ms: u64) -> Result<(), AppError> {
     if skill_id.is_empty() {
-        return Err(AppError::EvaluationInvalid("skill_id cannot be empty".to_string()));
+        return Err(AppError::EvaluationInvalid(
+            "skill_id cannot be empty".to_string(),
+        ));
     }
 
     // 执行时间不能为0（除非是立即失败）
@@ -201,7 +215,9 @@ mod tests {
     #[test]
     fn test_validate_tags() {
         assert!(validate_tags(&["web".to_string()]).is_ok());
-        assert!(validate_tags(&["web".to_string(), "scraper".to_string(), "api".to_string()]).is_ok());
+        assert!(
+            validate_tags(&["web".to_string(), "scraper".to_string(), "api".to_string()]).is_ok()
+        );
         assert!(validate_tags(&[]).is_ok());
         assert!(validate_tags(&["a".repeat(51)]).is_err());
     }
@@ -264,7 +280,10 @@ mod tests {
         let long_content = "x".repeat(500_001);
         let result = validate_skill_content(&long_content, "test");
         assert!(result.is_err());
-        assert!(matches!(result.unwrap_err(), AppError::SkillInvalidFormat(_)));
+        assert!(matches!(
+            result.unwrap_err(),
+            AppError::SkillInvalidFormat(_)
+        ));
     }
 
     #[test]
@@ -290,7 +309,10 @@ This is fine because it's in a code block.
     #[test]
     fn test_validate_version_empty() {
         assert!(validate_version("").is_err());
-        assert!(matches!(validate_version("").unwrap_err(), AppError::InvalidVersion(_)));
+        assert!(matches!(
+            validate_version("").unwrap_err(),
+            AppError::InvalidVersion(_)
+        ));
     }
 
     #[test]
@@ -316,7 +338,10 @@ This is fine because it's in a code block.
     fn test_validate_evaluation_input_empty_skill_id() {
         let result = validate_evaluation_input("", 1000);
         assert!(result.is_err());
-        assert!(matches!(result.unwrap_err(), AppError::EvaluationInvalid(_)));
+        assert!(matches!(
+            result.unwrap_err(),
+            AppError::EvaluationInvalid(_)
+        ));
     }
 
     #[test]
@@ -328,7 +353,10 @@ This is fine because it's in a code block.
     fn test_validate_evaluation_input_duration_too_long() {
         let result = validate_evaluation_input("skill-1", 3_600_001);
         assert!(result.is_err());
-        assert!(matches!(result.unwrap_err(), AppError::EvaluationInvalid(_)));
+        assert!(matches!(
+            result.unwrap_err(),
+            AppError::EvaluationInvalid(_)
+        ));
     }
 
     #[test]

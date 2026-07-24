@@ -2,16 +2,34 @@
 
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
-use uuid::Uuid;
 use serde_json::Value as JsonValue;
 use std::collections::HashMap;
+use uuid::Uuid;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Session {
     pub id: Uuid,
-    pub agent_id: Uuid,
+    pub identity_id: Uuid,
     pub org_id: Uuid,
     pub status: SessionStatus,
+    pub tool_router: JsonValue,
+    pub capabilities: Vec<String>,
+    pub created_at: DateTime<Utc>,
+    pub last_active_at: DateTime<Utc>,
+    pub ended_at: Option<DateTime<Utc>>,
+}
+
+/// Enriched session response for admin UI — includes identity and org names.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct SessionWithMeta {
+    pub id: Uuid,
+    pub identity_id: Uuid,
+    pub identity_name: String,
+    pub identity_display_name: Option<String>,
+    pub org_id: Uuid,
+    pub org_name: String,
+    pub tenant_name: Option<String>,
+    pub status: String,
     pub tool_router: JsonValue,
     pub capabilities: Vec<String>,
     pub created_at: DateTime<Utc>,
@@ -26,11 +44,11 @@ pub enum SessionStatus {
 }
 
 impl Session {
-    pub fn new(agent_id: Uuid, org_id: Uuid) -> Self {
+    pub fn new(identity_id: Uuid, org_id: Uuid) -> Self {
         let now = Utc::now();
         Self {
             id: Uuid::new_v4(),
-            agent_id,
+            identity_id,
             org_id,
             status: SessionStatus::Active,
             tool_router: serde_json::json!({}),

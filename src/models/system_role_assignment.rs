@@ -26,8 +26,18 @@ pub struct SystemRole {
 impl SystemRole {
     pub const SUPER_ADMIN: &'static str = "super_admin";
     pub const MARKETPLACE_ADMIN: &'static str = "marketplace_admin";
+    pub const MARKETPLACE_REVIEWER: &'static str = "marketplace_reviewer";
 
-    pub fn is_valid(role_name: &str) -> bool {
+    /// 超管可分配的系统角色（顶级角色）
+    pub fn is_valid_super_admin_role(role_name: &str) -> bool {
         matches!(role_name, Self::SUPER_ADMIN | Self::MARKETPLACE_ADMIN)
+    }
+
+    /// 所有有效的系统角色
+    pub fn is_valid(role_name: &str) -> bool {
+        matches!(
+            role_name,
+            Self::SUPER_ADMIN | Self::MARKETPLACE_ADMIN | Self::MARKETPLACE_REVIEWER
+        )
     }
 }

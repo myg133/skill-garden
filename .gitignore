@@ -36,7 +36,7 @@ coverage/
 data/
 registry/
 search_index/
-skills/
+data/skills/
 
 # Temporary
 tmp/
@@ -53,6 +53,7 @@ secrets/
 .gemini/
 .agents/
 .sisyphus/
+.codebuddy/
 
 # Rust
 **/*.rs.bk

@@ -1,4 +1,4 @@
-<script>
+﻿<script>
   import { onMount } from 'svelte';
   import { api } from '../lib/api.js';
   import AuditTable from '../components/AuditTable.svelte';
@@ -31,7 +31,7 @@
         const from = filters.from_date ? new Date(filters.from_date).getTime() : 0;
         const to = filters.to_date ? new Date(filters.to_date + 'T23:59:59').getTime() : Infinity;
         logs = logs.filter(log => {
-          const t = new Date(log.created_at).getTime();
+          const t = new Date(log.timestamp).getTime();
           return t >= from && t <= to;
         });
       }
@@ -52,15 +52,15 @@
 
 <div class="p-8">
   <div class="page-header">
-    <h1 class="text-[28px] font-extrabold text-surface-800 tracking-tight">Audit Logs</h1>
-    <p class="text-surface-500 text-sm mt-1.5 font-medium">Track and search all skill operations</p>
+    <h1 class="text-[28px] font-extrabold text-gray-800 tracking-tight">Audit Logs</h1>
+    <p class="text-gray-500 text-sm mt-1.5 font-medium">Track and search all skill operations</p>
   </div>
 
-  <div class="gradient-card-sky rounded-2xl border border-sky-200/60 p-6 mb-6 shadow-card">
+  <div class="bg-white rounded-xl border border-gray-200 p-6 mb-6 shadow-card">
     <div class="grid grid-cols-5 gap-4 items-end">
       <div>
-        <label for="audit-action" class="block text-xs font-semibold text-surface-500 uppercase tracking-wider mb-2">Action</label>
-        <select id="audit-action" bind:value={filters.action} class="w-full px-4 py-2.5 border border-surface-200 rounded-xl text-sm font-medium text-surface-600 input-focus outline-none bg-sky-50 select-caret">
+        <label for="audit-action" class="block text-xs font-semibold text-gray-500 uppercase tracking-wider mb-2">Action</label>
+        <select id="audit-action" bind:value={filters.action} class="w-full px-4 py-2.5 border border-gray-200 rounded-lg text-sm font-medium text-gray-600 input-focus outline-none bg-white select-caret">
           <option value="">All Actions</option>
           <option value="skill_create">skill_create</option>
           <option value="skill_approve">skill_approve</option>
@@ -70,30 +70,30 @@
         </select>
       </div>
       <div>
-        <label for="audit-agent" class="block text-xs font-semibold text-surface-500 uppercase tracking-wider mb-2">Agent ID</label>
+        <label for="audit-agent" class="block text-xs font-semibold text-gray-500 uppercase tracking-wider mb-2">Agent ID</label>
         <input
           id="audit-agent"
           bind:value={filters.agent_id}
           placeholder="Filter by agent"
-          class="w-full px-4 py-2.5 border border-surface-200 rounded-xl text-sm input-focus outline-none placeholder:text-surface-300 bg-sky-50"
+          class="w-full px-4 py-2.5 border border-gray-200 rounded-lg text-sm input-focus outline-none placeholder:text-gray-300 bg-white"
         />
       </div>
       <div>
-        <label for="audit-from" class="block text-xs font-semibold text-surface-500 uppercase tracking-wider mb-2">From</label>
+        <label for="audit-from" class="block text-xs font-semibold text-gray-500 uppercase tracking-wider mb-2">From</label>
         <input
           id="audit-from"
           type="date"
           bind:value={filters.from_date}
-          class="w-full px-4 py-2.5 border border-surface-200 rounded-xl text-sm text-surface-600 input-focus outline-none bg-sky-50"
+          class="w-full px-4 py-2.5 border border-gray-200 rounded-lg text-sm text-gray-600 input-focus outline-none bg-white"
         />
       </div>
       <div>
-        <label for="audit-to" class="block text-xs font-semibold text-surface-500 uppercase tracking-wider mb-2">To</label>
+        <label for="audit-to" class="block text-xs font-semibold text-gray-500 uppercase tracking-wider mb-2">To</label>
         <input
           id="audit-to"
           type="date"
           bind:value={filters.to_date}
-          class="w-full px-4 py-2.5 border border-surface-200 rounded-xl text-sm text-surface-600 input-focus outline-none bg-sky-50"
+          class="w-full px-4 py-2.5 border border-gray-200 rounded-lg text-sm text-gray-600 input-focus outline-none bg-white"
         />
       </div>
       <div class="flex gap-2">
@@ -116,13 +116,13 @@
   {#if loading}
     <LoadingSpinner />
   {:else if error}
-    <div class="bg-rose-50 border border-rose-100 text-rose-600 px-5 py-4 rounded-2xl text-sm font-medium">{error}</div>
+    <div class="bg-red-50 border border-red-100 text-red-600 px-5 py-4 rounded-xl text-sm font-medium">{error}</div>
   {:else if logs.length === 0}
-    <div class="bg-sky-50 rounded-2xl border border-indigo-200 shadow-card">
+    <div class="bg-white rounded-xl border border-gray-200 shadow-card">
       <EmptyState message="No audit logs match your filters" />
     </div>
   {:else}
-    <div class="bg-sky-50 rounded-2xl border border-indigo-200 overflow-hidden shadow-card">
+    <div class="bg-white rounded-xl border border-gray-200 overflow-hidden shadow-card">
       <AuditTable {logs} />
     </div>
   {/if}

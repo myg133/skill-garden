@@ -1,11 +1,11 @@
-//! API Key and Audit Repository
+//! API Key Repository
 
 use chrono::Utc;
 use sqlx::PgPool;
 use uuid::Uuid;
 
 use crate::db::error::{DbError, DbResult};
-use crate::models::api_key::{ApiKey, ApiKeyStatus, AuditLog, CreateApiKeyRequest, CreateAuditLogRequest};
+use crate::models::api_key::{ApiKey, ApiKeyListItem, ApiKeyStatus, CreateApiKeyRequest};
 
 #[derive(Clone)]
 pub struct ApiKeyRepository {
@@ -17,7 +17,12 @@ impl ApiKeyRepository {
         Self { pool }
     }
 
-    pub async fn create(&self, request: CreateApiKeyRequest, key_hash: &str, key_prefix: &str) -> DbResult<ApiKey> {
+    pub async fn create(
+        &self,
+        request: CreateApiKeyRequest,
+        key_hash: &str,
+        key_prefix: &str,
+    ) -> DbResult<ApiKey> {
         let scopes_json = serde_json::to_value(&request.scopes).unwrap_or(serde_json::json!([]));
 
         let api_key = sqlx::query_as::<_, ApiKeyRow>(
@@ -77,7 +82,7 @@ impl ApiKeyRepository {
             r#"
             SELECT id, identity_id, organization_id, key_hash, key_prefix, name, scopes, rate_limit, status, expires_at, created_at, last_used_at
             FROM api_keys
-            WHERE identity_id = $1
+            WHERE identity_id = $1 AND status != 'revoked'
             ORDER BY created_at DESC
             "#,
         )
@@ -121,8 +126,102 @@ impl ApiKeyRepository {
         Ok(keys.into_iter().map(|k| k.into()).collect())
     }
 
+    pub async fn list_with_names(&self) -> DbResult<Vec<ApiKeyListItem>> {
+        let rows = sqlx::query_as::<_, ApiKeyWithNamesRow>(
+            r#"
+            SELECT
+                ak.id, ak.identity_id, ak.organization_id,
+                ak.key_prefix, ak.name, ak.scopes,
+                ak.rate_limit, ak.status, ak.expires_at, ak.created_at, ak.last_used_at,
+                COALESCE(i.display_name, i.username, i.name) AS identity_name,
+                o.name AS organization_name
+            FROM api_keys ak
+            LEFT JOIN identities i ON i.id = ak.identity_id
+            LEFT JOIN organizations o ON o.id = ak.organization_id
+            ORDER BY ak.created_at DESC
+            "#,
+        )
+        .fetch_all(&self.pool)
+        .await
+        .map_err(|e| DbError::QueryError(e.to_string()))?;
+
+        Ok(rows.into_iter().map(|r| r.into()).collect())
+    }
+
+    pub async fn list_with_names_by_identity(
+        &self,
+        identity_id: Uuid,
+    ) -> DbResult<Vec<ApiKeyListItem>> {
+        let rows = sqlx::query_as::<_, ApiKeyWithNamesRow>(
+            r#"
+            SELECT
+                ak.id, ak.identity_id, ak.organization_id,
+                ak.key_prefix, ak.name, ak.scopes,
+                ak.rate_limit, ak.status, ak.expires_at, ak.created_at, ak.last_used_at,
+                COALESCE(i.display_name, i.username, i.name) AS identity_name,
+                o.name AS organization_name
+            FROM api_keys ak
+            LEFT JOIN identities i ON i.id = ak.identity_id
+            LEFT JOIN organizations o ON o.id = ak.organization_id
+            WHERE ak.identity_id = $1 AND ak.status != 'revoked'
+            ORDER BY ak.created_at DESC
+            "#,
+        )
+        .bind(identity_id)
+        .fetch_all(&self.pool)
+        .await
+        .map_err(|e| DbError::QueryError(e.to_string()))?;
+
+        Ok(rows.into_iter().map(|r| r.into()).collect())
+    }
+
+    pub async fn list_with_names_by_organization(
+        &self,
+        organization_id: Uuid,
+    ) -> DbResult<Vec<ApiKeyListItem>> {
+        let rows = sqlx::query_as::<_, ApiKeyWithNamesRow>(
+            r#"
+            SELECT
+                ak.id, ak.identity_id, ak.organization_id,
+                ak.key_prefix, ak.name, ak.scopes,
+                ak.rate_limit, ak.status, ak.expires_at, ak.created_at, ak.last_used_at,
+                COALESCE(i.display_name, i.username, i.name) AS identity_name,
+                o.name AS organization_name
+            FROM api_keys ak
+            LEFT JOIN identities i ON i.id = ak.identity_id
+            LEFT JOIN organizations o ON o.id = ak.organization_id
+            WHERE ak.organization_id = $1
+            ORDER BY ak.created_at DESC
+            "#,
+        )
+        .bind(organization_id)
+        .fetch_all(&self.pool)
+        .await
+        .map_err(|e| DbError::QueryError(e.to_string()))?;
+
+        Ok(rows.into_iter().map(|r| r.into()).collect())
+    }
+
     pub async fn revoke(&self, id: Uuid) -> DbResult<()> {
         sqlx::query("UPDATE api_keys SET status = 'revoked' WHERE id = $1")
+            .bind(id)
+            .execute(&self.pool)
+            .await
+            .map_err(|e| DbError::QueryError(e.to_string()))?;
+        Ok(())
+    }
+
+    pub async fn disable(&self, id: Uuid) -> DbResult<()> {
+        sqlx::query("UPDATE api_keys SET status = 'disabled' WHERE id = $1")
+            .bind(id)
+            .execute(&self.pool)
+            .await
+            .map_err(|e| DbError::QueryError(e.to_string()))?;
+        Ok(())
+    }
+
+    pub async fn enable(&self, id: Uuid) -> DbResult<()> {
+        sqlx::query("UPDATE api_keys SET status = 'active' WHERE id = $1")
             .bind(id)
             .execute(&self.pool)
             .await
@@ -149,90 +248,41 @@ impl ApiKeyRepository {
     }
 }
 
-#[derive(Clone)]
-pub struct AuditLogRepository {
-    pool: PgPool,
+#[derive(sqlx::FromRow)]
+struct ApiKeyWithNamesRow {
+    id: Uuid,
+    identity_id: Uuid,
+    organization_id: Option<Uuid>,
+    key_prefix: String,
+    name: Option<String>,
+    scopes: serde_json::Value,
+    rate_limit: i32,
+    status: String,
+    expires_at: Option<chrono::DateTime<Utc>>,
+    created_at: chrono::DateTime<Utc>,
+    last_used_at: Option<chrono::DateTime<Utc>>,
+    identity_name: Option<String>,
+    organization_name: Option<String>,
 }
 
-impl AuditLogRepository {
-    pub fn new(pool: PgPool) -> Self {
-        Self { pool }
-    }
-
-    pub async fn create(&self, request: CreateAuditLogRequest) -> DbResult<AuditLog> {
-        let log = sqlx::query_as::<_, AuditLogRow>(
-            r#"
-            INSERT INTO audit_logs (tenant_id, organization_id, identity_id, action, resource_type, resource_id, details, ip_address, user_agent)
-            VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
-            RETURNING id, tenant_id, organization_id, identity_id, action, resource_type, resource_id, details, ip_address, user_agent, created_at
-            "#,
-        )
-        .bind(&request.tenant_id)
-        .bind(&request.organization_id)
-        .bind(request.identity_id)
-        .bind(&request.action)
-        .bind(&request.resource_type)
-        .bind(&request.resource_id)
-        .bind(&request.details)
-        .bind(&request.ip_address)
-        .bind(&request.user_agent)
-        .fetch_one(&self.pool)
-        .await
-        .map_err(|e| DbError::QueryError(e.to_string()))?;
-
-        Ok(log.into())
-    }
-
-    pub async fn find_by_id(&self, id: Uuid) -> DbResult<Option<AuditLog>> {
-        let log = sqlx::query_as::<_, AuditLogRow>(
-            r#"
-            SELECT id, tenant_id, organization_id, identity_id, action, resource_type, resource_id, details, ip_address, user_agent, created_at
-            FROM audit_logs WHERE id = $1
-            "#,
-        )
-        .bind(id)
-        .fetch_optional(&self.pool)
-        .await
-        .map_err(|e| DbError::QueryError(e.to_string()))?;
-
-        Ok(log.map(|l| l.into()))
-    }
-
-    pub async fn query(
-        &self,
-        tenant_id: Option<Uuid>,
-        organization_id: Option<Uuid>,
-        identity_id: Option<Uuid>,
-        action: Option<&str>,
-        resource_type: Option<&str>,
-        limit: i64,
-        offset: i64,
-    ) -> DbResult<Vec<AuditLog>> {
-        let logs = sqlx::query_as::<_, AuditLogRow>(
-            r#"
-            SELECT id, tenant_id, organization_id, identity_id, action, resource_type, resource_id, details, ip_address, user_agent, created_at
-            FROM audit_logs
-            WHERE ($1::uuid IS NULL OR tenant_id = $1)
-              AND ($2::uuid IS NULL OR organization_id = $2)
-              AND ($3::uuid IS NULL OR identity_id = $3)
-              AND ($4::text IS NULL OR action = $4)
-              AND ($5::text IS NULL OR resource_type = $5)
-            ORDER BY created_at DESC
-            LIMIT $6 OFFSET $7
-            "#,
-        )
-        .bind(&tenant_id)
-        .bind(&organization_id)
-        .bind(&identity_id)
-        .bind(&action)
-        .bind(&resource_type)
-        .bind(limit)
-        .bind(offset)
-        .fetch_all(&self.pool)
-        .await
-        .map_err(|e| DbError::QueryError(e.to_string()))?;
-
-        Ok(logs.into_iter().map(|l| l.into()).collect())
+impl From<ApiKeyWithNamesRow> for ApiKeyListItem {
+    fn from(row: ApiKeyWithNamesRow) -> Self {
+        let scopes: Vec<String> = serde_json::from_value(row.scopes).unwrap_or_default();
+        Self {
+            id: row.id,
+            identity_id: row.identity_id,
+            identity_name: row.identity_name,
+            organization_id: row.organization_id,
+            organization_name: row.organization_name,
+            key_prefix: row.key_prefix,
+            name: row.name,
+            scopes,
+            rate_limit: row.rate_limit,
+            status: ApiKeyStatus::from(row.status.as_str()),
+            expires_at: row.expires_at,
+            created_at: row.created_at,
+            last_used_at: row.last_used_at,
+        }
     }
 }
 
@@ -240,7 +290,7 @@ impl AuditLogRepository {
 struct ApiKeyRow {
     id: Uuid,
     identity_id: Uuid,
-    organization_id: Uuid,
+    organization_id: Option<Uuid>,
     key_hash: String,
     key_prefix: String,
     name: Option<String>,
@@ -268,39 +318,6 @@ impl From<ApiKeyRow> for ApiKey {
             expires_at: row.expires_at,
             created_at: row.created_at,
             last_used_at: row.last_used_at,
-        }
-    }
-}
-
-#[derive(sqlx::FromRow)]
-struct AuditLogRow {
-    id: Uuid,
-    tenant_id: Option<Uuid>,
-    organization_id: Option<Uuid>,
-    identity_id: Uuid,
-    action: String,
-    resource_type: Option<String>,
-    resource_id: Option<Uuid>,
-    details: Option<serde_json::Value>,
-    ip_address: Option<String>,
-    user_agent: Option<String>,
-    created_at: chrono::DateTime<Utc>,
-}
-
-impl From<AuditLogRow> for AuditLog {
-    fn from(row: AuditLogRow) -> Self {
-        Self {
-            id: row.id,
-            tenant_id: row.tenant_id,
-            organization_id: row.organization_id,
-            identity_id: row.identity_id,
-            action: row.action,
-            resource_type: row.resource_type,
-            resource_id: row.resource_id,
-            details: row.details,
-            ip_address: row.ip_address,
-            user_agent: row.user_agent,
-            created_at: row.created_at,
         }
     }
 }

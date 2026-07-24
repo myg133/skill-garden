@@ -36,9 +36,9 @@ impl WeightConfig {
     pub const TOO_SLOW_PENALTY: f64 = 0.2;
 
     // 阈值
-    pub const TOO_FAST_MS: u64 = 1000;           // < 1秒
-    pub const TOO_SLOW_MULTIPLIER: f64 = 10.0;  // > 10倍平均
-    pub const RECENT_HOURS: i64 = 24;           // 24小时内
+    pub const TOO_FAST_MS: u64 = 1000; // < 1秒
+    pub const TOO_SLOW_MULTIPLIER: f64 = 10.0; // > 10倍平均
+    pub const RECENT_HOURS: i64 = 24; // 24小时内
 }
 
 /// 计算单条评价的权重
@@ -90,7 +90,8 @@ pub fn build_context(
         },
         is_singleton: total_evals == 1,
         too_fast: eval.duration_ms < WeightConfig::TOO_FAST_MS,
-        too_slow: avg_duration > 0 && eval.duration_ms as f64 > avg_duration as f64 * WeightConfig::TOO_SLOW_MULTIPLIER,
+        too_slow: avg_duration > 0
+            && eval.duration_ms as f64 > avg_duration as f64 * WeightConfig::TOO_SLOW_MULTIPLIER,
     }
 }
 
@@ -110,8 +111,8 @@ pub fn calculate_weighted_stats(evaluations: &[Evaluation]) -> (f64, u64, f64) {
     }
 
     // 计算平均执行时间
-    let avg_duration: u64 = evaluations.iter().map(|e| e.duration_ms).sum::<u64>()
-        / evaluations.len() as u64;
+    let avg_duration: u64 =
+        evaluations.iter().map(|e| e.duration_ms).sum::<u64>() / evaluations.len() as u64;
 
     // 计算成功数
     let success_count = evaluations.iter().filter(|e| e.success).count();

@@ -112,6 +112,31 @@ impl EvaluationRepository {
         })
     }
 
+    pub async fn find_by_id(&self, id: Uuid) -> DbResult<Option<Evaluation>> {
+        let row = sqlx::query_as::<_, EvaluationRow>(
+            r#"
+            SELECT id, skill_id, agent_id, success, duration_ms, error_type, tags, timestamp
+            FROM evaluations
+            WHERE id = $1
+            "#,
+        )
+        .bind(id)
+        .fetch_optional(&self.pool)
+        .await
+        .map_err(|e| DbError::QueryError(e.to_string()))?;
+
+        Ok(row.map(|r| r.into()))
+    }
+
+    pub async fn delete_by_id(&self, id: Uuid) -> DbResult<()> {
+        sqlx::query("DELETE FROM evaluations WHERE id = $1")
+            .bind(id)
+            .execute(&self.pool)
+            .await
+            .map_err(|e| DbError::QueryError(e.to_string()))?;
+        Ok(())
+    }
+
     pub async fn list_by_skill(&self, skill_id: &str, limit: i64) -> DbResult<Vec<Evaluation>> {
         let rows = sqlx::query_as::<_, EvaluationRow>(
             r#"

@@ -16,6 +16,7 @@ pub enum ApiError {
     Forbidden(String),
     InternalError(String),
     Conflict(String),
+    TooManyRequests(String),
 }
 
 impl fmt::Display for ApiError {
@@ -27,6 +28,7 @@ impl fmt::Display for ApiError {
             ApiError::Forbidden(msg) => write!(f, "Forbidden: {}", msg),
             ApiError::InternalError(msg) => write!(f, "InternalError: {}", msg),
             ApiError::Conflict(msg) => write!(f, "Conflict: {}", msg),
+            ApiError::TooManyRequests(msg) => write!(f, "TooManyRequests: {}", msg),
         }
     }
 }
@@ -40,6 +42,7 @@ impl IntoResponse for ApiError {
             ApiError::Forbidden(msg) => (StatusCode::FORBIDDEN, msg.clone()),
             ApiError::InternalError(msg) => (StatusCode::INTERNAL_SERVER_ERROR, msg.clone()),
             ApiError::Conflict(msg) => (StatusCode::CONFLICT, msg.clone()),
+            ApiError::TooManyRequests(msg) => (StatusCode::TOO_MANY_REQUESTS, msg.clone()),
         };
 
         let body = Json(json!({

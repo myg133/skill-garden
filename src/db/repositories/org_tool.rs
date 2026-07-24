@@ -1,10 +1,10 @@
 //! Organization Tool repository
 
 use chrono::{DateTime, Utc};
-use sqlx::PgPool;
-use uuid::Uuid;
 use serde::{Deserialize, Serialize};
 use serde_json::Value as JsonValue;
+use sqlx::PgPool;
+use uuid::Uuid;
 
 use crate::db::error::{DbError, DbResult};
 

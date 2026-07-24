@@ -1,18 +1,9 @@
 //! Repository traits for dependency injection
 
 use crate::db::error::DbResult;
-use crate::db::repositories::agent::{Agent, NewAgent};
-use crate::db::repositories::skill::{Skill, SkillMetadata, NewSkill};
-use crate::db::repositories::evaluation::{Evaluation, NewEvaluation, SkillStats};
 use crate::db::repositories::audit::{AuditLog, NewAuditLog};
-
-#[allow(async_fn_in_trait)]
-pub trait AgentRepositoryTrait: Send + Sync {
-    async fn create(&self, new_agent: NewAgent) -> DbResult<Agent>;
-    async fn find_by_id(&self, agent_id: &str) -> DbResult<Option<Agent>>;
-    async fn verify_secret(&self, agent_id: &str, secret: &str) -> DbResult<bool>;
-    async fn update_roles(&self, agent_id: &str, roles: Vec<String>) -> DbResult<()>;
-}
+use crate::db::repositories::evaluation::{Evaluation, NewEvaluation, SkillStats};
+use crate::db::repositories::skill::{NewSkill, Skill, SkillMetadata};
 
 #[allow(async_fn_in_trait)]
 pub trait SkillRepositoryTrait: Send + Sync {
@@ -20,7 +11,13 @@ pub trait SkillRepositoryTrait: Send + Sync {
     async fn find_by_id(&self, skill_id: &str) -> DbResult<Option<Skill>>;
     async fn list(&self, limit: i64, offset: i64) -> DbResult<Vec<SkillMetadata>>;
     async fn count(&self) -> DbResult<i64>;
-    async fn update(&self, skill_id: &str, description: Option<&str>, content: Option<&str>, tags: Option<Vec<String>>) -> DbResult<()>;
+    async fn update(
+        &self,
+        skill_id: &str,
+        description: Option<&str>,
+        content: Option<&str>,
+        tags: Option<Vec<String>>,
+    ) -> DbResult<()>;
     async fn delete(&self, skill_id: &str) -> DbResult<()>;
     async fn increment_install_count(&self, skill_id: &str) -> DbResult<()>;
 }
@@ -38,22 +35,6 @@ pub trait AuditRepositoryTrait: Send + Sync {
     async fn list_by_agent(&self, agent_id: &str, limit: i64) -> DbResult<Vec<AuditLog>>;
 }
 
-// blanket implementation for Box<T>
-impl<T: AgentRepositoryTrait + ?Sized> AgentRepositoryTrait for Box<T> {
-    async fn create(&self, new_agent: NewAgent) -> DbResult<Agent> {
-        (**self).create(new_agent).await
-    }
-    async fn find_by_id(&self, agent_id: &str) -> DbResult<Option<Agent>> {
-        (**self).find_by_id(agent_id).await
-    }
-    async fn verify_secret(&self, agent_id: &str, secret: &str) -> DbResult<bool> {
-        (**self).verify_secret(agent_id, secret).await
-    }
-    async fn update_roles(&self, agent_id: &str, roles: Vec<String>) -> DbResult<()> {
-        (**self).update_roles(agent_id, roles).await
-    }
-}
-
 impl<T: SkillRepositoryTrait + ?Sized> SkillRepositoryTrait for Box<T> {
     async fn create(&self, new_skill: NewSkill) -> DbResult<Skill> {
         (**self).create(new_skill).await
@@ -67,7 +48,13 @@ impl<T: SkillRepositoryTrait + ?Sized> SkillRepositoryTrait for Box<T> {
     async fn count(&self) -> DbResult<i64> {
         (**self).count().await
     }
-    async fn update(&self, skill_id: &str, description: Option<&str>, content: Option<&str>, tags: Option<Vec<String>>) -> DbResult<()> {
+    async fn update(
+        &self,
+        skill_id: &str,
+        description: Option<&str>,
+        content: Option<&str>,
+        tags: Option<Vec<String>>,
+    ) -> DbResult<()> {
         (**self).update(skill_id, description, content, tags).await
     }
     async fn delete(&self, skill_id: &str) -> DbResult<()> {

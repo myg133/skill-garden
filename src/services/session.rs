@@ -1,19 +1,17 @@
-//! Session Service
+//! Session Service — manages MCP connection sessions per identity
 
-use uuid::Uuid;
-use crate::db::repositories::session::{SessionRepository, NewSession, Session as SessionRepo};
-use crate::db::repositories::agent::AgentRepository;
+use crate::db::repositories::session::{NewSession, Session as SessionRepo, SessionRepository};
 use crate::db::repositories::session_context::{
-    SessionContextRepository, NewSessionContext, NewSessionSkill, NewToolExecution,
-    SessionContext, SessionSkillState, SessionToolExecution,
+    NewSessionContext, NewSessionSkill, NewToolExecution, SessionContext, SessionContextRepository,
+    SessionSkillState, SessionToolExecution,
 };
-use crate::models::session::{ToolRouter, RouteTarget};
 use crate::models::error::AppError;
+use crate::models::session::{RouteTarget, ToolRouter};
+use uuid::Uuid;
 
 #[derive(Clone)]
 pub struct SessionService {
     session_repo: SessionRepository,
-    agent_repo: AgentRepository,
     context_repo: SessionContextRepository,
 }
 
@@ -24,80 +22,152 @@ impl std::fmt::Debug for SessionService {
 }
 
 impl SessionService {
-    pub fn new(session_repo: SessionRepository, agent_repo: AgentRepository, context_repo: SessionContextRepository) -> Self {
-        Self { session_repo, agent_repo, context_repo }
+    pub fn new(session_repo: SessionRepository, context_repo: SessionContextRepository) -> Self {
+        Self {
+            session_repo,
+            context_repo,
+        }
     }
 
-    pub async fn create_session(&self, agent_id: String, org_id: Uuid) -> Result<SessionRepo, AppError> {
-        let new_session = NewSession { agent_id, org_id };
+    // ─── Session lifecycle ───────────────────────────────────
 
-        self.session_repo.create(new_session)
+    /// Create a new session for the given identity + organization.
+    pub async fn create_session(
+        &self,
+        identity_id: Uuid,
+        org_id: Uuid,
+    ) -> Result<SessionRepo, AppError> {
+        let new_session = NewSession {
+            identity_id,
+            org_id,
+        };
+        self.session_repo
+            .create(new_session)
             .await
             .map_err(|e| AppError::InternalError(e.to_string()))
     }
 
+    /// Find an existing active session for the identity, or create a new one.
+    /// Returns (session, is_new).
+    pub async fn find_or_create_session(
+        &self,
+        identity_id: Uuid,
+        org_id: Uuid,
+    ) -> Result<SessionRepo, AppError> {
+        let existing = self.get_active_session(identity_id).await?;
+        if let Some(session) = existing {
+            tracing::debug!(
+                "Reusing existing session {} for identity {}",
+                session.id,
+                identity_id
+            );
+            return Ok(session);
+        }
+        let session = self.create_session(identity_id, org_id).await?;
+        tracing::info!(
+            "Created new session {} for identity {}",
+            session.id,
+            identity_id
+        );
+        Ok(session)
+    }
+
     pub async fn end_session(&self, session_id: Uuid) -> Result<(), AppError> {
-        self.session_repo.end_session(session_id)
+        self.session_repo
+            .end_session(session_id)
             .await
             .map_err(|e| AppError::InternalError(e.to_string()))
     }
 
     pub async fn get_session(&self, session_id: Uuid) -> Result<Option<SessionRepo>, AppError> {
-        self.session_repo.find_by_id(session_id)
+        self.session_repo
+            .find_by_id(session_id)
             .await
             .map_err(|e| AppError::InternalError(e.to_string()))
     }
 
-    pub async fn list_sessions(&self, limit: i64, offset: i64, status: Option<&str>) -> Result<Vec<SessionRepo>, AppError> {
-        self.session_repo.list_all(limit, offset, status)
+    pub async fn list_sessions(
+        &self,
+        limit: i64,
+        offset: i64,
+        status: Option<&str>,
+    ) -> Result<Vec<SessionRepo>, AppError> {
+        self.session_repo
+            .list_all(limit, offset, status)
             .await
             .map_err(|e| AppError::InternalError(e.to_string()))
     }
 
-    pub async fn get_active_session(&self, agent_id: &str) -> Result<Option<SessionRepo>, AppError> {
-        let sessions = self.session_repo.find_active_by_agent(agent_id)
+    pub async fn get_active_session(
+        &self,
+        identity_id: Uuid,
+    ) -> Result<Option<SessionRepo>, AppError> {
+        let sessions = self
+            .session_repo
+            .find_active_by_identity(identity_id)
             .await
             .map_err(|e| AppError::InternalError(e.to_string()))?;
 
         Ok(sessions.into_iter().next())
     }
 
-    pub async fn get_tool_router(&self, session_id: Uuid) -> Result<Option<crate::models::session::ToolRouter>, AppError> {
-        let session = self.session_repo.find_by_id(session_id)
+    /// Update last_active_at to now (call on each MCP request).
+    pub async fn touch_session(&self, session_id: Uuid) -> Result<(), AppError> {
+        self.session_repo
+            .touch(session_id)
+            .await
+            .map_err(|e| AppError::InternalError(e.to_string()))
+    }
+
+    /// End all sessions idle longer than `idle_secs` seconds.
+    pub async fn end_idle_sessions(&self, idle_secs: i64) -> Result<usize, AppError> {
+        self.session_repo
+            .end_idle_sessions(idle_secs)
+            .await
+            .map_err(|e| AppError::InternalError(e.to_string()))
+    }
+
+    // ─── Tool router ────────────────────────────────────────
+
+    pub async fn get_tool_router(
+        &self,
+        session_id: Uuid,
+    ) -> Result<Option<crate::models::session::ToolRouter>, AppError> {
+        let session = self
+            .session_repo
+            .find_by_id(session_id)
             .await
             .map_err(|e| AppError::InternalError(e.to_string()))?;
 
         match session {
             Some(s) => {
-                let router: crate::models::session::ToolRouter = serde_json::from_value(s.tool_router)
-                    .map_err(|e| AppError::InternalError(e.to_string()))?;
+                let router: crate::models::session::ToolRouter =
+                    serde_json::from_value(s.tool_router)
+                        .map_err(|e| AppError::InternalError(e.to_string()))?;
                 Ok(Some(router))
             }
             None => Ok(None),
         }
     }
 
+    /// Declare capabilities for a session — builds the tool router.
+    /// (No longer looks up agent records; only routes based on declared capabilities.)
     pub async fn declare_capabilities(
         &self,
         session_id: Uuid,
         capabilities: Vec<String>,
     ) -> Result<ToolRouter, AppError> {
-        let session = self.session_repo.find_by_id(session_id)
+        let session = self
+            .session_repo
+            .find_by_id(session_id)
             .await
             .map_err(|e| AppError::InternalError(e.to_string()))?
-            .ok_or_else(|| AppError::ValidationError(format!("Session {} not found", session_id)))?;
+            .ok_or_else(|| {
+                AppError::ValidationError(format!("Session {} not found", session_id))
+            })?;
 
-        // Get agent's capabilities from agent record
-        let agent = self.agent_repo.find_by_id(&session.agent_id)
-            .await
-            .map_err(|e| AppError::InternalError(e.to_string()))?;
+        let _ = session; // session is validated to exist
 
-        let agent_capabilities = match agent {
-            Some(a) => a.capabilities,
-            None => Vec::new(),
-        };
-
-        // Build tool router based on declared capabilities
         let mut router = ToolRouter::new();
 
         // Platform tools always route to platform
@@ -106,72 +176,84 @@ impl SessionService {
             router.add_route(tool.to_string(), RouteTarget::Platform);
         }
 
-        // Agent capabilities route to local
-        for cap in &agent_capabilities {
+        // Declared capabilities route to local
+        for cap in &capabilities {
             if !platform_tools.contains(&cap.as_str()) {
                 router.add_route(cap.clone(), RouteTarget::Local);
             }
         }
 
-        // Declared additional capabilities route to local
-        for cap in &capabilities {
-            if !platform_tools.contains(&cap.as_str()) {
-                if !agent_capabilities.contains(cap) {
-                    router.add_route(cap.clone(), RouteTarget::Local);
-                }
-            }
-        }
-
-        // Update session with tool router
-        let router_json = serde_json::to_value(&router).map_err(|e| AppError::ValidationError(e.to_string()))?;
-        self.session_repo.update_tool_router(session_id, router_json)
+        let router_json =
+            serde_json::to_value(&router).map_err(|e| AppError::ValidationError(e.to_string()))?;
+        self.session_repo
+            .update_tool_router(session_id, router_json)
             .await
             .map_err(|e| AppError::InternalError(e.to_string()))?;
 
         Ok(router)
     }
 
-    // Session Context Methods
+    // ─── Session Context ────────────────────────────────────
 
-    pub async fn set_context(&self, session_id: Uuid, key: String, value: serde_json::Value) -> Result<SessionContext, AppError> {
+    pub async fn set_context(
+        &self,
+        session_id: Uuid,
+        key: String,
+        value: serde_json::Value,
+    ) -> Result<SessionContext, AppError> {
         let new_ctx = NewSessionContext {
             session_id,
             context_key: key,
             context_value: value,
         };
-        self.context_repo.create_context(new_ctx)
+        self.context_repo
+            .create_context(new_ctx)
             .await
             .map_err(|e| AppError::InternalError(e.to_string()))
     }
 
-    pub async fn get_context(&self, session_id: Uuid, key: &str) -> Result<Option<SessionContext>, AppError> {
-        self.context_repo.get_context(session_id, key)
+    pub async fn get_context(
+        &self,
+        session_id: Uuid,
+        key: &str,
+    ) -> Result<Option<SessionContext>, AppError> {
+        self.context_repo
+            .get_context(session_id, key)
             .await
             .map_err(|e| AppError::InternalError(e.to_string()))
     }
 
     pub async fn list_contexts(&self, session_id: Uuid) -> Result<Vec<SessionContext>, AppError> {
-        self.context_repo.list_contexts(session_id)
+        self.context_repo
+            .list_contexts(session_id)
             .await
             .map_err(|e| AppError::InternalError(e.to_string()))
     }
 
     pub async fn delete_context(&self, session_id: Uuid, key: &str) -> Result<(), AppError> {
-        self.context_repo.delete_context(session_id, key)
+        self.context_repo
+            .delete_context(session_id, key)
             .await
             .map_err(|e| AppError::InternalError(e.to_string()))
     }
 
-    // Session Skill State Methods
+    // ─── Session Skill State ────────────────────────────────
 
-    pub async fn load_skill(&self, session_id: Uuid, skill_id: String, skill_state: serde_json::Value) -> Result<SessionSkillState, AppError> {
+    pub async fn load_skill(
+        &self,
+        session_id: Uuid,
+        skill_id: String,
+        skill_state: serde_json::Value,
+    ) -> Result<SessionSkillState, AppError> {
         let new_skill = NewSessionSkill {
             session_id,
             skill_id: skill_id.clone(),
             skill_state,
             status: "loaded".to_string(),
         };
-        let result = self.context_repo.load_skill(new_skill)
+        let result = self
+            .context_repo
+            .load_skill(new_skill)
             .await
             .map_err(|e| AppError::InternalError(e.to_string()))?;
         tracing::info!("Skill {} loaded in session {}", skill_id, session_id);
@@ -179,32 +261,48 @@ impl SessionService {
     }
 
     pub async fn unload_skill(&self, session_id: Uuid, skill_id: &str) -> Result<(), AppError> {
-        self.context_repo.unload_skill(session_id, skill_id)
+        self.context_repo
+            .unload_skill(session_id, skill_id)
             .await
             .map_err(|e| AppError::InternalError(e.to_string()))?;
         tracing::info!("Skill {} unloaded from session {}", skill_id, session_id);
         Ok(())
     }
 
-    pub async fn get_session_skill(&self, session_id: Uuid, skill_id: &str) -> Result<Option<SessionSkillState>, AppError> {
-        self.context_repo.get_session_skill(session_id, skill_id)
+    pub async fn get_session_skill(
+        &self,
+        session_id: Uuid,
+        skill_id: &str,
+    ) -> Result<Option<SessionSkillState>, AppError> {
+        self.context_repo
+            .get_session_skill(session_id, skill_id)
             .await
             .map_err(|e| AppError::InternalError(e.to_string()))
     }
 
-    pub async fn list_session_skills(&self, session_id: Uuid) -> Result<Vec<SessionSkillState>, AppError> {
-        self.context_repo.list_session_skills(session_id)
+    pub async fn list_session_skills(
+        &self,
+        session_id: Uuid,
+    ) -> Result<Vec<SessionSkillState>, AppError> {
+        self.context_repo
+            .list_session_skills(session_id)
             .await
             .map_err(|e| AppError::InternalError(e.to_string()))
     }
 
-    pub async fn update_skill_state(&self, session_id: Uuid, skill_id: &str, skill_state: serde_json::Value) -> Result<(), AppError> {
-        self.context_repo.update_skill_state(session_id, skill_id, skill_state)
+    pub async fn update_skill_state(
+        &self,
+        session_id: Uuid,
+        skill_id: &str,
+        skill_state: serde_json::Value,
+    ) -> Result<(), AppError> {
+        self.context_repo
+            .update_skill_state(session_id, skill_id, skill_state)
             .await
             .map_err(|e| AppError::InternalError(e.to_string()))
     }
 
-    // Tool Execution History Methods
+    // ─── Tool Execution History ─────────────────────────────
 
     pub async fn record_tool_execution(
         &self,
@@ -227,13 +325,19 @@ impl SessionService {
             execution_time_ms,
             error_message,
         };
-        self.context_repo.record_tool_execution(execution)
+        self.context_repo
+            .record_tool_execution(execution)
             .await
             .map_err(|e| AppError::InternalError(e.to_string()))
     }
 
-    pub async fn get_tool_execution_history(&self, session_id: Uuid, limit: i64) -> Result<Vec<SessionToolExecution>, AppError> {
-        self.context_repo.get_tool_execution_history(session_id, limit)
+    pub async fn get_tool_execution_history(
+        &self,
+        session_id: Uuid,
+        limit: i64,
+    ) -> Result<Vec<SessionToolExecution>, AppError> {
+        self.context_repo
+            .get_tool_execution_history(session_id, limit)
             .await
             .map_err(|e| AppError::InternalError(e.to_string()))
     }

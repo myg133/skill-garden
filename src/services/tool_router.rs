@@ -1,6 +1,6 @@
 //! Tool Router Service - Routes tool calls to appropriate targets
 
-use crate::models::session::{ToolRouter, RouteTarget};
+use crate::models::session::{RouteTarget, ToolRouter};
 
 /// ToolRouterService handles tool call routing decisions.
 /// It determines whether a tool call should go to:
