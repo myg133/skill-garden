@@ -295,6 +295,30 @@
     }
   }
 
+  async function handleApproveMarket(skill) {
+    if (!confirm(`Approve "${skill.name}" for marketplace listing?`)) return;
+    try {
+      await api.marketplaceReviewApprove(skill.id);
+      addToast(`${skill.name} approved and listed on marketplace`, 'success');
+      skill.marketplace_status = 'listed';
+      await loadSkills();
+    } catch (e) {
+      addToast(e.message, 'error');
+    }
+  }
+
+  async function handleRejectMarket(skill) {
+    if (!confirm(`Reject "${skill.name}" from marketplace?`)) return;
+    try {
+      await api.marketplaceReviewReject(skill.id);
+      addToast(`${skill.name} rejected from marketplace`, 'success');
+      skill.marketplace_status = 'rejected';
+      await loadSkills();
+    } catch (e) {
+      addToast(e.message, 'error');
+    }
+  }
+
   async function handleMarketplaceDelist(skill) {
     if (!confirm(`Delist "${skill.name}" from marketplace? The skill will not be deleted.`)) return;
     try {
@@ -642,6 +666,8 @@
   </div>
   {/if}
 
+  <!-- 搜索/筛选栏：市场角色只在非 stats tab 时显示 -->
+  {#if !(isMarketplaceRole && activeTab === 'marketplace-stats')}
   <div class="flex flex-wrap items-center gap-3 mb-6">
     <div class="relative flex-1 min-w-[280px] max-w-md">
       <svg class="absolute left-3.5 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -685,201 +711,224 @@
       </button>
     {/if}
   </div>
+  {/if}
 
-  {#if loading}
-    <LoadingSpinner />
-  {:else if error}
-    <div class="bg-red-50 border border-red-100 text-red-600 px-5 py-4 rounded-xl text-sm font-medium">{error}</div>
-  {:else if skills.length === 0}
-    <div class="bg-white rounded-xl border border-gray-200 shadow-card">
-      <EmptyState message="No skills found" />
-    </div>
-  {:else}
-    <div class="bg-white rounded-xl border border-gray-200 overflow-hidden shadow-card">
-      <table class="w-full">
-        <thead>
-          <tr class="border-b border-gray-100 bg-gray-50">
-            <th class="px-6 py-4 text-left"><SortHeader label="Name" sortKey="name" currentSort="{{key: sortKey, dir: sortDir}}" onSort={handleSort} /></th>
-            <th class="px-6 py-4 text-left"><SortHeader label="Version" sortKey="version" currentSort="{{key: sortKey, dir: sortDir}}" onSort={handleSort} /></th>
-            <th class="px-6 py-4 text-left"><SortHeader label="Status" sortKey="status" currentSort="{{key: sortKey, dir: sortDir}}" onSort={handleSort} /></th>
-            {#if isMarketplaceRole}
-            <th class="px-6 py-4 text-left"><SortHeader label="Mkt Status" sortKey="marketplace_status" currentSort="{{key: sortKey, dir: sortDir}}" onSort={handleSort} /></th>
-            {/if}
-            <th class="px-6 py-4 text-left"><SortHeader label="Tags" /></th>
-            {#if !isMarketplaceRole && !inPersonalSpace}
-            <th class="px-6 py-4 text-left"><SortHeader label="Visibility" sortKey="visibility" currentSort="{{key: sortKey, dir: sortDir}}" onSort={handleSort} /></th>
-            {/if}
-            {#if isMarketplaceRole}
-            <th class="px-6 py-4 text-left"><SortHeader label="Source" /></th>
-            {:else if !inPersonalSpace}
-            <th class="px-6 py-4 text-left"><SortHeader label="Author" sortKey="author_agent_id" currentSort="{{key: sortKey, dir: sortDir}}" onSort={handleSort} /></th>
-            {/if}
-            <th class="px-6 py-4 text-left"><SortHeader label="Installs" sortKey="install_count" currentSort="{{key: sortKey, dir: sortDir}}" onSort={handleSort} /></th>
-            <th class="px-6 py-4 text-left"><SortHeader label="Created" sortKey="created" currentSort="{{key: sortKey, dir: sortDir}}" onSort={handleSort} /></th>
-            <th class="px-6 py-4 text-left"><SortHeader label="Actions" /></th>
-          </tr>
-        </thead>
-        <tbody>
-          {#each sortedSkills as skill (skill.id)}
-            <tr class="table-row hover:bg-gray-50">
-              <td class="px-6 py-4">
-                <Link to="{skillLinkBase}/{skill.id}?from=skills" class="text-blue-600 hover:text-blue-700 font-semibold text-sm transition-colors">
-                  {skill.name}
-                </Link>
-                {#if skill.description}
-                  <p class="text-gray-500 text-xs mt-0.5 max-w-[240px] truncate">{skill.description}</p>
-                {/if}
-              </td>
-              <td class="px-6 py-4">
-                <span class="text-gray-500 text-xs font-mono">{skill.version || '1.0.0'}</span>
-              </td>
-              <td class="px-6 py-4">
-                <Badge status={skill.status || 'draft'} />
-              </td>
+  <!-- 列表表格：市场角色只在非 stats tab 时显示 -->
+  {#if !(isMarketplaceRole && activeTab === 'marketplace-stats')}
+    {#if loading}
+      <LoadingSpinner />
+    {:else if error}
+      <div class="bg-red-50 border border-red-100 text-red-600 px-5 py-4 rounded-xl text-sm font-medium">{error}</div>
+    {:else if skills.length === 0}
+      <div class="bg-white rounded-xl border border-gray-200 shadow-card">
+        <EmptyState message="No skills found" />
+      </div>
+    {:else}
+      <div class="bg-white rounded-xl border border-gray-200 overflow-hidden shadow-card">
+        <table class="w-full">
+          <thead>
+            <tr class="border-b border-gray-100 bg-gray-50">
+              <th class="px-6 py-4 text-left"><SortHeader label="Name" sortKey="name" currentSort="{{key: sortKey, dir: sortDir}}" onSort={handleSort} /></th>
+              <th class="px-6 py-4 text-left"><SortHeader label="Version" sortKey="version" currentSort="{{key: sortKey, dir: sortDir}}" onSort={handleSort} /></th>
+              <th class="px-6 py-4 text-left"><SortHeader label="Status" sortKey="status" currentSort="{{key: sortKey, dir: sortDir}}" onSort={handleSort} /></th>
               {#if isMarketplaceRole}
-              <td class="px-6 py-4">
-                {#if skill.marketplace_status === 'listed'}
-                  <span class="px-2 py-0.5 bg-emerald-100 text-emerald-700 text-[11px] font-medium rounded">listed</span>
-                {:else if skill.marketplace_status === 'pending_review'}
-                  <span class="px-2 py-0.5 bg-amber-100 text-amber-700 text-[11px] font-medium rounded">pending</span>
-                {:else if skill.marketplace_status === 'rejected'}
-                  <span class="px-2 py-0.5 bg-red-100 text-red-700 text-[11px] font-medium rounded">rejected</span>
-                {:else if skill.marketplace_status === 'delisted'}
-                  <span class="px-2 py-0.5 bg-gray-100 text-gray-500 text-[11px] font-medium rounded">delisted</span>
-                {:else}
-                  <span class="text-xs text-gray-400">—</span>
-                {/if}
-              </td>
+              <th class="px-6 py-4 text-left"><SortHeader label="Mkt Status" sortKey="marketplace_status" currentSort="{{key: sortKey, dir: sortDir}}" onSort={handleSort} /></th>
               {/if}
-              <td class="px-6 py-4">
-                <div class="flex gap-1.5 flex-wrap">
-                  {#each (skill.tags || []).slice(0, 2) as tag}
-                    <span class="px-2 py-0.5 bg-gray-100 text-gray-500 text-[11px] font-medium rounded">{tag}</span>
-                  {/each}
-                  {#if (skill.tags || []).length > 2}
-                    <span class="px-2 py-0.5 bg-gray-100 text-gray-500 text-[11px] font-medium rounded">+{skill.tags.length - 2}</span>
-                  {/if}
-                </div>
-              </td>
+              {#if !isMarketplaceRole}
+              <th class="px-6 py-4 text-left"><SortHeader label="Tags" /></th>
+              {/if}
               {#if !isMarketplaceRole && !inPersonalSpace}
-              <td class="px-6 py-4">
-                <span class="text-gray-500 text-xs capitalize">{skill.visibility || 'org_visible'}</span>
-              </td>
+              <th class="px-6 py-4 text-left"><SortHeader label="Visibility" sortKey="visibility" currentSort="{{key: sortKey, dir: sortDir}}" onSort={handleSort} /></th>
               {/if}
               {#if isMarketplaceRole}
-              <td class="px-6 py-4 text-gray-500 text-xs">
-                {skill.owner_name || (skill.owner_type === 'user' ? 'Personal · ' + (skill.author_name || 'N/A') : skill.owner_type || 'N/A')}
-              </td>
+              <th class="px-6 py-4 text-left"><SortHeader label="Source" /></th>
               {:else if !inPersonalSpace}
-              <td class="px-6 py-4 text-gray-500 text-xs">{skill.author_name || skill.author_agent_id || 'N/A'}</td>
+              <th class="px-6 py-4 text-left"><SortHeader label="Author" sortKey="author_agent_id" currentSort="{{key: sortKey, dir: sortDir}}" onSort={handleSort} /></th>
               {/if}
-              <td class="px-6 py-4">
-                <span class="text-gray-600 text-sm font-semibold">{skill.install_count || 0}</span>
-              </td>
-              <td class="px-6 py-4 text-gray-500 text-sm">{(skill.created || skill.created_at) ? new Date(skill.created || skill.created_at).toLocaleDateString() : 'N/A'}</td>
+              {#if !isMarketplaceRole}
+              <th class="px-6 py-4 text-left"><SortHeader label="Installs" sortKey="install_count" currentSort="{{key: sortKey, dir: sortDir}}" onSort={handleSort} /></th>
+              <th class="px-6 py-4 text-left"><SortHeader label="Created" sortKey="created" currentSort="{{key: sortKey, dir: sortDir}}" onSort={handleSort} /></th>
+              {/if}
+              <th class="px-6 py-4 text-left"><SortHeader label="Actions" /></th>
+            </tr>
+          </thead>
+          <tbody>
+            {#each sortedSkills as skill (skill.id)}
+              <tr class="table-row hover:bg-gray-50">
                 <td class="px-6 py-4">
-                  <div class="flex items-center gap-1.5">
-                    <!-- Submit internal review -->
-                    {#if (skill.status === 'draft' || skill.status === 'rejected') && hasPermission(ACT.submitReview)}
-                      <button
-                        on:click={() => handleSubmitReview(skill)}
-                        class="px-2.5 py-1 text-[11px] font-semibold bg-amber-50 text-amber-700 border border-amber-200 rounded-lg hover:bg-amber-100 transition-colors"
-                      >Submit Review</button>
-                    {/if}
-
-                    <!-- Publish (approved -> published) -->
-                    {#if skill.status === 'approved' && hasPermission(ACT.publishInternal)}
-                      <button
-                        on:click={() => handlePublishSkill(skill)}
-                        class="px-2.5 py-1 text-[11px] font-semibold bg-emerald-50 text-emerald-700 border border-emerald-200 rounded-lg hover:bg-emerald-100 transition-colors"
-                      >Publish</button>
-                    {/if}
-
-                    <!-- Marketplace operations (marketplace_admin / marketplace_reviewer) -->
-                    {#if isMarketplaceRole}
-                      {#if skill.marketplace_status === 'listed'}
-                        {#if hasPermission(ACT.marketFeature) && !skill.is_featured}
-                          <button
-                            on:click={() => handleAdminPublishSkill(skill)}
-                            class="px-2.5 py-1 text-[11px] font-semibold bg-amber-50 text-amber-700 border border-amber-200 rounded-lg hover:bg-amber-100 transition-colors"
-                          >Feature</button>
-                        {/if}
-                        {#if hasPermission(ACT.marketDelist)}
-                          <button
-                            on:click={() => handleMarketplaceDelist(skill)}
-                            class="px-2.5 py-1 text-[11px] font-semibold bg-rose-50 text-rose-600 border border-rose-200 rounded-lg hover:bg-rose-100 transition-colors"
-                          >Delist</button>
-                        {/if}
-                      {:else if skill.marketplace_status === 'delisted' && hasPermission(ACT.marketRelist)}
-                        <button
-                          on:click={() => handleMarketplaceRelist(skill)}
-                          class="px-2.5 py-1 text-[11px] font-semibold bg-emerald-50 text-emerald-700 border border-emerald-200 rounded-lg hover:bg-emerald-100 transition-colors"
-                        >Relist</button>
-                      {/if}
-                    {:else if skill.status === 'published'}
-                      <!-- Submit to marketplace (org owner/admin) -->
-                      {#if (!skill.marketplace_status || skill.marketplace_status === 'rejected' || skill.marketplace_status === 'delisted') && hasPermission(ACT.submitToMarketplace)}
-                        <button
-                          on:click={() => handleSubmitToMarketplace(skill)}
-                          class="px-2.5 py-1 text-[11px] font-semibold bg-emerald-50 text-emerald-700 border border-emerald-200 rounded-lg hover:bg-emerald-100 transition-colors"
-                        >List on Market</button>
-                      {:else if skill.marketplace_status === 'pending_review'}
-                        <span class="text-[11px] text-amber-500 font-medium">Market Review</span>
-                      {:else if skill.marketplace_status === 'listed'}
-                        <span class="text-[11px] text-emerald-500 font-medium">Listed</span>
-                      {/if}
-                    {/if}
-
-                    <!-- Delete (all roles with permission) -->
-                    {#if hasPermission(ACT.delete)}
-                    <button
-                      on:click={() => handleDeleteSkill(skill)}
-                      class="px-2.5 py-1 text-[11px] font-semibold bg-red-50 text-red-600 border border-red-200 rounded-lg hover:bg-red-100 transition-colors"
-                    >Delete</button>
+                  <Link to="{skillLinkBase}/{skill.id}?from=skills" class="text-blue-600 hover:text-blue-700 font-semibold text-sm transition-colors">
+                    {skill.name}
+                  </Link>
+                  {#if skill.description}
+                    <p class="text-gray-500 text-xs mt-0.5 max-w-[240px] truncate">{skill.description}</p>
+                  {/if}
+                </td>
+                <td class="px-6 py-4">
+                  <span class="text-gray-500 text-xs font-mono">{skill.version || '1.0.0'}</span>
+                </td>
+                <td class="px-6 py-4">
+                  <Badge status={skill.status || 'draft'} />
+                </td>
+                {#if isMarketplaceRole}
+                <td class="px-6 py-4">
+                  {#if skill.marketplace_status === 'listed'}
+                    <span class="px-2 py-0.5 bg-emerald-100 text-emerald-700 text-[11px] font-medium rounded">listed</span>
+                  {:else if skill.marketplace_status === 'pending_review'}
+                    <span class="px-2 py-0.5 bg-amber-100 text-amber-700 text-[11px] font-medium rounded">pending</span>
+                  {:else if skill.marketplace_status === 'rejected'}
+                    <span class="px-2 py-0.5 bg-red-100 text-red-700 text-[11px] font-medium rounded">rejected</span>
+                  {:else if skill.marketplace_status === 'delisted'}
+                    <span class="px-2 py-0.5 bg-gray-100 text-gray-500 text-[11px] font-medium rounded">delisted</span>
+                  {:else}
+                    <span class="text-xs text-gray-400">—</span>
+                  {/if}
+                </td>
+                {/if}
+                {#if !isMarketplaceRole}
+                <td class="px-6 py-4">
+                  <div class="flex gap-1.5 flex-wrap">
+                    {#each (skill.tags || []).slice(0, 2) as tag}
+                      <span class="px-2 py-0.5 bg-gray-100 text-gray-500 text-[11px] font-medium rounded">{tag}</span>
+                    {/each}
+                    {#if (skill.tags || []).length > 2}
+                      <span class="px-2 py-0.5 bg-gray-100 text-gray-500 text-[11px] font-medium rounded">+{skill.tags.length - 2}</span>
                     {/if}
                   </div>
                 </td>
-            </tr>
-          {/each}
-        </tbody>
-      </table>
-    </div>
+                {/if}
+                {#if !isMarketplaceRole && !inPersonalSpace}
+                <td class="px-6 py-4">
+                  <span class="text-gray-500 text-xs capitalize">{skill.visibility || 'org_visible'}</span>
+                </td>
+                {/if}
+                {#if isMarketplaceRole}
+                <td class="px-6 py-4 text-gray-500 text-xs">
+                  {skill.owner_name || (skill.owner_type === 'user' ? 'Personal · ' + (skill.author_name || 'N/A') : skill.owner_type || 'N/A')}
+                </td>
+                {:else if !inPersonalSpace}
+                <td class="px-6 py-4 text-gray-500 text-xs">{skill.author_name || skill.author_agent_id || 'N/A'}</td>
+                {/if}
+                {#if !isMarketplaceRole}
+                <td class="px-6 py-4">
+                  <span class="text-gray-600 text-sm font-semibold">{skill.install_count || 0}</span>
+                </td>
+                <td class="px-6 py-4 text-gray-500 text-sm">{(skill.created || skill.created_at) ? new Date(skill.created || skill.created_at).toLocaleDateString() : 'N/A'}</td>
+                {/if}
+                  <td class="px-6 py-4">
+                    <div class="flex items-center gap-1.5">
+                      <!-- Submit internal review -->
+                      {#if (skill.status === 'draft' || skill.status === 'rejected') && hasPermission(ACT.submitReview)}
+                        <button
+                          on:click={() => handleSubmitReview(skill)}
+                          class="px-2.5 py-1 text-[11px] font-semibold bg-amber-50 text-amber-700 border border-amber-200 rounded-lg hover:bg-amber-100 transition-colors"
+                        >Submit Review</button>
+                      {/if}
 
-    {#if totalPages > 1}
-      <div class="flex items-center justify-between mt-5 px-2">
-        <span class="text-gray-500 text-sm">
-          Page {page} of {totalPages} ({total} total)
-        </span>
-        <div class="flex gap-1.5">
-          <button
-            on:click={() => goToPage(page - 1)}
-            disabled={page <= 1}
-            class="px-3.5 py-2 bg-white border border-gray-200 rounded-lg text-sm font-medium text-gray-700 hover:bg-gray-50 disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
-          >
-            Previous
-          </button>
-          {#each Array(totalPages) as _, i}
-            {@const pageNum = i + 1}
-            {#if pageNum === 1 || pageNum === totalPages || (pageNum >= page - 2 && pageNum <= page + 2)}
-              <button
-                on:click={() => goToPage(pageNum)}
-                class="w-9 h-9 rounded-lg text-sm font-semibold transition-colors {pageNum === page ? 'bg-blue-600 text-white shadow-sm' : 'bg-white border border-gray-200 text-gray-600 hover:bg-gray-50'}"
-              >
-                {pageNum}
-              </button>
-            {:else if pageNum === page - 3 || pageNum === page + 3}
-              <span class="w-9 h-9 flex items-center justify-center text-gray-400 text-sm">...</span>
-            {/if}
-          {/each}
-          <button
-            on:click={() => goToPage(page + 1)}
-            disabled={page >= totalPages}
-            class="px-3.5 py-2 bg-white border border-gray-200 rounded-lg text-sm font-medium text-gray-700 hover:bg-gray-50 disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
-          >
-            Next
-          </button>
-        </div>
+                      <!-- Publish (approved -> published) -->
+                      {#if skill.status === 'approved' && hasPermission(ACT.publishInternal)}
+                        <button
+                          on:click={() => handlePublishSkill(skill)}
+                          class="px-2.5 py-1 text-[11px] font-semibold bg-emerald-50 text-emerald-700 border border-emerald-200 rounded-lg hover:bg-emerald-100 transition-colors"
+                        >Publish</button>
+                      {/if}
+
+                      <!-- Marketplace operations (marketplace_admin / marketplace_reviewer) -->
+                      {#if isMarketplaceRole}
+                        {#if skill.marketplace_status === 'listed'}
+                          {#if hasPermission(ACT.marketFeature) && !skill.is_featured}
+                            <button
+                              on:click={() => handleAdminPublishSkill(skill)}
+                              class="px-2.5 py-1 text-[11px] font-semibold bg-amber-50 text-amber-700 border border-amber-200 rounded-lg hover:bg-amber-100 transition-colors"
+                            >Feature</button>
+                          {/if}
+                          {#if hasPermission(ACT.marketDelist)}
+                            <button
+                              on:click={() => handleMarketplaceDelist(skill)}
+                              class="px-2.5 py-1 text-[11px] font-semibold bg-rose-50 text-rose-600 border border-rose-200 rounded-lg hover:bg-rose-100 transition-colors"
+                            >Delist</button>
+                          {/if}
+                        {:else if skill.marketplace_status === 'delisted' && hasPermission(ACT.marketRelist)}
+                          <button
+                            on:click={() => handleMarketplaceRelist(skill)}
+                            class="px-2.5 py-1 text-[11px] font-semibold bg-emerald-50 text-emerald-700 border border-emerald-200 rounded-lg hover:bg-emerald-100 transition-colors"
+                          >Relist</button>
+                        {/if}
+                      {:else if skill.status === 'published'}
+                        <!-- Submit to marketplace (org owner/admin) -->
+                        {#if (!skill.marketplace_status || skill.marketplace_status === 'rejected' || skill.marketplace_status === 'delisted') && hasPermission(ACT.submitToMarketplace)}
+                          <button
+                            on:click={() => handleSubmitToMarketplace(skill)}
+                            class="px-2.5 py-1 text-[11px] font-semibold bg-emerald-50 text-emerald-700 border border-emerald-200 rounded-lg hover:bg-emerald-100 transition-colors"
+                          >List on Market</button>
+                        {:else if skill.marketplace_status === 'pending_review'}
+                          {#if hasPermission(ACT.marketApprove)}
+                            <button
+                              on:click={() => handleApproveMarket(skill)}
+                              class="px-2.5 py-1 text-[11px] font-semibold bg-emerald-50 text-emerald-700 border border-emerald-200 rounded-lg hover:bg-emerald-100 transition-colors"
+                            >Approve</button>
+                            <button
+                              on:click={() => handleRejectMarket(skill)}
+                              class="px-2.5 py-1 text-[11px] font-semibold bg-red-50 text-red-600 border border-red-200 rounded-lg hover:bg-red-100 transition-colors"
+                            >Reject</button>
+                          {:else}
+                            <span class="text-[11px] text-amber-500 font-medium">Market Review</span>
+                          {/if}
+                        {:else if skill.marketplace_status === 'listed'}
+                          <span class="text-[11px] text-emerald-500 font-medium">Listed</span>
+                        {/if}
+                      {/if}
+
+                      <!-- Delete (all roles with permission) -->
+                      {#if hasPermission(ACT.delete)}
+                      <button
+                        on:click={() => handleDeleteSkill(skill)}
+                        class="px-2.5 py-1 text-[11px] font-semibold bg-red-50 text-red-600 border border-red-200 rounded-lg hover:bg-red-100 transition-colors"
+                      >Delete</button>
+                      {/if}
+                    </div>
+                  </td>
+              </tr>
+            {/each}
+          </tbody>
+        </table>
       </div>
+
+      {#if totalPages > 1 && !isMarketplaceRole}
+        <div class="flex items-center justify-between mt-5 px-2">
+          <span class="text-gray-500 text-sm">
+            Page {page} of {totalPages} ({total} total)
+          </span>
+          <div class="flex gap-1.5">
+            <button
+              on:click={() => goToPage(page - 1)}
+              disabled={page <= 1}
+              class="px-3.5 py-2 bg-white border border-gray-200 rounded-lg text-sm font-medium text-gray-700 hover:bg-gray-50 disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
+            >
+              Previous
+            </button>
+            {#each Array(totalPages) as _, i}
+              {@const pageNum = i + 1}
+              {#if pageNum === 1 || pageNum === totalPages || (pageNum >= page - 2 && pageNum <= page + 2)}
+                <button
+                  on:click={() => goToPage(pageNum)}
+                  class="w-9 h-9 rounded-lg text-sm font-semibold transition-colors {pageNum === page ? 'bg-blue-600 text-white shadow-sm' : 'bg-white border border-gray-200 text-gray-600 hover:bg-gray-50'}"
+                >
+                  {pageNum}
+                </button>
+              {:else if pageNum === page - 3 || pageNum === page + 3}
+                <span class="w-9 h-9 flex items-center justify-center text-gray-400 text-sm">...</span>
+              {/if}
+            {/each}
+            <button
+              on:click={() => goToPage(page + 1)}
+              disabled={page >= totalPages}
+              class="px-3.5 py-2 bg-white border border-gray-200 rounded-lg text-sm font-medium text-gray-700 hover:bg-gray-50 disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
+            >
+              Next
+            </button>
+          </div>
+        </div>
+      {/if}
     {/if}
   {/if}
 </div>

@@ -469,14 +469,33 @@ pub async fn get_skill_file_handler(
         .await
         .map_err(|e| ApiError::NotFound(format!("Skill {} not found: {}", skill_id, e)))?;
 
-    let content = state
+    let raw = state
         .skill_git
         .get_file_at_version(&skill.name, &skill.version, &file_path)
         .map_err(|e| ApiError::NotFound(format!("File '{}' not found: {}", file_path, e)))?;
 
+    // 检测是否为二进制文件（包含 null 字节或大量不可打印字符）
+    let is_binary = raw.as_bytes().contains(&0)
+        || raw.as_bytes().iter().take(1024).filter(|b| !b.is_ascii_graphic() && !b.is_ascii_whitespace()).count() > 32;
+
+    let content = if is_binary {
+        let ext = std::path::Path::new(&file_path)
+            .extension()
+            .and_then(|e| e.to_str())
+            .unwrap_or("bin");
+        let size = raw.len();
+        format!("[Binary file: {} bytes, type: .{ext}]", size)
+    } else {
+        raw
+    };
+
     Ok((
         StatusCode::OK,
-        Json(serde_json::json!({ "path": file_path, "content": content })),
+        Json(serde_json::json!({
+            "path": file_path,
+            "content": content,
+            "binary": is_binary,
+        })),
     ))
 }
 

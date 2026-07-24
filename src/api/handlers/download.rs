@@ -253,7 +253,7 @@ pub async fn download_cli_handler(
         let bin_tar_path = format!("{}/{}", prefix, binary_name);
         add_bytes(&mut tar_builder, &bin_tar_path, &bin_bytes, 0o755)?;
 
-        // 5b. 娣诲姞 config.toml
+        // 5b. 添加 config.toml
     let config_tar_path = format!("{}/config.toml", prefix);
         add_bytes(
             &mut tar_builder,
@@ -262,7 +262,7 @@ pub async fn download_cli_handler(
             0o644,
         )?;
 
-        // 5c. 娣诲姞 install.sh
+        // 5c. 添加 install.sh
     let install_sh =
             include_str!("../../../cli-dist/install.sh").replace("{version}", &version_clone);
         let install_sh_path = format!("{}/install.sh", prefix);
@@ -273,7 +273,7 @@ pub async fn download_cli_handler(
             0o755,
         )?;
 
-        // 5d. 娣诲姞 install.ps1
+        // 5d. 添加 install.ps1
     let install_ps1 =
             include_str!("../../../cli-dist/install.ps1").replace("{version}", &version_clone);
         let install_ps1_path = format!("{}/install.ps1", prefix);

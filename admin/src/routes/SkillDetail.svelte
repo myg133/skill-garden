@@ -7,6 +7,7 @@
   import { useLocation } from 'svelte-routing';
   import Badge from '../components/Badge.svelte';
   import ReviewActions from '../components/ReviewActions.svelte';
+  import { ACTIONS } from '../config/actions.js';
   import LoadingSpinner from '../components/LoadingSpinner.svelte';
   import FileTreeNode from '../components/FileTreeNode.svelte';
 
@@ -742,7 +743,19 @@
             </button>
           {/if}
           {#if skill.marketplace_status === 'pending_review'}
-            <span class="px-4 py-2 text-sm font-semibold bg-amber-50 text-amber-600 rounded-xl ring-1 ring-amber-600/20">Awaiting Market Review</span>
+            {#if hasPermission(ACTIONS.Skills.marketApprove)}
+              <button on:click={handleMarketplaceApprove} disabled={marketplaceLoading}
+                class="px-4 py-2 text-sm font-semibold bg-emerald-500 text-white rounded-xl hover:bg-emerald-600 disabled:opacity-50 transition-all duration-200 shadow-sm shadow-emerald-500/20 hover:shadow-md hover:shadow-emerald-500/30 active:scale-[0.97]">
+                {#if marketplaceLoading}<svg class="w-4 h-4 animate-spin mr-1 inline" fill="none" viewBox="0 0 24 24"><circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"/><path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z"/></svg>{/if}
+                Approve
+              </button>
+              <button on:click={handleMarketplaceReject} disabled={marketplaceLoading}
+                class="px-4 py-2 text-sm font-semibold bg-rose-500 text-white rounded-xl hover:bg-rose-600 disabled:opacity-50 transition-all duration-200 shadow-sm shadow-rose-500/20 hover:shadow-md hover:shadow-rose-500/30 active:scale-[0.97]">
+                Reject
+              </button>
+            {:else}
+              <span class="px-4 py-2 text-sm font-semibold bg-amber-50 text-amber-600 rounded-xl ring-1 ring-amber-600/20">Awaiting Market Review</span>
+            {/if}
           {/if}
           {#if skill.marketplace_status === 'listed'}
             <button on:click={handleRequestDelist} disabled={requestDelistLoading}
@@ -768,8 +781,8 @@
           {/if}
         {/if}
 
-        <!-- Publish 按钮：作者始终可见（非 admin） -->
-        {#if isOwner && skill.status === 'approved' && !$isAdmin && !isSuperAdmin}
+        <!-- Publish 按钮：作者可见（排除 super_admin / tenant_admin，保留 market admin） -->
+        {#if isOwner && skill.status === 'approved' && !isSuperAdmin && (!isAnyAdminUser || isMarketAdmin)}
           <button on:click={handlePublish} disabled={publishLoading}
             class="px-4 py-2 text-sm font-semibold bg-emerald-500 text-white rounded-xl hover:bg-emerald-600 disabled:opacity-50 transition-all duration-200 shadow-sm shadow-emerald-500/20 hover:shadow-md hover:shadow-emerald-500/30 active:scale-[0.97]">
             {#if publishLoading}<svg class="w-4 h-4 animate-spin mr-1 inline" fill="none" viewBox="0 0 24 24"><circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"/><path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z"/></svg>{/if}
@@ -778,7 +791,7 @@
         {/if}
 
         <!-- 2. 市场管理员/审核员操作（marketplace_admin / marketplace_reviewer） -->
-        {#if isMarketAdmin && !isSuperAdmin && !$isAdmin}
+        {#if isMarketAdmin && !isSuperAdmin}
           {#if skill.marketplace_status === 'pending_review'}
             <button on:click={handleMarketplaceApprove} disabled={marketplaceLoading}
               class="px-4 py-2 text-sm font-semibold bg-emerald-500 text-white rounded-xl hover:bg-emerald-600 disabled:opacity-50 transition-all duration-200 shadow-sm shadow-emerald-500/20 hover:shadow-md hover:shadow-emerald-500/30 active:scale-[0.97]">Approve</button>

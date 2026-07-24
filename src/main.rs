@@ -333,7 +333,7 @@ async fn run_http_server(state: AppState, port: u16) -> Result<()> {
         .layer(middleware::from_fn(request_logging_middleware))
         .with_state(app_state);
 
-    let addr = format!("127.0.0.1:{}", port);
+    let addr = format!("0.0.0.0:{}", port);
     info!("Starting HTTP server on http://{}", addr);
     info!(
         "SSE session idle timeout: {}s (cleanup runs every 60s)",

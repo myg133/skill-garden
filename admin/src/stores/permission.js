@@ -34,6 +34,8 @@ function createPermissionStore() {
         permissions: new Set(systemRoles), // 初始化阶段仅凭角色名判断
         loaded: true,
       });
+      // 校验持久化的组织上下文：若当前用户不属于该组织，清除
+      validateSelectedOrg(orgRoles);
     },
 
     /** 刷新权限时调用（GET /users/me/permissions） */
@@ -63,6 +65,8 @@ function createPermissionStore() {
         permissions,
         loaded: true,
       });
+      // 页面刷新后校验组织上下文
+      validateSelectedOrg(orgRoles);
     },
 
     /** 刷新权限列表（页面刷新后调用） */
@@ -90,6 +94,26 @@ function createPermissionStore() {
 }
 
 export const permissionStore = createPermissionStore();
+
+/**
+ * 校验 localStorage 中持久化的 selected_org 是否在当前用户的组织列表中。
+ * 若不在，清除旧的组织上下文，避免新登录用户看到上一个用户遗留的组织信息。
+ */
+function validateSelectedOrg(orgRoles) {
+  try {
+    const saved = localStorage.getItem('selected_org');
+    if (!saved) return;
+    const org = JSON.parse(saved);
+    // __personal__ 是个人空间，始终有效
+    if (!org || org.id === '__personal__') return;
+    const isMember = orgRoles.some(r => r.org_id === org.id);
+    if (!isMember) {
+      localStorage.removeItem('selected_org');
+    }
+  } catch {
+    localStorage.removeItem('selected_org');
+  }
+}
 
 // ========== 纯函数入口（不依赖 Svelte reactivity，可任意位置调用） ==========
 

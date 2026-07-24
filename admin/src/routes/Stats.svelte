@@ -14,10 +14,9 @@
 
   onMount(async () => {
     try {
-      const [skillsRes, countsRes, logsRes, sandboxRes] = await Promise.all([
+      const [skillsRes, countsRes, sandboxRes] = await Promise.all([
         api.listSkills({ page_size: 1 }),
         api.listSkills({ page_size: 200 }),
-        api.listAuditLogs({ limit: 10 }),
         api.getSandboxHealth().catch(() => null)
       ]);
 
@@ -32,8 +31,13 @@
         published: publishedCount >= 0 ? publishedCount : 0
       };
 
-      recentLogs = logsRes.data || [];
       sandboxHealth = sandboxRes;
+
+      // 审计日志独立请求，权限不足时静默
+      try {
+        const logsRes = await api.listAuditLogs({ limit: 10 });
+        recentLogs = logsRes.data || [];
+      } catch {}
     } catch (e) {
       error = e.message;
     } finally {
