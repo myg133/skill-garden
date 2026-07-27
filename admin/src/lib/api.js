@@ -274,6 +274,12 @@ export const api = {
     });
   },
 
+  // Onboarding — generic setup skill (any logged-in user)
+  getSetupSkill() {
+    return request('/onboarding/setup-skill');
+  },
+
+
   // Tenants
   listTenants(params = {}) {
     const qs = new URLSearchParams(params).toString();

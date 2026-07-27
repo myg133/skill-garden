@@ -6,6 +6,7 @@
   import { ACTIONS } from '../config/actions.js';
   import LoadingSpinner from '../components/LoadingSpinner.svelte';
   import EmptyState from '../components/EmptyState.svelte';
+  import SetupSkillModal from '../components/SetupSkillModal.svelte';
 
   const ACT = ACTIONS.ApiKeys;
 
@@ -19,6 +20,7 @@
   let creating = false;
 
   let createdKey = null;
+  let showSetupSkill = false;
 
   onMount(async () => {
     await Promise.all([loadApiKeys(), loadIdentities(), loadOrganizations()]);
@@ -142,15 +144,21 @@
         <h1 class="text-[28px] font-extrabold text-gray-800 tracking-tight">API Keys</h1>
         <p class="text-gray-500 text-sm mt-1.5 font-medium">Manage API keys for external agent access</p>
       </div>
-      {#if hasPermission(ACT.create)}
+      <div class="flex items-center gap-2">
         <button
-          on:click={() => { showCreateModal = true; createdKey = null; }}
-          class="btn-primary px-5 py-2.5 rounded-xl font-semibold text-sm flex items-center gap-2"
-        >
-          <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 4v16m8-8H4"/></svg>
-          New API Key
-        </button>
-      {/if}
+          on:click={() => showSetupSkill = true}
+          class="px-4 py-2.5 rounded-xl font-semibold text-sm text-blue-600 border border-blue-200 hover:bg-blue-50 transition-colors"
+        >安装引导</button>
+        {#if hasPermission(ACT.create)}
+          <button
+            on:click={() => { showCreateModal = true; createdKey = null; }}
+            class="btn-primary px-5 py-2.5 rounded-xl font-semibold text-sm flex items-center gap-2"
+          >
+            <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 4v16m8-8H4"/></svg>
+            New API Key
+          </button>
+        {/if}
+      </div>
     </div>
   </div>
 
@@ -259,12 +267,18 @@
           <p class="text-xs text-emerald-600 mb-3">Copy this key now. You won't be able to see it again.</p>
           <code class="block bg-white border border-emerald-300 rounded-lg p-3 text-sm font-mono break-all">{createdKey.key}</code>
         </div>
-        <button
-          on:click={() => { showCreateModal = false; createdKey = null; }}
-          class="w-full btn-primary px-5 py-2.5 rounded-xl font-semibold text-sm"
-        >
-          Done
-        </button>
+        <div class="flex items-center gap-2">
+          <button
+            on:click={() => showSetupSkill = true}
+            class="flex-1 px-4 py-2.5 text-sm font-semibold text-blue-600 border border-blue-200 rounded-xl hover:bg-blue-50"
+          >安装引导</button>
+          <button
+            on:click={() => { showCreateModal = false; createdKey = null; }}
+            class="flex-1 btn-primary px-5 py-2.5 rounded-xl font-semibold text-sm"
+          >
+            Done
+          </button>
+        </div>
       </div>
     {:else}
       <div class="space-y-4">
@@ -334,3 +348,5 @@
   </div>
 </div>
 {/if}
+
+<SetupSkillModal bind:open={showSetupSkill} onClose={() => { showSetupSkill = false; }} />

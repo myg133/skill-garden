@@ -333,6 +333,11 @@ impl McpServer {
         let id = request.get("id");
 
         let result = match method {
+            // JSON-RPC 2.0 standard heartbeat. Should be answered with an empty
+            // object; do not require authentication and do not 500 on it.
+            "ping" => {
+                serde_json::json!({})
+            }
             "initialize" => {
                 serde_json::json!({
                     "jsonrpc": "2.0",
@@ -409,7 +414,18 @@ impl McpServer {
                 })
             }
             _ => {
-                return Err(format!("Unknown method: {}", method));
+                // Unknown methods should return a JSON-RPC "Method not found"
+                // error with HTTP 200, so probe/optional requests do not turn
+                // into 500s in logs.
+                return Ok(serde_json::json!({
+                    "jsonrpc": "2.0",
+                    "id": id,
+                    "error": {
+                        "code": -32601,
+                        "message": format!("Method not found: {}", method),
+                    }
+                })
+                .to_string());
             }
         };
 

@@ -127,14 +127,15 @@ pub async fn install(
     println!("作者:   {}", install_result.author_agent_id);
     println!("文件数: {}", install_result.file_count);
 
-    // 确定目标目录：--dir > config.skills_dir > cwd/skills/{name}
+    // 确定 Skills 根目录：--dir > config.skills_dir > cwd/skills。
+    // tarball 自带原始 Skill 文件夹，CLI 不再额外追加 Skill 名称。
     let dest_dir = match target_dir {
         Some(d) => PathBuf::from(d),
         None => match config_skills_dir {
-            Some(d) => PathBuf::from(d).join(&install_result.name),
+            Some(d) => PathBuf::from(d),
             None => {
                 let cwd = std::env::current_dir()?;
-                cwd.join("skills").join(&install_result.name)
+                cwd.join("skills")
             }
         },
     };

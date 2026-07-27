@@ -536,5 +536,7 @@ pub fn create_api_router(state: ApiState) -> Router<ApiState> {
         )
         // GitLab webhook receiver (external)
         .route("/api/v1/webhooks/gitlab", post(gitlab_webhook_handler))
+        // Onboarding — generic setup skill download (any logged-in user)
+        .route("/api/v1/onboarding/setup-skill", get(get_setup_skill_handler))
         .with_state(state)
 }

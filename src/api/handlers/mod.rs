@@ -35,6 +35,7 @@ pub mod group_permissions;
 pub mod webhooks;
 pub mod skill_upload;
 pub mod gitlab;
+pub mod onboarding;
 
 // Re-export everything for backward compatibility
 pub use helpers::*;
@@ -70,3 +71,4 @@ pub use group_permissions::*;
 pub use webhooks::*;
 pub use skill_upload::*;
 pub use gitlab::*;
+pub use onboarding::*;

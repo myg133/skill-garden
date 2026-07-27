@@ -80,7 +80,7 @@
               type="text"
               bind:value={username}
               placeholder="Enter your username"
-              class="w-full pl-10 pr-4 py-3 border border-surface-200 rounded-xl text-sm input-focus outline-none font-medium bg-surface-50/80 placeholder:text-surface-300"
+              class="w-full pl-10 pr-4 py-3 border border-surface-200 rounded-xl text-sm input-focus outline-none font-medium text-gray-900 bg-white placeholder:text-surface-300"
             />
           </div>
         </div>
@@ -97,7 +97,7 @@
               type="text"
               bind:value={password}
               placeholder="Enter your password"
-              class="w-full pl-10 pr-12 py-3 border border-surface-200 rounded-xl text-sm input-focus outline-none font-medium bg-surface-50/80 placeholder:text-surface-300"
+              class="w-full pl-10 pr-12 py-3 border border-surface-200 rounded-xl text-sm input-focus outline-none font-medium text-gray-900 bg-white placeholder:text-surface-300"
             />
             {:else}
             <input
@@ -105,7 +105,7 @@
               type="password"
               bind:value={password}
               placeholder="Enter your password"
-              class="w-full pl-10 pr-12 py-3 border border-surface-200 rounded-xl text-sm input-focus outline-none font-medium bg-surface-50/80 placeholder:text-surface-300"
+              class="w-full pl-10 pr-12 py-3 border border-surface-200 rounded-xl text-sm input-focus outline-none font-medium text-gray-900 bg-white placeholder:text-surface-300"
             />
             {/if}
             <button

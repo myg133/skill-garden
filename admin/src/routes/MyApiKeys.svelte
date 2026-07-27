@@ -3,6 +3,7 @@
   import { api } from '../lib/api.js';
   import { addToast } from '../stores/app.js';
   import LoadingSpinner from '../components/LoadingSpinner.svelte';
+  import SetupSkillModal from '../components/SetupSkillModal.svelte';
 
   let apiKeys = [];
   let organizations = [];
@@ -12,6 +13,7 @@
   let newKeyForm = { organization_id: '', name: '', expires_in_days: null };
   let creating = false;
   let newlyCreatedKey = '';
+  let showSetupSkill = false;
 
   let revoking = null;
 
@@ -123,6 +125,10 @@
       addToast('Failed to copy', 'error');
     });
   }
+
+  function openSetupGuide() {
+    showSetupSkill = true;
+  }
 </script>
 
 <div class="p-8">
@@ -132,13 +138,24 @@
         <h1 class="text-[28px] font-extrabold text-gray-800 tracking-tight">My API Keys</h1>
         <p class="text-gray-500 text-sm mt-1.5 font-medium">Manage your personal API keys</p>
       </div>
-      <button
-        on:click={() => { showCreateModal = true; newKeyForm = { organization_id: '', name: '', expires_in_days: null }; newlyCreatedKey = ''; }}
-        class="btn-primary px-5 py-2.5 rounded-xl font-semibold text-sm flex items-center gap-2"
-      >
-        <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 4v16m8-8H4"/></svg>
-        New API Key
-      </button>
+      <div class="flex items-center gap-2">
+        <button
+          on:click={openSetupGuide}
+          class="px-4 py-2.5 rounded-xl font-semibold text-sm text-blue-600 border border-blue-200 hover:bg-blue-50 transition-colors flex items-center gap-1.5"
+        >
+          <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+          </svg>
+          安装引导
+        </button>
+        <button
+          on:click={() => { showCreateModal = true; newKeyForm = { organization_id: '', name: '', expires_in_days: null }; newlyCreatedKey = ''; }}
+          class="btn-primary px-5 py-2.5 rounded-xl font-semibold text-sm flex items-center gap-2"
+        >
+          <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 4v16m8-8H4"/></svg>
+          New API Key
+        </button>
+      </div>
     </div>
   </div>
 
@@ -250,7 +267,16 @@
           </button>
         </div>
       </div>
-      <div class="flex justify-end">
+      <div class="flex justify-between items-center">
+        <button
+          on:click={openSetupGuide}
+          class="px-3 py-2 text-xs font-semibold text-blue-600 hover:bg-blue-50 rounded-lg transition-colors flex items-center gap-1.5"
+        >
+          <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+          </svg>
+          安装引导
+        </button>
         <button
           on:click={() => { showCreateModal = false; newlyCreatedKey = ''; }}
           class="btn-primary px-5 py-2.5 rounded-xl font-semibold text-sm"
@@ -314,3 +340,5 @@
   </div>
 </div>
 {/if}
+
+<SetupSkillModal bind:open={showSetupSkill} onClose={() => { showSetupSkill = false; }} />
