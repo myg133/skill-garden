@@ -158,6 +158,37 @@ impl VersionRepository {
         }))
     }
 
+    /// 获取最新的可恢复版本。只有已经生成 Git tag 的版本才是完整、可回退的历史版本。
+    pub async fn find_latest_tagged_by_name(
+        &self,
+        skill_name: &str,
+    ) -> DbResult<Option<SkillVersion>> {
+        let row = sqlx::query_as::<_, SkillVersionRow>(
+            r#"SELECT id, skill_name, version, git_commit_hash, git_tag, changelog, file_count, total_size_bytes, uploaded_by, git_remote_url, created_at
+               FROM skill_versions
+               WHERE skill_name = $1 AND git_tag IS NOT NULL
+               ORDER BY created_at DESC LIMIT 1"#,
+        )
+        .bind(skill_name)
+        .fetch_optional(&self.pool)
+        .await
+        .map_err(|e| DbError::QueryError(e.to_string()))?;
+
+        Ok(row.map(|r| SkillVersion {
+            id: r.id,
+            skill_name: r.skill_name,
+            version: r.version,
+            git_commit_hash: r.git_commit_hash,
+            git_tag: r.git_tag,
+            changelog: r.changelog,
+            file_count: r.file_count,
+            total_size_bytes: r.total_size_bytes,
+            uploaded_by: r.uploaded_by,
+            git_remote_url: r.git_remote_url,
+            created_at: r.created_at,
+        }))
+    }
+
     pub async fn get_latest_version(&self, skill_name: &str) -> DbResult<Option<String>> {
         let row: Option<(String,)> = sqlx::query_as(
             r#"SELECT version FROM skill_versions WHERE skill_name = $1 ORDER BY created_at DESC LIMIT 1"#,

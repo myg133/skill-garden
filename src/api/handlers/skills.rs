@@ -474,9 +474,9 @@ pub async fn get_skill_file_handler(
         .get_file_at_version(&skill.name, &skill.version, &file_path)
         .map_err(|e| ApiError::NotFound(format!("File '{}' not found: {}", file_path, e)))?;
 
-    // 检测是否为二进制文件（包含 null 字节或大量不可打印字符）
-    let is_binary = raw.as_bytes().contains(&0)
-        || raw.as_bytes().iter().take(1024).filter(|b| !b.is_ascii_graphic() && !b.is_ascii_whitespace()).count() > 32;
+    // 检测是否为二进制文件：包含 null 字节即为二进制
+    // UTF-8 多字节字符（如中文）的高位字节 > 0x7F 不算二进制
+    let is_binary = raw.as_bytes().contains(&0);
 
     let content = if is_binary {
         let ext = std::path::Path::new(&file_path)

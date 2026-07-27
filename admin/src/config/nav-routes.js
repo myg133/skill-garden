@@ -42,7 +42,7 @@ export const adminNavRoutes = [
     tabs: [
       { href: '/marketplace',  label: 'Marketplace',   icon: 'marketplace',   need: null },
       { href: '/skills',       label: 'Skills',        icon: 'skills',        need: null },
-      { href: '/review',       label: 'Review',        icon: 'review',        need: 'skill:approve_review' },
+      { href: '/review',       label: 'Review',        icon: 'review',        need: ['skill:approve_review', 'marketplace:review_approve'] },
       { href: '/marketplace-roles', label: 'Marketplace Roles', icon: 'roles',  need: 'marketplace:role_assign' },
     ]
   },

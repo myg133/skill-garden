@@ -1,10 +1,17 @@
-﻿//! 技能工作流 handlers (审核/发布/回滚)
+//! 技能工作流 handlers (审核/发布/回滚)
 
-use axum::{extract::{Path, State}, http::StatusCode, response::IntoResponse, Json};
+use axum::{
+    extract::{Path, State},
+    http::StatusCode,
+    response::IntoResponse,
+    Json,
+};
 
+use super::helpers::{
+    check_skill_perm, check_skill_perm_db, require_marketplace_admin_only, ApiState,
+};
 use crate::api::error::ApiError;
 use crate::api::jwt::AgentContext;
-use super::helpers::{check_skill_perm, check_skill_perm_db, require_marketplace_admin_only, ApiState};
 
 pub async fn submit_review_skill_handler(
     State(state): State<ApiState>,
@@ -102,16 +109,20 @@ pub async fn publish_skill_handler(
         .map_err(|e| ApiError::BadRequest(format!("Failed to publish skill: {}", e)))?;
 
     // 确保 release tarball 存在（审核通过时已生成，此处兜底）
-    let release_path = state.skill_git.releases_dir()
+    let release_path = state
+        .skill_git
+        .releases_dir()
         .join(&skill.name)
         .join(format!("v{}.tar.gz", skill.version));
     if !release_path.exists() {
-        let _ = state.skill_git.generate_release_tarball(&skill.name, &skill.version);
+        let _ = state
+            .skill_git
+            .generate_release_tarball(&skill.name, &skill.version);
     }
 
     // 新版本发布后，旧版本不再对外可见
     let _ = sqlx::query(
-        "UPDATE skills SET is_current = false WHERE name = $1 AND is_current = true AND id != $2"
+        "UPDATE skills SET is_current = false WHERE name = $1 AND is_current = true AND id != $2",
     )
     .bind(&skill.name)
     .bind(&skill.id)
@@ -293,7 +304,10 @@ pub async fn admin_unpublish_skill_handler(
     }
 
     // 下架: 改 marketplace_status 为 delisted，恢复原始 visibility
-    let pre_visibility = skill.pre_marketplace_visibility.as_deref().unwrap_or("private");
+    let pre_visibility = skill
+        .pre_marketplace_visibility
+        .as_deref()
+        .unwrap_or("private");
     skill_repo
         .update_marketplace_status(&skill_id, Some("delisted"))
         .await
@@ -395,26 +409,34 @@ pub async fn admin_publish_skill_handler(
 
         if !tag_exists && repo_dir.join(".git").exists() {
             let tag_msg = format!("v{}: Admin published", skill.version);
-            let _ = state.skill_git.git_tag_approved(&repo_dir, &tag_name, &tag_msg);
-            let _ = state.skill_git.generate_release_tarball(&skill.name, &skill.version);
+            let _ = state
+                .skill_git
+                .git_tag_approved(&repo_dir, &tag_name, &tag_msg);
+            let _ = state
+                .skill_git
+                .generate_release_tarball(&skill.name, &skill.version);
 
             // 统计文件数和总大小（从 git repo 统计）
-            let (file_count, total_size_bytes) = state.registry.count_skill_files(&repo_dir)
+            let (file_count, total_size_bytes) = state
+                .registry
+                .count_skill_files(&repo_dir)
                 .unwrap_or((0, 0));
 
-            use crate::db::repositories::version::{VersionRepository, NewSkillVersion};
+            use crate::db::repositories::version::{NewSkillVersion, VersionRepository};
             let version_repo = VersionRepository::new(state.agent_repo.pool().clone());
-            let _ = version_repo.create(NewSkillVersion {
-                skill_name: skill.name.clone(),
-                version: skill.version.clone(),
-                git_commit_hash: None,
-                git_tag: Some(tag_name),
-                changelog: Some(tag_msg),
-                file_count: file_count as i32,
-                total_size_bytes: total_size_bytes as i64,
-                uploaded_by: agent_context.require_identity().ok(),
-                git_remote_url: None,
-            }).await;
+            let _ = version_repo
+                .create(NewSkillVersion {
+                    skill_name: skill.name.clone(),
+                    version: skill.version.clone(),
+                    git_commit_hash: None,
+                    git_tag: Some(tag_name),
+                    changelog: Some(tag_msg),
+                    file_count: file_count as i32,
+                    total_size_bytes: total_size_bytes as i64,
+                    uploaded_by: agent_context.require_identity().ok(),
+                    git_remote_url: None,
+                })
+                .await;
         }
     }
 
@@ -423,7 +445,9 @@ pub async fn admin_publish_skill_handler(
     skill_repo
         .set_pre_marketplace_visibility(&skill_id, Some(&current_visibility))
         .await
-        .map_err(|e| ApiError::BadRequest(format!("Failed to save pre-marketplace visibility: {}", e)))?;
+        .map_err(|e| {
+            ApiError::BadRequest(format!("Failed to save pre-marketplace visibility: {}", e))
+        })?;
 
     // 设置为 marketplace 可见性
     skill_repo
@@ -437,9 +461,7 @@ pub async fn admin_publish_skill_handler(
     skill_repo
         .update_marketplace_status(&skill_id, Some("listed"))
         .await
-        .map_err(|e| {
-            ApiError::BadRequest(format!("Failed to set marketplace status: {}", e))
-        })?;
+        .map_err(|e| ApiError::BadRequest(format!("Failed to set marketplace status: {}", e)))?;
 
     // 清除 admin_unpublished 标记
     skill_repo
@@ -520,34 +542,71 @@ pub async fn approve_skill_handler(
 
     // Git tag + version_repo 写入 + tarball 生成
     {
+        use crate::db::repositories::version::{NewSkillVersion, VersionRepository};
+
         let repo_dir = state.skill_git.repo_path(&skill.name);
         let tag_name = format!("v{}", skill.version);
         let tag_msg = format!("v{}: Approved version", skill.version);
-
-        state.skill_git.git_tag_approved(&repo_dir, &tag_name, &tag_msg)
-            .map_err(|e| ApiError::InternalError(format!("Failed to tag version: {}", e)))?;
-
-        // 统计文件数和总大小（从 git repo 统计）
-        let (file_count, total_size_bytes) = state.registry.count_skill_files(&repo_dir)
-            .unwrap_or((0, 0));
-
-        use crate::db::repositories::version::{VersionRepository, NewSkillVersion};
         let version_repo = VersionRepository::new(state.agent_repo.pool().clone());
-        version_repo.create(NewSkillVersion {
-            skill_name: skill.name.clone(),
-            version: skill.version.clone(),
-            git_commit_hash: None,
-            git_tag: Some(tag_name),
-            changelog: Some(tag_msg),
-            file_count: file_count as i32,
-            total_size_bytes: total_size_bytes as i64,
-            uploaded_by: reviewer_id,
-            git_remote_url: None,
-        }).await
-        .map_err(|e| ApiError::InternalError(format!("Failed to record version: {}", e)))?;
+        let existing_version = version_repo
+            .find_by_name_and_version(&skill.name, &skill.version)
+            .await
+            .map_err(|e| {
+                ApiError::InternalError(format!("Failed to inspect version history: {}", e))
+            })?;
+        let restores_tagged_version = existing_version
+            .as_ref()
+            .and_then(|v| v.git_tag.as_deref())
+            .is_some();
 
-        // 生成 tarball
-        let _ = state.skill_git.generate_release_tarball(&skill.name, &skill.version);
+        if restores_tagged_version {
+            tracing::info!(
+                "Reusing existing version history for restored skill {} v{}",
+                skill.name,
+                skill.version
+            );
+        } else {
+            state
+                .skill_git
+                .git_tag_approved(&repo_dir, &tag_name, &tag_msg)
+                .map_err(|e| ApiError::InternalError(format!("Failed to tag version: {}", e)))?;
+
+            let (file_count, total_size_bytes) = state
+                .registry
+                .count_skill_files(&repo_dir)
+                .unwrap_or((0, 0));
+
+            version_repo
+                .create(NewSkillVersion {
+                    skill_name: skill.name.clone(),
+                    version: skill.version.clone(),
+                    git_commit_hash: None,
+                    git_tag: Some(tag_name),
+                    changelog: Some(tag_msg),
+                    file_count: file_count as i32,
+                    total_size_bytes: total_size_bytes as i64,
+                    uploaded_by: reviewer_id,
+                    git_remote_url: None,
+                })
+                .await
+                .map_err(|e| ApiError::InternalError(format!("Failed to record version: {}", e)))?;
+        }
+
+        if restores_tagged_version {
+            state
+                .registry
+                .sync_skill_files_from(&skill.name, &repo_dir)
+                .map_err(|e| {
+                    ApiError::InternalError(format!("Failed to restore skill files: {}", e))
+                })?;
+        }
+
+        state
+            .skill_git
+            .generate_release_tarball(&skill.name, &skill.version)
+            .map_err(|e| {
+                ApiError::InternalError(format!("Failed to generate release tarball: {}", e))
+            })?;
     }
 
     state
@@ -613,11 +672,25 @@ pub async fn reject_skill_handler(
         .await
         .map_err(|e| ApiError::BadRequest(format!("Failed to reject skill: {}", e)))?;
 
-    // Git reset --soft HEAD~1 撤销审核中的 commit
-    {
+    // 恢复历史版本没有创建新 commit，驳回时不得回退 Git HEAD。
+    let version_repo =
+        crate::db::repositories::version::VersionRepository::new(state.agent_repo.pool().clone());
+    let restores_tagged_version = version_repo
+        .find_by_name_and_version(&skill.name, &skill.version)
+        .await
+        .map_err(|e| ApiError::InternalError(format!("Failed to inspect version history: {}", e)))?
+        .and_then(|v| v.git_tag)
+        .is_some();
+
+    if !restores_tagged_version {
         let repo_dir = state.skill_git.repo_path(&skill.name);
         if repo_dir.join(".git").exists() {
-            let _ = state.skill_git.git_reset_soft_head(&repo_dir);
+            state
+                .skill_git
+                .git_reset_soft_head(&repo_dir)
+                .map_err(|e| {
+                    ApiError::InternalError(format!("Failed to reset Git commit: {}", e))
+                })?;
         }
     }
 
@@ -641,9 +714,3 @@ pub async fn reject_skill_handler(
         }),
     ))
 }
-
-
-
-
-
-

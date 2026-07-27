@@ -12,6 +12,7 @@ pub mod organization;
 pub mod permission;
 pub mod sandbox;
 pub mod session;
+pub mod setup_skill;
 pub mod skill_git;
 pub mod tool_router;
 // Admin services
