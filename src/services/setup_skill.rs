@@ -122,24 +122,23 @@ MCP 加载完成后：
 
 安装与验证全部成功后，本 Skill 就完成了它的使命。Agent **必须**主动清理本文件及安装过程中产生的临时信息，避免遗留敏感数据或冗余文件：
 
-1. 删除本文件 `skill-garden-setup.md`（如果用户把它放在目录中，删除该目录）。
-2. 删除下载下来的 `skill-garden-cli/` 临时目录（含 `config.toml`、`install.sh`、`install.ps1`）。
-3. 清理下载缓存：
+1. 删除下载下来的 `skill-garden-cli/` 临时目录（含 `config.toml`、`install.sh`、`install.ps1`）。
+2. 清理下载缓存：
    - 临时压缩包 / 安装包；
    - `~/.skill-garden/bin/` 中已不再使用的旧版本二进制；
    - `~/.skill-garden/config.toml` 备份文件（`*.<ext>.bak` 或 `*.tmp`）。
-4. 清理 Agent 会话内的中间数据：
+3. 清理 Agent 会话内的中间数据：
    - 用户提供的 API Key 不再保留在会话上下文；
    - 复制过的 agent_prompt 不再缓存；
    - 与本次安装相关的临时变量从内存中清空。
-5. 通知用户：本次安装已完成，本 Skill 将在重启或重新加载 Agent 后被识别为“已安装”状态，后续不再触发。
+4. 通知用户：本次安装已完成，本 Skill 将在重启或重新加载 Agent 后被识别为“已安装”状态，后续不再触发。
 
 清理完成后，本 Skill 在该 Agent 中不应再次被调用或被提示使用。
 "#;
 
 /// `agent_prompt` shown in the preview modal. Contains no secrets.
 pub const SETUP_SKILL_AGENT_PROMPT: &str =
-    "请读取 skill-garden-setup.md，并帮助我完成 Skill Garden MCP 和 CLI 安装。";
+    "请按 Skill Garden 安装引导（从 {download_url} 拉取），完成 CLI 安装。";
 
 /// Current response schema version. Bump when the JSON shape changes.
 pub const SETUP_SKILL_VERSION: &str = "1";
@@ -151,7 +150,7 @@ pub struct SetupSkillDoc {
     pub content_type: &'static str,
     pub encoding: &'static str,
     pub content: String,
-    pub agent_prompt: &'static str,
+    pub agent_prompt: String,
     pub server_url: String,
     pub mcp_url: String,
     pub sse_url: String,
@@ -167,6 +166,8 @@ impl SetupSkillBuilder {
         let server_url = normalize_base(&resolve_server_url());
         let mcp_url = format!("{}/mcp", server_url);
         let sse_url = format!("{}/sse", server_url);
+        let download_url = format!("{}/api/v1/onboarding/setup-skill", server_url);
+        let resolved_prompt = SETUP_SKILL_AGENT_PROMPT.replace("{download_url}", &download_url);
 
         let content = SETUP_SKILL_TEMPLATE
             .replace("{server_url}", &server_url)
@@ -179,7 +180,7 @@ impl SetupSkillBuilder {
             content_type: "text/markdown; charset=utf-8",
             encoding: "utf-8",
             content,
-            agent_prompt: SETUP_SKILL_AGENT_PROMPT,
+            agent_prompt: resolved_prompt,
             server_url,
             mcp_url,
             sse_url,

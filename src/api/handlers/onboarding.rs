@@ -2,23 +2,20 @@
 //!
 //! The `GET /api/v1/onboarding/setup-skill` endpoint returns the
 //! `SKILL.md` content for the `skill-garden-setup` skill along with
-//! supporting metadata. The endpoint requires only an authenticated
-//! session — it is not bound to any API Key and is available to all
-//! logged-in users.
+//! supporting metadata. The endpoint is intentionally public so that
+//! prospective users can preview the installation guide before they
+//! have an API key.
 
 use axum::{http::header, response::IntoResponse, Json};
 use serde_json::json;
 
-use crate::api::jwt::AgentContext;
 use crate::services::setup_skill::SetupSkillBuilder;
 
 /// `GET /api/v1/onboarding/setup-skill`
 ///
 /// Returns the embedded `SKILL.md` document and associated metadata.
-/// Requires a valid session JWT.
-pub async fn get_setup_skill_handler(
-    _agent_context: AgentContext,
-) -> Result<impl IntoResponse, crate::api::error::ApiError> {
+/// Public endpoint — no authentication required.
+pub async fn get_setup_skill_handler() -> impl IntoResponse {
     let doc = SetupSkillBuilder::build();
 
     let body = json!({
@@ -34,11 +31,11 @@ pub async fn get_setup_skill_handler(
         "version": doc.version,
     });
 
-    Ok((
+    (
         [
             (header::CACHE_CONTROL, "no-store"),
             (header::PRAGMA, "no-cache"),
         ],
         Json(body),
-    ))
+    )
 }

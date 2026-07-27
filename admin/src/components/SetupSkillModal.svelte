@@ -10,6 +10,7 @@
   let loading = false;
   let error = '';
   let objectUrl = '';
+  let previewOpen = false;
 
   $: if (open && !doc && !loading) {
     loadDoc();
@@ -38,6 +39,7 @@
     }
     doc = null;
     error = '';
+    previewOpen = false;
   }
 
   function close() {
@@ -189,11 +191,21 @@
               <div class="flex gap-2">
                 <button
                   class="px-2 py-1 text-[11px] font-semibold text-blue-600 hover:bg-blue-50 rounded"
+                  on:click={() => previewOpen = !previewOpen}
+                >{previewOpen ? '收起' : '展开'}</button>
+                <button
+                  class="px-2 py-1 text-[11px] font-semibold text-blue-600 hover:bg-blue-50 rounded"
                   on:click={() => copy(doc.content, 'Markdown 内容已复制')}
                 >复制内容</button>
               </div>
             </div>
-            <pre class="bg-gray-900 text-gray-100 rounded-lg p-3 text-[11px] font-mono whitespace-pre-wrap break-words max-h-72 overflow-y-auto">{doc.content}</pre>
+            {#if previewOpen}
+              <pre class="bg-gray-900 text-gray-100 rounded-lg p-3 text-[11px] font-mono whitespace-pre-wrap break-words max-h-72 overflow-y-auto">{doc.content}</pre>
+            {:else}
+              <div class="text-xs text-gray-500 bg-gray-50 border border-gray-100 rounded-lg px-3 py-2">
+                内容已折叠。点击“展开”查看完整 Markdown 文件，或使用“下载”获取文件。
+              </div>
+            {/if}
           </section>
         {/if}
       </div>

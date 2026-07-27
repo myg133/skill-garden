@@ -71,13 +71,15 @@
     localStorage.setItem(SIDEBAR_KEY, String(sidebarCollapsed));
   }
 
-  function canSee(child, state) {
-    if (!child.need) return true;
-    if (child.systemRole) {
-      return state.systemRoles.includes(child.systemRole) || state.systemRoles.includes('super_admin');
-    }
-    return hasPermission(child.need);
+function canSee(child, state) {
+  if (!child.need) return true;
+  if (child.systemRole) {
+    return state.systemRoles.includes(child.systemRole) || state.systemRoles.includes('super_admin');
   }
+  // need 可为字符串（单一权限）或字符串数组（任一满足即可）
+  const needs = Array.isArray(child.need) ? child.need : [child.need];
+  return needs.some(code => hasPermission(code));
+}
 
   // 权限未加载时不显示任何菜单（避免闪烁先全量再过滤）
   // loaded 后按权限过滤；使用 key 避免响应式重建导致 DOM 丢失点击事件
