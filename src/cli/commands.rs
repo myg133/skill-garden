@@ -126,19 +126,35 @@ pub async fn install(
     println!("描述:   {}", install_result.description);
     println!("作者:   {}", install_result.author_agent_id);
     println!("文件数: {}", install_result.file_count);
+    tracing::debug!(
+        "[install] skill_id={}, name={}, version={}, file_count={}, tarball_size={}",
+        skill_id, install_result.name, install_result.version,
+        install_result.file_count, install_result.tarball_size,
+    );
+    tracing::debug!("[install] download_url={}", download_url);
 
-    // 确定 Skills 根目录：--dir > config.skills_dir > cwd/skills。
-    // tarball 自带原始 Skill 文件夹，CLI 不再额外追加 Skill 名称。
+    // 确定 Skills 根目录：--dir > config.skills_dir > cwd/skills
+    // tarball 内部已自带 skill 名称目录（git archive --prefix），
+    // CLI 不再追加名称，解压后直接得到 skills/{name}/SKILL.md。
     let dest_dir = match target_dir {
-        Some(d) => PathBuf::from(d),
+        Some(d) => {
+            tracing::debug!("[install] 使用 --dir: {}", d);
+            normalize_path(d)
+        }
         None => match config_skills_dir {
-            Some(d) => PathBuf::from(d),
+            Some(d) => {
+                tracing::debug!("[install] 使用 config.skills_dir: {}", d);
+                normalize_path(d)
+            }
             None => {
                 let cwd = std::env::current_dir()?;
-                cwd.join("skills")
+                let dir = cwd.join("skills");
+                tracing::debug!("[install] 使用默认目录: {}", dir.display());
+                dir
             }
         },
     };
+    tracing::info!("[install] 目标目录: {}", dest_dir.display());
 
     // 下载并解压
     let pb = ProgressBar::new(install_result.tarball_size);
@@ -149,11 +165,22 @@ pub async fn install(
     );
     pb.enable_steady_tick(std::time::Duration::from_millis(80));
 
+    tracing::debug!("[install] 开始下载 tarball -> {}", dest_dir.display());
     client
         .download_tarball(download_url, &dest_dir.to_string_lossy())
         .await?;
 
     pb.finish_with_message("下载完成");
+
+    // 列出解压后的内容
+    if let Ok(entries) = std::fs::read_dir(&dest_dir) {
+        let mut names: Vec<String> = entries
+            .filter_map(|e| e.ok())
+            .map(|e| e.file_name().to_string_lossy().to_string())
+            .collect();
+        names.sort();
+        tracing::info!("[install] 解压后目录内容 ({} 项): {:?}", names.len(), names);
+    }
 
     println!("\nSkill 已安装到: {}", dest_dir.display());
     if !install_result.install_hint.is_empty() {
@@ -344,4 +371,26 @@ fn mask_token(token: Option<&str>) -> &str {
         Some(_) => "已设置",
         None => "未设置",
     }
+}
+
+/// 规范化路径：将 Linux 风格的 /c/Users/... 转为 Windows C:\Users\...
+/// 避免 PathBuf::from("/c/Users/...") 在 Windows 下被解析为相对路径。
+#[cfg(windows)]
+fn normalize_path(path: &str) -> PathBuf {
+    // 匹配 /<单字母>/ 开头（如 /c/、/d/）
+    let bytes = path.as_bytes();
+    if bytes.len() >= 3 && bytes[0] == b'/' && bytes[2] == b'/' && bytes[1].is_ascii_alphabetic() {
+        let drive = bytes[1] as char;
+        let rest = &path[2..]; // /Users/...
+        let windows_path = format!("{}:{}", drive.to_ascii_uppercase(), rest);
+        tracing::debug!("[normalize_path] {} -> {}", path, windows_path);
+        PathBuf::from(windows_path)
+    } else {
+        PathBuf::from(path)
+    }
+}
+
+#[cfg(not(windows))]
+fn normalize_path(path: &str) -> PathBuf {
+    PathBuf::from(path)
 }

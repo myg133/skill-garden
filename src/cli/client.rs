@@ -197,6 +197,8 @@ impl ApiClient {
 
     /// 下载 tarball 到指定目录
     pub async fn download_tarball(&self, url: &str, dest_dir: &str) -> Result<()> {
+        tracing::debug!("[download_tarball] GET {}", url);
+
         let resp = self
             .http
             .get(url)
@@ -204,17 +206,46 @@ impl ApiClient {
             .await
             .with_context(|| format!("下载失败: {}", url))?;
 
-        if !resp.status().is_success() {
-            anyhow::bail!("下载失败: HTTP {}", resp.status().as_u16());
+        let status = resp.status();
+        let content_len = resp.content_length().unwrap_or(0);
+        tracing::debug!("[download_tarball] HTTP {}, Content-Length={}", status.as_u16(), content_len);
+
+        if !status.is_success() {
+            anyhow::bail!("下载失败: HTTP {}", status.as_u16());
         }
 
         let bytes = resp.bytes().await.context("读取响应体失败")?;
+        tracing::info!("[download_tarball] 下载完成, {} bytes", bytes.len());
 
-        std::fs::create_dir_all(dest_dir).with_context(|| format!("无法创建目录: {}", dest_dir))?;
+        std::fs::create_dir_all(dest_dir)
+            .with_context(|| format!("无法创建目录: {}", dest_dir))?;
+        tracing::debug!("[download_tarball] 目录已创建: {}", dest_dir);
 
-        let cursor = std::io::Cursor::new(bytes);
+        // 列出 tarball 内顶层条目
+        {
+            let cursor = std::io::Cursor::new(&bytes[..]);
+            let mut archive = tar::Archive::new(flate2::read::GzDecoder::new(cursor));
+            let mut top_entries: Vec<String> = Vec::new();
+            if let Ok(entries) = archive.entries() {
+                for entry in entries.flatten() {
+                    if let Ok(path) = entry.path() {
+                        let s = path.to_string_lossy().to_string();
+                        if let Some(first) = s.split('/').next() {
+                            if !first.is_empty() && !top_entries.contains(&first.to_string()) {
+                                top_entries.push(first.to_string());
+                            }
+                        }
+                    }
+                }
+            }
+            tracing::info!("[download_tarball] tarball 顶层条目: {:?}", top_entries);
+        }
+
+        // 解压
+        let cursor = std::io::Cursor::new(&bytes[..]);
         let mut archive = tar::Archive::new(flate2::read::GzDecoder::new(cursor));
         archive.unpack(dest_dir).context("解压 tarball 失败")?;
+        tracing::info!("[download_tarball] 解压完成 -> {}", dest_dir);
 
         Ok(())
     }
