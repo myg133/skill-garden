@@ -67,11 +67,13 @@ autoscaling:
   targetCPUUtilizationPercentage: 70
   targetMemoryUtilizationPercentage: 80
 
-# 日志级别
+# 配置映射 (非敏感配置, 通过 envFrom 注入)
 configMap:
   enabled: true
   data:
     RUST_LOG: "info"
+    AION_HIVE_HTTP_PORT: "8080"
+    AION_HIVE_DATA_DIR: "/data"
 
 # Secret 配置 (使用 --set 覆盖)
 secrets:

@@ -59,7 +59,11 @@ spec:
               {{- toYaml .valueFrom | nindent 14 }}
               {{- end }}
             {{- end }}
-          {{- if .Values.configMap.data }}
+          {{- if .Values.configMap.existingName }}
+          envFrom:
+            - configMapRef:
+                name: {{ .Values.configMap.existingName }}
+          {{- else if .Values.configMap.data }}
           envFrom:
             - configMapRef:
                 name: {{ include "aion-hive.fullname" . }}-config

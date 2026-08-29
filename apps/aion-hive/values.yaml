@@ -126,44 +126,32 @@ persistence:
   # annotations: {}
 
 # -----------------------------------------
-# 环境变量 (Secret 引用)
+# 环境变量 (仅从 Secret 引用)
 # -----------------------------------------
+# 注意: 非敏感配置变量移到 configMap.data 中，避免与 envFrom 重复渲染
 env:
-  # 必需的环境变量
+  # 必需: 数据库连接 (Secret)
   - name: DATABASE_URL
     valueFrom:
       secretKeyRef:
         name: aionhive-secret
         key: database-url
 
+  # 必需: JWT 密钥 (Secret)
   - name: AION_HIVE_JWT_SECRET
     valueFrom:
       secretKeyRef:
         name: aionhive-secret
         key: jwt-secret
 
+  # 必需: API Key 盐值 (Secret)
   - name: API_KEY_SALT
     valueFrom:
       secretKeyRef:
         name: aionhive-secret
         key: api-key-salt
 
-  # 可选环境变量 (带默认值)
-  - name: AION_HIVE_HTTP_PORT
-    value: "8080"
-
-  - name: AION_HIVE_DATA_DIR
-    value: "/data"
-
-  - name: RUST_LOG
-    value: "warn"
-
-  # - name: AION_HIVE_PUBLIC_URL
-  #   value: "https://aionhive.example.com"
-
-  # - name: GITLAB_URL
-  #   value: ""
-
+  # 可选: GitLab Token (Secret, 按需启用)
   # - name: GITLAB_TOKEN
   #   valueFrom:
   #     secretKeyRef:
@@ -171,12 +159,19 @@ env:
   #       key: token
 
 # -----------------------------------------
-# 配置映射 (非敏感配置)
+# 配置映射 (非敏感配置, 通过 envFrom 注入)
 # -----------------------------------------
+# 用途: 所有非敏感的运行配置变量
+# 避免在此定义与 env 同名的变量，否则会因 env + envFrom 重复渲染
 configMap:
+  enabled: true
+  # existingName: ""  # 如使用外部 ConfigMap，设置名称
   data:
-    # RUST_LOG: "info"
-    # AION_HIVE_HTTP_PORT: "8080"
+    AION_HIVE_HTTP_PORT: "8080"
+    AION_HIVE_DATA_DIR: "/data"
+    RUST_LOG: "warn"
+    # AION_HIVE_PUBLIC_URL: "https://aionhive.example.com"
+    # GITLAB_URL: "https://gitlab.example.com"
 
 # -----------------------------------------
 # 服务账户
