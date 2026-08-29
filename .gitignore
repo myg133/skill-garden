@@ -1,0 +1,12 @@
+# Deploy worktree gitignore — deploy 分支跟踪
+
+# 临时文件
+*.tmp
+*.swp
+*~
+
+# 私有工作目录
+.deploy/
+
+# 敏感环境文件（不放 git 的实际 secrets）
+# .env 文件只放模板，真实值走 CI/CD secrets
