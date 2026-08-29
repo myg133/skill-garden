@@ -1,0 +1,39 @@
+# ===========================================
+# AionHive Helm Chart
+# ===========================================
+
+apiVersion: v2
+name: aion-hive
+description: Enterprise AI Skills Sharing Platform
+
+# A chart version number
+version: 0.3.0
+
+# The application version
+appVersion: "0.3.0"
+
+# Chart type
+type: application
+
+# Maintainers
+maintainers:
+  - name: Anspire Team
+    url: https://github.com/aionui/aion-hive
+
+# Keywords
+keywords:
+  - ai
+  - skills
+  - mcp
+  - agent
+  - skills-sharing
+
+# Home
+home: https://github.com/aionui/aion-hive
+
+# Sources
+sources:
+  - https://github.com/aionui/aion-hive
+
+# Dependencies
+dependencies: []

@@ -1,0 +1,21 @@
+{{/*
+  AionHive PodDisruptionBudget
+*/}}
+{{- if .Values.podDisruptionBudget.enabled }}
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: {{ include "aion-hive.fullname" . }}
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "aion-hive.labels" . | nindent 4 }}
+spec:
+  {{- if .Values.podDisruptionBudget.minAvailable }}
+  minAvailable: {{ .Values.podDisruptionBudget.minAvailable }}
+  {{- else if .Values.podDisruptionBudget.maxUnavailable }}
+  maxUnavailable: {{ .Values.podDisruptionBudget.maxUnavailable }}
+  {{- end }}
+  selector:
+    matchLabels:
+      {{- include "aion-hive.selectorLabels" . | nindent 6 }}
+{{- end }}

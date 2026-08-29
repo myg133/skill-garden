@@ -1,0 +1,72 @@
+{{/*
+  AionHive Helm Chart - 部署说明
+*/}}
+
+AionHive 已成功部署！
+
+## 获取访问地址
+
+```bash
+# 获取 Ingress IP
+kubectl get ingress -n {{ .Release.Namespace }}
+
+# 获取 Service IP
+kubectl get svc -n {{ .Release.Namespace }}
+```
+
+## 访问服务
+
+{{- if .Values.ingress.enabled }}
+{{- range .Values.ingress.hosts }}
+访问地址: http{{ if $.Values.ingress.tls }}s{{ end }}://{{ .host }}
+{{- end }}
+{{- else }}
+端口转发进行本地测试:
+```bash
+kubectl port-forward -n {{ .Release.Namespace }} svc/{{ include "aion-hive.fullname" . }} 8080:8080
+```
+然后访问: http://localhost:8080
+{{- end }}
+
+## 健康检查
+
+```bash
+curl http://localhost:8080/health
+```
+
+## 查看日志
+
+```bash
+kubectl logs -n {{ .Release.Namespace }} -l app.kubernetes.io/name={{ include "aion-hive.name" . }}
+```
+
+## 更新配置
+
+```bash
+# 更新镜像版本
+helm upgrade {{ .Release.Name }} . -n {{ .Release.Namespace }} --set image.tag=v0.3.1
+
+# 更新配置
+helm upgrade {{ .Release.Name }} . -n {{ .Release.Namespace }} --values values.yaml
+```
+
+## 卸载
+
+```bash
+helm uninstall {{ .Release.Name }} -n {{ .Release.Namespace }}
+```
+
+## 重要配置检查
+
+确认以下 Secret 存在:
+```bash
+kubectl get secret aionhive-secret -n {{ .Release.Namespace }}
+```
+
+如需创建 Secret:
+```bash
+kubectl create secret generic aionhive-secret -n {{ .Release.Namespace }} \
+  --from-literal=database-url="postgres://user:pass@host:5432/aionhive" \
+  --from-literal=jwt-secret="your-jwt-secret-at-least-32-chars" \
+  --from-literal=api-key-salt="your-api-key-salt"
+```

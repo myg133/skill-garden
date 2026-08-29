@@ -1,0 +1,80 @@
+# ===========================================
+# AionHive Helm Chart - Staging 环境
+# ===========================================
+
+# 镜像配置
+image:
+  tag: "staging-latest"
+
+# 副本配置
+replicaCount: 2
+
+# 资源配额 (staging 较小)
+resources:
+  limits:
+    cpu: 1
+    memory: 1Gi
+  requests:
+    cpu: 250m
+    memory: 256Mi
+
+# Ingress 配置
+ingress:
+  enabled: true
+  className: "nginx"
+  annotations:
+    nginx.ingress.kubernetes.io/proxy-body-size: "10m"
+  hosts:
+    - host: aionhive-staging.example.com
+      paths:
+        - path: /
+          pathType: Prefix
+  tls:
+    - secretName: aionhive-staging-tls
+      hosts:
+        - aionhive-staging.example.com
+
+# 健康检查
+livenessProbe:
+  httpGet:
+    path: /health
+    port: 8080
+  initialDelaySeconds: 30
+  periodSeconds: 10
+  timeoutSeconds: 5
+  failureThreshold: 3
+
+readinessProbe:
+  httpGet:
+    path: /health
+    port: 8080
+  initialDelaySeconds: 10
+  periodSeconds: 5
+  timeoutSeconds: 3
+  failureThreshold: 3
+
+# 持久化
+persistence:
+  enabled: true
+  size: 5Gi
+  skillsSize: 2Gi
+
+# HPA 配置
+autoscaling:
+  enabled: true
+  minReplicas: 2
+  maxReplicas: 5
+  targetCPUUtilizationPercentage: 70
+  targetMemoryUtilizationPercentage: 80
+
+# 日志级别
+configMap:
+  enabled: true
+  data:
+    RUST_LOG: "info"
+
+# Secret 配置 (使用 --set 覆盖)
+secrets:
+  databaseUrl: "postgres://aionhive:staging-password@staging-db:5432/aionhive"
+  jwtSecret: ""
+  apiKeySalt: ""

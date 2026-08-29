@@ -1,0 +1,32 @@
+# ===========================================
+# AionHive Ingress
+# ===========================================
+
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: aionhive
+  namespace: aionhive
+  labels:
+    app.kubernetes.io/name: aionhive
+  annotations:
+    # nginx.ingress.kubernetes.io/proxy-body-size: "50m"
+    # nginx.ingress.kubernetes.io/proxy-read-timeout: "300"
+    # cert-manager.io/cluster-issuer: "letsencrypt-prod"
+spec:
+  ingressClassName: nginx
+  tls:
+    - hosts:
+        - aionhive.example.com
+      secretName: aionhive-tls
+  rules:
+    - host: aionhive.example.com
+      http:
+        paths:
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: aionhive
+                port:
+                  number: 80

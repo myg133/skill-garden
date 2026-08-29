@@ -1,0 +1,16 @@
+# ===========================================
+# AionHive PodDisruptionBudget
+# ===========================================
+
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: aionhive
+  namespace: aionhive
+  labels:
+    app.kubernetes.io/name: aionhive
+spec:
+  minAvailable: 2
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: aionhive

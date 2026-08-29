@@ -1,0 +1,116 @@
+# AionHive Docker Compose 配置
+# 用于本地开发、测试环境
+#
+# 使用方式:
+#   cp .env.example .env  # 编辑配置
+#   docker-compose up -d
+
+services:
+  # ===========================================
+  # AionHive 应用
+  # ===========================================
+  app:
+    build:
+      context: ../code
+      dockerfile: ../Deploy/docker/Dockerfile
+      args:
+        RUST_VERSION: ${RUST_VERSION:-1.75}
+    image: aionhive:${IMAGE_TAG:-latest}
+    container_name: aionhive
+    restart: unless-stopped
+    ports:
+      - "${APP_PORT:-8080}:8080"
+    environment:
+      - DATABASE_URL=${DATABASE_URL:-postgres://aionhive:password@db:5432/aionhive}
+      - AION_HIVE_HTTP_PORT=8080
+      - AION_HIVE_DATA_DIR=/data
+      - AION_HIVE_PUBLIC_URL=${PUBLIC_URL:-http://localhost:8080}
+      - RUST_LOG=${RUST_LOG:-info}
+      - AION_HIVE_JWT_SECRET=${JWT_SECRET:-change-me-in-production}
+      - AION_HIVE_JWT_EXPIRY_HOURS=${JWT_EXPIRY_HOURS:-24}
+      - API_KEY_SALT=${API_KEY_SALT:-change-me-in-production}
+      # GitLab 集成 (可选)
+      - GITLAB_URL=${GITLAB_URL:-}
+      - GITLAB_TOKEN=${GITLAB_TOKEN:-}
+      - GITLAB_GROUP=${GITLAB_GROUP:-}
+      - GITLAB_PUSH_ENABLED=${GITLAB_PUSH_ENABLED:-false}
+      # Git 代理 (可选)
+      - GIT_PROXY_API_BASE=${GIT_PROXY_API_BASE:-}
+      # 评估 Webhook (可选)
+      - AION_HIVE_EVAL_WEBHOOK_URLS=${EVAL_WEBHOOK_URLS:-}
+      # CLI 加密密钥 (可选)
+      - AION_HIVE_CLI_ENCRYPTION_KEY=${CLI_ENCRYPTION_KEY:-}
+    volumes:
+      - aionhive_data:/data
+      - aionhive_skills:/skills
+    depends_on:
+      db:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8080/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 30s
+    networks:
+      - aionhive-network
+
+  # ===========================================
+  # PostgreSQL 数据库
+  # ===========================================
+  db:
+    image: postgres:16-alpine
+    container_name: aionhive-db
+    restart: unless-stopped
+    environment:
+      - POSTGRES_USER=aionhive
+      - POSTGRES_PASSWORD=${DB_PASSWORD:-password}
+      - POSTGRES_DB=aionhive
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    ports:
+      - "${DB_PORT:-5432}:5432"
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U aionhive -d aionhive"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    networks:
+      - aionhive-network
+
+  # ===========================================
+  # 可选: Docker in Docker (用于沙箱执行)
+  # ===========================================
+  dind:
+    image: docker:dind
+    container_name: aionhive-dind
+    restart: unless-stopped
+    privileged: true
+    volumes:
+      - dind_data:/var/lib/docker
+    ports:
+      - "${DIND_PORT:-2376}:2376"
+    environment:
+      - DOCKER_TLS_CERTDIR=/certs
+    networks:
+      - aionhive-network
+
+# ===========================================
+# 持久化卷
+# ===========================================
+volumes:
+  aionhive_data:
+    driver: local
+  aionhive_skills:
+    driver: local
+  postgres_data:
+    driver: local
+  dind_data:
+    driver: local
+
+# ===========================================
+# 网络
+# ===========================================
+networks:
+  aionhive-network:
+    driver: bridge

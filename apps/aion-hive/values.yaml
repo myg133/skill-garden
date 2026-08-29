@@ -1,0 +1,234 @@
+# ===========================================
+# AionHive Helm Chart - 默认配置
+# ===========================================
+
+# -----------------------------------------
+# 副本配置
+# -----------------------------------------
+replicaCount: 2
+
+# -----------------------------------------
+# 镜像配置
+# -----------------------------------------
+image:
+  repository: aionhive/aion-hive
+  pullPolicy: IfNotPresent
+  # Overriden by --set image.tag=x.x.x
+  tag: "latest"
+
+# -----------------------------------------
+# 镜像仓库认证 (可选)
+# -----------------------------------------
+imagePullSecrets: []
+# - name: regcred
+
+# -----------------------------------------
+# 服务配置
+# -----------------------------------------
+service:
+  type: ClusterIP
+  port: 8080
+  # annotations:
+  #   cloud.google.com/backend-config: '{"default": "aionhive-backend"}'
+
+# -----------------------------------------
+# 入口配置 (Ingress)
+# -----------------------------------------
+ingress:
+  enabled: true
+  className: "nginx"
+  annotations:
+    # cert-manager.io/cluster-issuer: "letsencrypt-prod"
+    # nginx.ingress.kubernetes.io/proxy-body-size: "10m"
+    # nginx.ingress.kubernetes.io/proxy-read-timeout: "300"
+  hosts:
+    - host: aionhive.local
+      paths:
+        - path: /
+          pathType: Prefix
+  tls:
+    - secretName: aionhive-tls
+      hosts:
+        - aionhive.local
+
+# -----------------------------------------
+# 资源配额
+# -----------------------------------------
+resources:
+  limits:
+    cpu: 2
+    memory: 2Gi
+  requests:
+    cpu: 500m
+    memory: 512Mi
+
+# -----------------------------------------
+# 节点选择器 (可选)
+# -----------------------------------------
+nodeSelector: {}
+
+# -----------------------------------------
+# 容忍配置 (可选)
+# -----------------------------------------
+tolerations: []
+
+# -----------------------------------------
+# 亲和性配置 (可选)
+# -----------------------------------------
+affinity: {}
+
+# -----------------------------------------
+# Pod 配置
+# -----------------------------------------
+pod:
+  annotations: {}
+  securityContext:
+    runAsNonRoot: true
+    runAsUser: 1000
+    fsGroup: 1000
+  container:
+    securityContext:
+      allowPrivilegeEscalation: false
+      readOnlyRootFilesystem: false
+      capabilities:
+        drop:
+          - ALL
+
+# -----------------------------------------
+# 健康检查
+# -----------------------------------------
+livenessProbe:
+  httpGet:
+    path: /health
+    port: 8080
+  initialDelaySeconds: 30
+  periodSeconds: 10
+  timeoutSeconds: 5
+  failureThreshold: 3
+
+readinessProbe:
+  httpGet:
+    path: /health
+    port: 8080
+  initialDelaySeconds: 10
+  periodSeconds: 5
+  timeoutSeconds: 3
+  failureThreshold: 3
+
+# -----------------------------------------
+# 持久化配置
+# -----------------------------------------
+persistence:
+  enabled: true
+  storageClass: ""
+  accessMode: ReadWriteOnce
+  size: 10Gi
+  # annotations: {}
+
+# -----------------------------------------
+# 环境变量 (Secret 引用)
+# -----------------------------------------
+env:
+  # 必需的环境变量
+  - name: DATABASE_URL
+    valueFrom:
+      secretKeyRef:
+        name: aionhive-secret
+        key: database-url
+
+  - name: AION_HIVE_JWT_SECRET
+    valueFrom:
+      secretKeyRef:
+        name: aionhive-secret
+        key: jwt-secret
+
+  - name: API_KEY_SALT
+    valueFrom:
+      secretKeyRef:
+        name: aionhive-secret
+        key: api-key-salt
+
+  # 可选环境变量 (带默认值)
+  - name: AION_HIVE_HTTP_PORT
+    value: "8080"
+
+  - name: AION_HIVE_DATA_DIR
+    value: "/data"
+
+  - name: RUST_LOG
+    value: "warn"
+
+  # - name: AION_HIVE_PUBLIC_URL
+  #   value: "https://aionhive.example.com"
+
+  # - name: GITLAB_URL
+  #   value: ""
+
+  # - name: GITLAB_TOKEN
+  #   valueFrom:
+  #     secretKeyRef:
+  #       name: aionhive-gitlab-secret
+  #       key: token
+
+# -----------------------------------------
+# 配置映射 (非敏感配置)
+# -----------------------------------------
+configMap:
+  data:
+    # RUST_LOG: "info"
+    # AION_HIVE_HTTP_PORT: "8080"
+
+# -----------------------------------------
+# 服务账户
+# -----------------------------------------
+serviceAccount:
+  create: true
+  name: "aionhive"
+  annotations: {}
+
+# -----------------------------------------
+# PodDisruptionBudget
+# -----------------------------------------
+podDisruptionBudget:
+  enabled: true
+  minAvailable: 1
+  # maxUnavailable: 1
+
+# -----------------------------------------
+# HorizontalPodAutoscaler
+# -----------------------------------------
+autoscaling:
+  enabled: true
+  minReplicas: 2
+  maxReplicas: 10
+  targetCPUUtilizationPercentage: 70
+  targetMemoryUtilizationPercentage: 80
+
+# -----------------------------------------
+#  Init 容器 (可选)
+# -----------------------------------------
+initContainers: []
+
+# -----------------------------------------
+# Sidecar 容器 (可选)
+# -----------------------------------------
+sidecars: []
+
+# -----------------------------------------
+# 额外 volume mounts
+# -----------------------------------------
+extraVolumeMounts: []
+
+# -----------------------------------------
+# 额外 volumes
+# -----------------------------------------
+extraVolumes: []
+
+# -----------------------------------------
+# 部署策略
+# -----------------------------------------
+strategy:
+  type: RollingUpdate
+  rollingUpdate:
+    maxSurge: 1
+    maxUnavailable: 0

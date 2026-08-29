@@ -1,0 +1,16 @@
+{{/*
+  AionHive ConfigMap
+*/}}
+{{- if .Values.configMap.enabled }}
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ include "aion-hive.fullname" . }}-config
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "aion-hive.labels" . | nindent 4 }}
+data:
+  {{- range $key, $value := .Values.configMap.data }}
+  {{ $key }}: {{ $value | quote }}
+  {{- end }}
+{{- end }}

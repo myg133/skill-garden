@@ -1,0 +1,13 @@
+# ===========================================
+# AionHive Kubernetes Manifests
+# 直接使用的 K8s 配置文件 (不通过 Helm)
+# ===========================================
+
+---
+# Namespace
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: aionhive
+  labels:
+    app.kubernetes.io/name: aionhive
