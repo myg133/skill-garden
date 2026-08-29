@@ -2,14 +2,15 @@
 
 部署配置、Helm Chart、环境配置、发布管理。
 
+> **职责划分**: CI 在 `code/` 管理镜像构建，Deploy 只负责 CD 部署。
+
 ## 目录结构
 
 ```
 Deploy/
-├── docker/                         # Docker 配置
-│   ├── Dockerfile                  # 多阶段构建
+├── docker/                         # Docker Compose 配置
 │   ├── docker-compose.yml          # 本地开发
-│   ├── docker-compose.prod.yml     # 生产高可用
+│   ├── docker-compose.prod.yml      # 生产高可用
 │   └── .env.example                # 环境变量示例
 ├── apps/
 │   └── aion-hive/                  # Helm Chart
@@ -30,7 +31,7 @@ Deploy/
 │       └── environments/
 │           ├── values.staging.yaml
 │           └── values.production.yaml
-├── k8s/                           # 原始 K8s Manifests (不通过 Helm)
+├── k8s/                           # 原始 K8s Manifests
 │   ├── namespace.yaml
 │   ├── deployment.yaml
 │   ├── service.yaml
@@ -42,7 +43,7 @@ Deploy/
 │   └── pdb.yaml
 ├── scripts/                       # 部署脚本
 │   ├── deploy-helm.sh             # Helm 部署
-│   ├── deploy-k8s.sh             # K8s 直接部署
+│   ├── deploy-k8s.sh              # K8s 直接部署
 │   ├── deploy.sh                  # Docker Compose 部署
 │   ├── rollback.sh
 │   └── healthcheck.sh
@@ -52,6 +53,29 @@ Deploy/
     └── production/
         └── .env
 ```
+
+## 核心原则
+
+**Deploy 分支只做"部署配置"，不做"构建"。**
+
+```
+CI 的职责 (code/):              Deploy 的职责 (Deploy/):
+代码 checkout → 构建镜像            helm chart → k8s manifests
+→ 打镜像 tag → 推镜像仓库         → 环境配置 → rollout
+```
+
+## 镜像管理
+
+镜像由 CI 在 `code/` 构建并推送到镜像仓库，默认镜像:
+
+```
+docker.io/aionhive/aion-hive:<tag>
+```
+
+可通过环境变量覆盖:
+- `REGISTRY`: 镜像仓库 (默认: docker.io)
+- `IMAGE_PREFIX`: 镜像前缀 (默认: aionhive)
+- `IMAGE_TAG`: 镜像标签 (默认: latest)
 
 ## 快速开始
 
@@ -145,7 +169,7 @@ kubectl apply -f .
 ### CI/CD 集成
 
 ```yaml
-# GitHub Actions 示例
+# GitHub Actions 示例 (CI 在 code/ 构建镜像)
 - name: Deploy to Kubernetes
   env:
     KUBECONFIG: ${{ secrets.KUBE_CONFIG }}
@@ -170,9 +194,8 @@ kubectl apply -f .
 ./scripts/deploy-k8s.sh rollback 2
 
 # Docker Compose 回滚
-git revert <commit>
-docker-compose build
-docker-compose up -d
+docker-compose -f docker-compose.prod.yml pull
+docker-compose -f docker-compose.prod.yml up -d
 ```
 
 ## 监控和健康检查

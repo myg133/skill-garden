@@ -1,21 +1,19 @@
+# ===========================================
 # AionHive Docker Compose 配置
 # 用于本地开发、测试环境
 #
+# 注意: 镜像由 CI 构建并推送到仓库
 # 使用方式:
-#   cp .env.example .env  # 编辑配置
-#   docker-compose up -d
+#   docker-compose -f docker-compose.yml up -d
+#   或指定镜像版本:
+#   IMAGE_TAG=v0.3.0 docker-compose -f docker-compose.yml up -d
 
 services:
   # ===========================================
   # AionHive 应用
   # ===========================================
   app:
-    build:
-      context: ../code
-      dockerfile: ../Deploy/docker/Dockerfile
-      args:
-        RUST_VERSION: ${RUST_VERSION:-1.75}
-    image: aionhive:${IMAGE_TAG:-latest}
+    image: ${REGISTRY:-docker.io}/aionhive/aion-hive:${IMAGE_TAG:-latest}
     container_name: aionhive
     restart: unless-stopped
     ports:

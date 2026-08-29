@@ -1,8 +1,12 @@
+# ===========================================
 # AionHive Docker Compose 生产配置
 # 用于生产环境高可用部署
 #
+# 注意: 镜像由 CI 构建并推送到仓库
 # 使用方式:
 #   docker-compose -f docker-compose.prod.yml up -d
+#   或指定镜像版本:
+#   IMAGE_TAG=v0.3.0 docker-compose -f docker-compose.prod.yml up -d
 
 services:
   # ===========================================
@@ -22,7 +26,7 @@ services:
         condition: on-failure
         delay: 5s
         max_attempts: 3
-    image: ${REGISTRY:-docker.io}/${IMAGE_PREFIX:-aionhive}/${IMAGE_NAME:-aion-hive}:${IMAGE_TAG:-latest}
+    image: ${REGISTRY:-docker.io}/aionhive/aion-hive:${IMAGE_TAG:-latest}
     container_name: aionhive
     restart: always
     expose:
