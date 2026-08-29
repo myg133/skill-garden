@@ -1,0 +1,9 @@
+# BA worktree gitignore — demand 分支跟踪
+
+# 临时文件
+*.tmp
+*.swp
+*~
+
+# 私有工作目录
+.ba/
