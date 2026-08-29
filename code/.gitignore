@@ -1,0 +1,61 @@
+# Dependencies
+node_modules/
+
+# Build outputs
+dist/
+build/
+target/
+
+# Environment
+.env
+.env.local
+.env.*.local
+args
+env
+
+# IDE
+.idea/
+.vscode/
+*.swp
+*.swo
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Logs
+logs/
+*.log
+npm-debug.log*
+
+# Test
+coverage/
+.nyc_output/
+
+# Data (local development)
+data/
+registry/
+search_index/
+data/skills/
+
+# Temporary
+tmp/
+temp/
+*.tmp
+
+# Secrets
+*.pem
+*.key
+secrets/
+
+# Worktrees
+.worktrees/
+.gemini/
+.agents/
+.sisyphus/
+.codebuddy/
+
+# Rust
+**/*.rs.bk
+Cargo.lock
+
