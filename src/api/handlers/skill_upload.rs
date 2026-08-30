@@ -228,7 +228,14 @@ pub async fn confirm_skill_upload_handler(
     let _identity_id =
         identity_id.ok_or_else(|| ApiError::Unauthorized("identity_id required".to_string()))?;
 
-    let is_admin = roles.iter().any(|r| r == "admin");
+    // 检查是否为管理员角色（包括 super_admin, tenant_admin, org_admin 等）
+    let is_admin = roles.iter().any(|r| {
+        r == "admin"
+            || r == "tenant_admin"
+            || r == "org_admin"
+            || r == "super_admin"
+            || r.ends_with("_admin")
+    });
 
     // 推断 owner_type：body 显式 → 自动（有 agent_org_id → organization，否则 user）
     let effective_owner_type = body.owner_type.as_deref().unwrap_or_else(|| {
@@ -259,7 +266,7 @@ pub async fn confirm_skill_upload_handler(
                 .map_err(|e| ApiError::InternalError(e.to_string()))?;
             if !is_member {
                 return Err(ApiError::Forbidden(
-                    "浣犱笉鑳戒负涓嶅睘浜庣殑缁勭粐鍒涘缓 Skill".to_string(),
+                    "You must be a member of this organization to create a Skill".to_string(),
                 ));
             }
         }
