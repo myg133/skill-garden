@@ -170,13 +170,54 @@ const MIGRATIONS: &[(&str, &str)] = &[
         "041_add_org_join_requests",
         include_str!("migrations/041_add_org_join_requests.sql"),
     ),
+    (
+        "042_add_tenant_creation_requests",
+        include_str!("migrations/042_add_tenant_creation_requests.sql"),
+    ),
 ];
 
-fn split_sql_statements(sql: &str) -> Vec<&str> {
-    sql.split(';')
-        .map(|s| s.trim())
-        .filter(|s| !s.is_empty())
-        .collect()
+/// Split SQL statements by semicolons, filtering out empty statements and comments.
+/// This function handles dollar quotes ($$) commonly used in PostgreSQL function definitions.
+fn split_sql_statements(sql: &str) -> Vec<String> {
+    let mut results = Vec::new();
+    let mut current = String::new();
+    let mut in_dollar_quote = false;
+    let mut chars = sql.chars().peekable();
+    
+    while let Some(ch) = chars.next() {
+        if ch == '$' {
+            // Check for dollar quote start/end ($$ or more)
+            let mut tag_end = 1;
+            while chars.peek() == Some(&'$') {
+                chars.next();
+                tag_end += 1;
+            }
+            
+            if tag_end >= 2 {
+                current.push_str(&"$".repeat(tag_end));
+                in_dollar_quote = !in_dollar_quote;
+            } else {
+                current.push(ch);
+            }
+        } else if ch == ';' && !in_dollar_quote {
+            // End of statement
+            let trimmed = current.trim();
+            if !trimmed.is_empty() {
+                results.push(trimmed.to_string());
+            }
+            current = String::new();
+        } else {
+            current.push(ch);
+        }
+    }
+    
+    // Handle remaining content (no trailing semicolon)
+    let trimmed = current.trim();
+    if !trimmed.is_empty() {
+        results.push(trimmed.to_string());
+    }
+    
+    results
 }
 
 pub async fn run_migrations(pool: &PgPool, _migrations_path: &Path) -> DbResult<()> {
@@ -207,8 +248,8 @@ pub async fn run_migrations(pool: &PgPool, _migrations_path: &Path) -> DbResult<
         if !already_applied {
             tracing::info!("Running migration: {}", name);
 
-            // Split by semicolons and execute each statement
-            for stmt in split_sql_statements(sql) {
+            // Split SQL by semicolons and execute each statement
+            for stmt in &split_sql_statements(sql) {
                 sqlx::query(stmt).execute(pool).await.map_err(|e| {
                     DbError::QueryError(format!("Failed to run statement in {}: {}", name, e))
                 })?;
