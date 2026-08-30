@@ -29,17 +29,17 @@
             bind:value={editName}
             class="text-xl font-bold text-gray-800 px-3 py-1.5 border border-gray-200 rounded-xl input-focus outline-none transition-all bg-white"
           />
-          <button on:click={onUpdate} class="btn-primary px-3 py-1.5 rounded-lg text-sm font-semibold">Save</button>
-          <button on:click={onCancelEdit} class="btn-secondary px-3 py-1.5 rounded-lg text-sm font-semibold">Cancel</button>
+          <button on:click={onUpdate} class="btn-primary px-3 py-1.5 rounded-lg text-sm font-semibold">{$_('common.save')}</button>
+          <button on:click={onCancelEdit} class="btn-secondary px-3 py-1.5 rounded-lg text-sm font-semibold">{$_('common.cancel')}</button>
         </div>
       {:else}
         <h1 class="text-[28px] font-extrabold text-gray-800 tracking-tight">{organization.name}</h1>
         <div class="flex items-center gap-2">
           {#if canEdit}
-            <button on:click={onStartEdit} class="btn-secondary px-4 py-2 rounded-xl text-sm font-semibold">Edit</button>
+            <button on:click={onStartEdit} class="btn-secondary px-4 py-2 rounded-xl text-sm font-semibold">{$_('common.edit')}</button>
           {/if}
           {#if canDelete}
-            <button on:click={onDeleteOrg} class="px-4 py-2 rounded-xl text-sm font-semibold bg-rose-50 text-rose-600 border border-rose-200 hover:bg-rose-100 transition-colors">Delete</button>
+            <button on:click={onDeleteOrg} class="px-4 py-2 rounded-xl text-sm font-semibold bg-rose-50 text-rose-600 border border-rose-200 hover:bg-rose-100 transition-colors">{$_('common.delete')}</button>
           {/if}
         </div>
       {/if}
@@ -61,19 +61,19 @@
   </div>
   <div class="px-6 py-5 grid grid-cols-4 gap-4">
     <div class="bg-gray-50 rounded-xl p-4 border border-gray-200 card">
-      <p class="text-gray-400 text-[11px] uppercase tracking-wider font-semibold mb-1.5">Created</p>
+      <p class="text-gray-400 text-[11px] uppercase tracking-wider font-semibold mb-1.5">{$_('common.created')}</p>
       <p class="text-gray-800 font-semibold text-sm">{new Date(organization.created_at).toLocaleString()}</p>
     </div>
     <div class="bg-gray-50 rounded-xl p-4 border border-gray-200 card">
-      <p class="text-gray-400 text-[11px] uppercase tracking-wider font-semibold mb-1.5">Members</p>
+      <p class="text-gray-400 text-[11px] uppercase tracking-wider font-semibold mb-1.5">{$_('common.members')}</p>
       <p class="text-gray-800 font-extrabold text-2xl">{memberCount}</p>
     </div>
     <div class="bg-gray-50 rounded-xl p-4 border border-gray-200 card">
-      <p class="text-gray-400 text-[11px] uppercase tracking-wider font-semibold mb-1.5">Active Sessions</p>
+      <p class="text-gray-400 text-[11px] uppercase tracking-wider font-semibold mb-1.5">{$_('sessions.activeSessions')}</p>
       <p class="text-gray-800 font-extrabold text-2xl">{activeSessionCount}</p>
     </div>
     <div class="bg-gray-50 rounded-xl p-4 border border-gray-200 card">
-      <p class="text-gray-400 text-[11px] uppercase tracking-wider font-semibold mb-1.5">Registered Tools</p>
+      <p class="text-gray-400 text-[11px] uppercase tracking-wider font-semibold mb-1.5">{$_('orgTools.registeredTools')}</p>
       <p class="text-gray-800 font-extrabold text-2xl">{toolCount}</p>
     </div>
   </div>
@@ -81,10 +81,10 @@
   <!-- Tabs -->
   <div class="px-6 border-t border-gray-200 flex gap-0">
     {#each [
-      { key: 'members', label: 'Members' },
-      { key: 'sessions', label: 'Sessions' },
-      { key: 'tools', label: 'Tools' },
-      { key: 'groups', label: 'Groups' }
+      { key: 'members', label: $_('common.members') },
+      { key: 'sessions', label: $_('common.sessions') },
+      { key: 'tools', label: $_('common.tools') },
+      { key: 'groups', label: $_('common.groups') }
     ] as tab}
       <button
         on:click={() => onTabChange(tab.key)}

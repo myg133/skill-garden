@@ -335,7 +335,7 @@
     <div class="mb-6">
       <Link to="/organizations" class="text-blue-600 hover:text-blue-700 text-sm inline-flex items-center gap-1 font-semibold transition-colors">
         <Icon name="chevron-left" size="w-4 h-4" />
-        Back to Organizations
+        {$_('organizations.backToOrganizations')}
       </Link>
     </div>
 
