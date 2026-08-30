@@ -2,6 +2,41 @@
 
 所有重要的项目变更都将记录在此文件中。
 
+## [0.4.0] - 2026-06-03
+
+### 新增功能
+
+#### License 配额管理 (REQ-003 Phase 2 Stage 4)
+
+企业私有部署模式下，支持通过 license.json 文件限制租户配额：
+
+- **License 文件读取**: 从 `LICENSE_FILE` 环境变量读取 license.json
+- **配额检查**: 创建租户前检查当前租户数量是否达到 max_tenants 上限
+- **友好错误**: 配额达到上限时返回清晰的错误信息
+
+##### License 文件格式
+
+```json
+{
+  "max_tenants": 5,
+  "features": ["sso", "audit"]
+}
+```
+
+##### 相关文件
+
+- `src/services/license.rs` - License 服务模块
+- `src/api/handlers/tenants.rs` - 租户创建增加配额检查
+- `src/db/repositories/tenant.rs` - 添加 count() 方法
+- `src/services/admin/tenant.rs` - 添加 count() 方法
+
+### 变更
+
+- `src/lib.rs` - 导出 LicenseService 和 LicenseQuotaExceeded
+- `src/services/mod.rs` - 导出 license 模块
+
+---
+
 ## [0.3.0] - 2026-04-20
 
 ### 重大更新

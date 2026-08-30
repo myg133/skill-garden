@@ -73,6 +73,8 @@ pub use services::evaluator::EvaluatorService;
 #[cfg(feature = "server")]
 pub use services::git_proxy::{GitDiff, GitFile, GitProxyConfig, GitProxyService, GitRef, Webhook};
 #[cfg(feature = "server")]
+pub use services::license::{LicenseQuotaExceeded, LicenseService};
+#[cfg(feature = "server")]
 pub use services::org_tool::OrgToolService;
 #[cfg(feature = "server")]
 pub use services::organization::OrganizationService;

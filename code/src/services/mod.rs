@@ -1,6 +1,7 @@
 //! 服务模块
 
 pub mod evaluator;
+pub mod license;
 pub mod registry;
 pub mod search;
 pub mod skill_dependency;
@@ -19,6 +20,7 @@ pub mod admin;
 
 pub use evaluator::*;
 pub use git_proxy::*;
+pub use license::*;
 pub use org_tool::*;
 pub use organization::*;
 pub use permission::{PermissionService, SkillAction};

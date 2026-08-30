@@ -5,6 +5,7 @@ use uuid::Uuid;
 
 use crate::api::error::ApiError;
 use crate::api::jwt::AgentContext;
+use crate::services::LicenseService;
 use super::helpers::{require_admin, ApiState};
 
 pub async fn list_tenants_handler(
@@ -64,6 +65,30 @@ pub async fn create_tenant_handler(
     if !is_super {
         return Err(ApiError::Forbidden("Super admin access required".to_string()));
     }
+
+    // Check license quota if configured
+    let license_service = LicenseService::new();
+    if license_service.is_configured() {
+        let current_count = state
+            .tenant
+            .count()
+            .await
+            .map_err(|e| ApiError::InternalError(e.to_string()))?;
+
+        if let Err(quota_error) = license_service.can_create_tenant(current_count) {
+            tracing::warn!(
+                "Tenant creation blocked: quota exceeded (max: {}, current: {})",
+                quota_error.max_tenants,
+                quota_error.current_count
+            );
+            return Err(ApiError::BadRequest(format!(
+                "Tenant quota exceeded: license allows {} tenants, but {} tenants already exist. Please upgrade your license or remove existing tenants.",
+                quota_error.max_tenants,
+                quota_error.current_count
+            )));
+        }
+    }
+
     let tenant = state
         .tenant
         .create(body.into())

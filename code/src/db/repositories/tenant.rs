@@ -150,6 +150,15 @@ impl TenantRepository {
             .map_err(|e| DbError::QueryError(e.to_string()))?;
         Ok(())
     }
+
+    /// Count total number of active tenants
+    pub async fn count(&self) -> DbResult<i64> {
+        let row: (i64,) = sqlx::query_as("SELECT COUNT(*) FROM tenants WHERE status != 'deleted'")
+            .fetch_one(&self.pool)
+            .await
+            .map_err(|e| DbError::QueryError(e.to_string()))?;
+        Ok(row.0)
+    }
 }
 
 #[derive(sqlx::FromRow)]
