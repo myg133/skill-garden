@@ -289,6 +289,7 @@ async fn run_http_server(state: AppState, port: u16) -> Result<()> {
         system_role_assignment: state.system_role_assignment.clone(),
         tenant_role_assignment: state.tenant_role_assignment.clone(),
         role_permission: state.role_permission.clone(),
+        org_join_request: state.org_join_request.clone(),
         permission: state.permission.clone(),
         login_rate_limiter: login_rate_limiter.clone(),
         group_perm_override_repo: group_perm_override_repo.clone(),

@@ -66,7 +66,7 @@ pub use models::tenant::{Tenant, TenantStatus};
 pub use services::admin::*;
 #[cfg(feature = "server")]
 pub use services::admin::{
-    ApiKeyService, AuditService, GroupService, IdentityService, RoleService, TenantService,
+    ApiKeyService, AuditService, GroupService, IdentityService, OrgJoinRequestService, RoleService, TenantService,
 };
 #[cfg(feature = "server")]
 pub use services::evaluator::EvaluatorService;
@@ -127,6 +127,7 @@ pub struct AppState {
     pub system_role_assignment: services::admin::SystemRoleAssignmentService,
     pub tenant_role_assignment: services::admin::TenantRoleAssignmentService,
     pub role_permission: services::admin::RolePermissionService,
+    pub org_join_request: services::admin::OrgJoinRequestService,
     pub permission: services::PermissionService,
     pub download_token_repo: db::repositories::DownloadTokenRepository,
     pub data_dir: PathBuf,
@@ -224,6 +225,7 @@ impl AppState {
         let group_repo_for_perm = group_repo.clone();
         let api_key_repo = db::repositories::ApiKeyRepository::new(pool.clone());
         let audit_log_repo = db::repositories::AuditLogRepository::new(pool.clone());
+        let org_join_request_repo = db::repositories::OrgJoinRequestRepository::new(pool.clone());
 
         let tenant = services::admin::TenantService::new(tenant_repo);
         let identity = services::admin::IdentityService::new(identity_repo.clone());
@@ -231,6 +233,7 @@ impl AppState {
         let group = services::admin::GroupService::new(group_repo);
         let api_key = services::admin::ApiKeyService::new(api_key_repo, identity.clone());
         let audit = services::admin::AuditService::new(audit_log_repo);
+        let org_join_request = services::admin::OrgJoinRequestService::new(org_join_request_repo);
 
         let system_role_assignment_repo =
             db::repositories::SystemRoleAssignmentRepository::new(pool.clone());
@@ -278,6 +281,7 @@ impl AppState {
             system_role_assignment,
             tenant_role_assignment,
             role_permission,
+            org_join_request,
             permission,
             download_token_repo,
             data_dir,

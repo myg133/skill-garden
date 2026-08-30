@@ -23,11 +23,12 @@ impl OrganizationRepository {
 
         let org = sqlx::query_as::<_, OrganizationRow>(
             r#"
-            INSERT INTO organizations (name, slug, display_name, description, tenant_id, org_type, visibility, avatar_url, settings)
-            VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
+            INSERT INTO organizations (name, slug, display_name, description, tenant_id, org_type, visibility, avatar_url, settings, join_policy)
+            VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, 'approval_required')
             RETURNING id, name, slug, display_name, description, tenant_id,
                       NULL::varchar AS tenant_name,
-                      org_type, visibility, avatar_url, status, settings, created_at, updated_at
+                      org_type, visibility, avatar_url, status, settings, created_at, updated_at,
+                      'approval_required' AS join_policy
             "#,
         )
         .bind(&new_org.name)
@@ -51,7 +52,8 @@ impl OrganizationRepository {
             r#"
             SELECT o.id, o.name, o.slug, o.display_name, o.description, o.tenant_id,
                    t.name AS tenant_name,
-                   o.org_type, o.visibility, o.avatar_url, o.status, o.settings, o.created_at, o.updated_at
+                   o.org_type, o.visibility, o.avatar_url, o.status, o.settings, o.created_at, o.updated_at,
+                   o.join_policy
             FROM organizations o
             LEFT JOIN tenants t ON o.tenant_id = t.id
             WHERE o.id = $1
@@ -70,7 +72,8 @@ impl OrganizationRepository {
             r#"
             SELECT o.id, o.name, o.slug, o.display_name, o.description, o.tenant_id,
                    t.name AS tenant_name,
-                   o.org_type, o.visibility, o.avatar_url, o.status, o.settings, o.created_at, o.updated_at
+                   o.org_type, o.visibility, o.avatar_url, o.status, o.settings, o.created_at, o.updated_at,
+                   o.join_policy
             FROM organizations o
             LEFT JOIN tenants t ON o.tenant_id = t.id
             WHERE o.slug = $1
@@ -89,7 +92,8 @@ impl OrganizationRepository {
             r#"
             SELECT o.id, o.name, o.slug, o.display_name, o.description, o.tenant_id,
                    t.name AS tenant_name,
-                   o.org_type, o.visibility, o.avatar_url, o.status, o.settings, o.created_at, o.updated_at
+                   o.org_type, o.visibility, o.avatar_url, o.status, o.settings, o.created_at, o.updated_at,
+                   o.join_policy
             FROM organizations o
             LEFT JOIN tenants t ON o.tenant_id = t.id
             ORDER BY o.created_at DESC
@@ -115,7 +119,8 @@ impl OrganizationRepository {
             r#"
             SELECT o.id, o.name, o.slug, o.display_name, o.description, o.tenant_id,
                    t.name AS tenant_name,
-                   o.org_type, o.visibility, o.avatar_url, o.status, o.settings, o.created_at, o.updated_at
+                   o.org_type, o.visibility, o.avatar_url, o.status, o.settings, o.created_at, o.updated_at,
+                   o.join_policy
             FROM organizations o
             LEFT JOIN tenants t ON o.tenant_id = t.id
             WHERE o.tenant_id = $1
@@ -182,6 +187,7 @@ pub(crate) struct OrganizationRow {
     pub settings: JsonValue,
     pub created_at: DateTime<Utc>,
     pub updated_at: Option<DateTime<Utc>>,
+    pub join_policy: Option<String>,
 }
 
 impl From<OrganizationRow> for Organization {
@@ -201,6 +207,7 @@ impl From<OrganizationRow> for Organization {
             settings: row.settings,
             created_at: row.created_at,
             updated_at: row.updated_at,
+            join_policy: row.join_policy,
         }
     }
 }

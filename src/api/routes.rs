@@ -277,6 +277,27 @@ pub fn create_api_router(state: ApiState) -> Router<ApiState> {
             "/api/v1/orgs/:slug/members/:username",
             delete(remove_org_member_by_slug_handler),
         )
+        // Organization Join Request routes (by org UUID)
+        .route(
+            "/api/v1/orgs/:id/join-request",
+            post(create_join_request_handler),
+        )
+        .route(
+            "/api/v1/orgs/:id/join-request",
+            delete(cancel_join_request_handler),
+        )
+        .route(
+            "/api/v1/orgs/:id/my-join-request",
+            get(get_my_join_request_handler),
+        )
+        .route(
+            "/api/v1/orgs/:id/join-requests",
+            get(list_join_requests_handler),
+        )
+        .route(
+            "/api/v1/orgs/:id/join-requests/:request_id",
+            put(review_join_request_handler),
+        )
         // Group member management (6.6)
         .route(
             "/api/v1/groups/:id/members",

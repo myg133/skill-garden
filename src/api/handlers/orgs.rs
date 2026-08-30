@@ -749,6 +749,242 @@ pub async fn list_org_reviews_handler(
     Ok((StatusCode::OK, Json(in_review)))
 }
 
+// ========================
+// Organization Join Request Handlers
+// ========================
+
+/// Create a join request for an organization
+/// POST /orgs/:id/join-request
+pub async fn create_join_request_handler(
+    State(state): State<ApiState>,
+    agent_context: AgentContext,
+    Path(org_id): Path<Uuid>,
+    Json(body): Json<CreateJoinRequestBody>,
+) -> Result<impl IntoResponse, ApiError> {
+    let identity_id = agent_context.require_identity()
+        .map_err(|e| ApiError::Unauthorized(e.to_string()))?;
+
+    // Check if organization exists and join policy allows requests
+    let org = state.organization.get_org(org_id).await
+        .map_err(|e| ApiError::NotFound(e.to_string()))?;
+
+    // Check join policy
+    match org.join_policy.as_deref() {
+        Some("invite_only") => {
+            return Err(ApiError::Forbidden("This organization does not accept join requests".to_string()));
+        }
+        Some("open") => {
+            // For open organizations, auto-approve by creating membership directly
+            return Err(ApiError::BadRequest("This organization is open. No request needed, use invite API instead.".to_string()));
+        }
+        _ => { /* approval_required is the default, continue */ }
+    }
+
+    // Check if user is already a member
+    let is_member = state.permission.is_org_member(identity_id, org_id).await
+        .map_err(|e| ApiError::InternalError(e.to_string()))?;
+    if is_member {
+        return Err(ApiError::BadRequest("You are already a member of this organization".to_string()));
+    }
+
+    // Check if there's already a pending request
+    let has_pending = state.org_join_request.has_pending_request(org_id, identity_id).await
+        .map_err(|e| ApiError::InternalError(e.to_string()))?;
+    if has_pending {
+        return Err(ApiError::BadRequest("You already have a pending join request for this organization".to_string()));
+    }
+
+    let request = state.org_join_request.create(org_id, identity_id, body.message).await
+        .map_err(|e| ApiError::BadRequest(e.to_string()))?;
+
+    Ok((StatusCode::CREATED, Json(serde_json::json!({
+        "id": request.id,
+        "organization_id": request.organization_id,
+        "status": request.status,
+        "message": request.message,
+        "created_at": request.created_at
+    }))))
+}
+
+#[derive(serde::Deserialize)]
+pub struct CreateJoinRequestBody {
+    pub message: Option<String>,
+}
+
+/// Delete (cancel) a pending join request
+/// DELETE /orgs/:id/join-request
+pub async fn cancel_join_request_handler(
+    State(state): State<ApiState>,
+    agent_context: AgentContext,
+    Path(org_id): Path<Uuid>,
+) -> Result<impl IntoResponse, ApiError> {
+    let identity_id = agent_context.require_identity()
+        .map_err(|e| ApiError::Unauthorized(e.to_string()))?;
+
+    state.org_join_request.cancel(org_id, identity_id).await
+        .map_err(|e| ApiError::InternalError(e.to_string()))?;
+
+    Ok((StatusCode::OK, Json(serde_json::json!({"deleted": true}))))
+}
+
+/// Get user's pending request for an organization
+/// GET /orgs/:id/my-join-request
+pub async fn get_my_join_request_handler(
+    State(state): State<ApiState>,
+    agent_context: AgentContext,
+    Path(org_id): Path<Uuid>,
+) -> Result<impl IntoResponse, ApiError> {
+    let identity_id = agent_context.require_identity()
+        .map_err(|e| ApiError::Unauthorized(e.to_string()))?;
+
+    // Try to find pending request
+    let requests = state.org_join_request.list_by_org(org_id, Some("pending"), 1, 0).await
+        .map_err(|e| ApiError::InternalError(e.to_string()))?;
+
+    let my_request = requests.into_iter().find(|r| r.identity_id == identity_id);
+
+    match my_request {
+        Some(req) => Ok((StatusCode::OK, Json(serde_json::json!({
+            "id": req.id,
+            "organization_id": req.organization_id,
+            "status": req.status,
+            "message": req.message,
+            "created_at": req.created_at
+        })))),
+        None => Err(ApiError::NotFound("No pending join request found".to_string()))
+    }
+}
+
+/// List join requests for an organization (admin only)
+/// GET /orgs/:id/join-requests
+pub async fn list_join_requests_handler(
+    State(state): State<ApiState>,
+    agent_context: AgentContext,
+    Path(org_id): Path<Uuid>,
+    Query(query): Query<ListJoinRequestsQuery>,
+) -> Result<impl IntoResponse, ApiError> {
+    // Require org admin or higher
+    require_org_member(
+        &state,
+        &agent_context,
+        org_id,
+        Some(crate::models::org_membership::OrgRole::Admin),
+    )
+    .await?;
+
+    let status = query.status.as_deref();
+    let limit = query.limit.unwrap_or(20).min(100);
+    let offset = query.offset.unwrap_or(0);
+
+    let requests = state.org_join_request.list_by_org(org_id, status, limit, offset).await
+        .map_err(|e| ApiError::InternalError(e.to_string()))?;
+
+    let results: Vec<serde_json::Value> = requests.into_iter().map(|r| {
+        serde_json::json!({
+            "id": r.id,
+            "organization_id": r.organization_id,
+            "identity": {
+                "id": r.identity.id,
+                "name": r.identity.name,
+                "email": r.identity.email,
+                "username": r.identity.username
+            },
+            "status": r.status,
+            "message": r.message,
+            "reviewed_by": r.reviewed_by,
+            "reviewed_at": r.reviewed_at,
+            "created_at": r.created_at
+        })
+    }).collect();
+
+    Ok((StatusCode::OK, Json(serde_json::json!({"data": results}))))
+}
+
+#[derive(serde::Deserialize)]
+pub struct ListJoinRequestsQuery {
+    pub status: Option<String>,
+    pub limit: Option<i64>,
+    pub offset: Option<i64>,
+}
+
+/// Approve or reject a join request (admin only)
+/// PUT /orgs/:id/join-requests/:request_id
+pub async fn review_join_request_handler(
+    State(state): State<ApiState>,
+    agent_context: AgentContext,
+    Path((org_id, request_id)): Path<(Uuid, Uuid)>,
+    Json(body): Json<ReviewJoinRequestBody>,
+) -> Result<impl IntoResponse, ApiError> {
+    let reviewer_id = require_org_member(
+        &state,
+        &agent_context,
+        org_id,
+        Some(crate::models::org_membership::OrgRole::Admin),
+    )
+    .await?;
+
+    // Verify the request exists and belongs to this org
+    let request = state.org_join_request.get(request_id).await
+        .map_err(|e| ApiError::InternalError(e.to_string()))?
+        .ok_or_else(|| ApiError::NotFound("Join request not found".to_string()))?;
+
+    if request.organization_id != org_id {
+        return Err(ApiError::NotFound("Join request not found in this organization".to_string()));
+    }
+
+    if request.status != "pending" {
+        return Err(ApiError::BadRequest("This request has already been processed".to_string()));
+    }
+
+    // Cannot review own request
+    if request.identity_id == reviewer_id {
+        return Err(ApiError::Forbidden("You cannot approve your own join request".to_string()));
+    }
+
+    let updated = match body.action.as_str() {
+        "approve" => {
+            // Update request status
+            let updated = state.org_join_request.approve(request_id, reviewer_id).await
+                .map_err(|e| ApiError::InternalError(e.to_string()))?;
+
+            // Auto-create org membership on approval
+            use crate::db::repositories::org_membership::OrgMembershipRepository;
+            let pool = state.agent_repo.pool().clone();
+            let membership_repo = OrgMembershipRepository::new(pool);
+
+            membership_repo.add_member(
+                request.identity_id,
+                org_id,
+                crate::models::org_membership::OrgRole::Member,
+                Some(reviewer_id),
+            ).await.map_err(|e| ApiError::InternalError(e.to_string()))?;
+
+            updated
+        }
+        "reject" => {
+            state.org_join_request.reject(request_id, reviewer_id).await
+                .map_err(|e| ApiError::InternalError(e.to_string()))?
+        }
+        _ => {
+            return Err(ApiError::BadRequest("Invalid action. Use 'approve' or 'reject'".to_string()));
+        }
+    };
+
+    Ok((StatusCode::OK, Json(serde_json::json!({
+        "id": updated.id,
+        "organization_id": updated.organization_id,
+        "status": updated.status,
+        "reviewed_by": updated.reviewed_by,
+        "reviewed_at": updated.reviewed_at
+    }))))
+}
+
+#[derive(serde::Deserialize)]
+pub struct ReviewJoinRequestBody {
+    pub action: String,
+    pub message: Option<String>,
+}
+
 
 
 
