@@ -65,20 +65,20 @@
         i.email && i.email.toLowerCase() === addEmail.trim().toLowerCase()
       );
       if (!identity) {
-        addToast('User not found with this email. Please check and try again.', 'error');
+        addToast($_('marketplace.userNotFound'), 'error');
         adding = false;
         return;
       }
 
       const existing = reviewers.find(r => r.identity_id === identity.id);
       if (existing) {
-        addToast(`${identity.name} is already a marketplace reviewer.`, 'warning');
+        addToast($_('marketplace.alreadyReviewer', { values: { name: identity.name } }), 'warning');
         adding = false;
         return;
       }
 
       await api.assignMarketplaceReviewer(identity.id);
-      addToast(`Marketplace Reviewer assigned to ${identity.name}`, 'success');
+      addToast($_('marketplace.reviewerAssigned', { values: { name: identity.name } }), 'success');
       showAddModal = false;
       await loadAll();
     } catch (e) {
@@ -90,11 +90,11 @@
 
   async function handleRemove(reviewer) {
     const info = getIdentityInfo(reviewer.identity_id);
-    if (!confirm(`Remove "${ROLE_LABEL}" from ${info.name}?`)) return;
+    if (!confirm($_('marketplace.confirmRemove', { values: { name: info.name, role: ROLE_LABEL } }))) return;
 
     try {
       await api.revokeMarketplaceReviewer(reviewer.identity_id);
-      addToast(`Reviewer role revoked from ${info.name}`, 'success');
+      addToast($_('marketplace.reviewerRemoved', { values: { name: info.name } }), 'success');
       await loadAll();
     } catch (e) {
       addToast(e.message, 'error');
@@ -105,9 +105,9 @@
 <div class="p-8">
   <div class="page-header flex items-center justify-between">
     <div>
-      <h1 class="text-[28px] font-extrabold text-gray-800 tracking-tight">Marketplace Reviewers</h1>
+      <h1 class="text-[28px] font-extrabold text-gray-800 tracking-tight">{$_('marketplace.marketplaceReviewers')}</h1>
       <p class="text-gray-500 text-sm mt-1.5 font-medium">
-        Manage marketplace reviewer team — reviewers can approve/reject and delist marketplace skills
+        {$_('marketplace.manageReviewers')}
       </p>
     </div>
     {#if hasPermission('marketplace:role_assign')}
@@ -116,7 +116,7 @@
         class="px-5 py-2.5 rounded-xl font-semibold text-sm flex items-center gap-2 bg-blue-600 text-white hover:bg-blue-700 transition-colors shadow-sm"
       >
         <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 4v16m8-8H4"/></svg>
-        Add Reviewer
+        {$_('marketplace.addReviewer')}
       </button>
     {/if}
   </div>
@@ -127,7 +127,7 @@
     <div class="bg-red-50 border border-red-100 text-red-600 px-5 py-4 rounded-xl text-sm font-medium">{error}</div>
   {:else if reviewers.length === 0}
     <div class="bg-white rounded-xl border border-gray-200 shadow-card">
-      <EmptyState message="No marketplace reviewers yet" />
+      <EmptyState message={$_('marketplace.noReviewersYet')} />
     </div>
   {:else}
     <div class="bg-white rounded-xl border border-gray-200 overflow-hidden shadow-card">
@@ -137,8 +137,8 @@
             <th class="px-6 py-3 text-left text-xs font-semibold text-gray-500 uppercase tracking-wider">User</th>
             <th class="px-6 py-3 text-left text-xs font-semibold text-gray-500 uppercase tracking-wider">Email</th>
             <th class="px-6 py-3 text-left text-xs font-semibold text-gray-500 uppercase tracking-wider">Role</th>
-            <th class="px-6 py-3 text-left text-xs font-semibold text-gray-500 uppercase tracking-wider">Assigned At</th>
-            <th class="px-6 py-3 text-left text-xs font-semibold text-gray-500 uppercase tracking-wider">Actions</th>
+            <th class="px-6 py-3 text-left text-xs font-semibold text-gray-500 uppercase tracking-wider">{$_('marketplace.assignedAt')}</th>
+            <th class="px-6 py-3 text-left text-xs font-semibold text-gray-500 uppercase tracking-wider">{$_('groups.actions')}</th>
           </tr>
         </thead>
         <tbody class="divide-y divide-gray-100">
@@ -168,7 +168,7 @@
                     on:click={() => handleRemove(r)}
                     class="px-3 py-1.5 rounded-lg text-xs font-semibold text-red-600 hover:bg-red-50 border border-red-200 transition-colors"
                   >
-                    Remove
+                    {$_('groups.remove')}
                   </button>
                 {/if}
               </td>
@@ -185,7 +185,7 @@
 <div class="fixed inset-0 bg-black/40 flex items-center justify-center z-50 modal-overlay" role="button" tabindex="-1" on:click|self={() => showAddModal = false} on:keydown|self={(e) => e.key === 'Escape' && (showAddModal = false)}>
   <div class="bg-white rounded-xl p-6 w-full max-w-md shadow-elevated-lg border border-gray-200 modal-content">
     <div class="flex items-center justify-between mb-5">
-      <h2 class="text-lg font-bold text-gray-900">Add Reviewer</h2>
+      <h2 class="text-lg font-bold text-gray-900">{$_('marketplace.addReviewer')}</h2>
       <button on:click={() => showAddModal = false} class="p-1.5 rounded-lg text-gray-400 hover:text-gray-600 hover:bg-gray-100">
         <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"/></svg>
       </button>
@@ -193,19 +193,19 @@
 
     <div class="space-y-4">
       <div>
-        <label for="add-reviewer-email" class="block text-xs font-semibold text-gray-500 uppercase tracking-wider mb-2">User Email *</label>
+        <label for="add-reviewer-email" class="block text-xs font-semibold text-gray-500 uppercase tracking-wider mb-2">{$_('marketplace.userEmail')} *</label>
         <input
           id="add-reviewer-email"
           type="email"
           bind:value={addEmail}
-          placeholder="reviewer@example.com"
+          placeholder={$_('marketplace.userEmailPlaceholder')}
           class="w-full px-4 py-3 border border-gray-200 rounded-xl text-sm input-focus outline-none font-medium bg-white text-gray-900"
         />
       </div>
 
       <div class="bg-blue-50 border border-blue-100 rounded-xl p-4 text-sm text-blue-700">
-        <p class="font-semibold mb-1">Marketplace Reviewer</p>
-        <p class="text-blue-600 text-xs">Reviewers can review and delist marketplace skills, but cannot feature/unfeature them. Only marketplace_admin can manage the reviewer team.</p>
+        <p class="font-semibold mb-1">{$_('marketplace.marketplaceReviewer')}</p>
+        <p class="text-blue-600 text-xs">{$_('marketplace.reviewerDescription')}</p>
       </div>
     </div>
 
@@ -214,14 +214,14 @@
         on:click={() => showAddModal = false}
         class="px-4 py-2.5 text-gray-500 hover:text-gray-800 font-semibold text-sm transition-all rounded-lg hover:bg-gray-50"
       >
-        Cancel
+        {$_('common.cancel')}
       </button>
       <button
         on:click={handleAdd}
         disabled={adding || !addEmail.trim()}
         class="px-5 py-2.5 rounded-xl font-semibold text-sm bg-blue-600 text-white hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed transition-colors shadow-sm"
       >
-        {adding ? 'Adding...' : 'Confirm'}
+        {adding ? $_('common.loading') : $_('common.confirm')}
       </button>
     </div>
   </div>

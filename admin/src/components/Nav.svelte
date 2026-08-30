@@ -242,7 +242,7 @@
         <button
           on:click={handleLogout}
           class="p-1.5 rounded-lg text-gray-400 hover:text-red-500 hover:bg-red-50 transition-all duration-200"
-          title="Sign Out"
+          title={$_('auth.signOut')}
         >
           <Icon name="logout" size="w-[18px] h-[18px]" />
         </button>
@@ -256,7 +256,7 @@
         <button
           on:click={handleLogout}
           class="ml-auto mr-1 p-1.5 rounded-lg text-gray-400 hover:text-red-500 hover:bg-red-50 transition-all duration-200"
-          title="Sign Out"
+          title={$_('auth.signOut')}
         >
           <Icon name="logout" size="w-[18px] h-[18px]" />
         </button>

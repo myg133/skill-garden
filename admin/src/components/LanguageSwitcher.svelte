@@ -44,7 +44,10 @@
   {#if isOpen}
     <div
       class="absolute right-0 mt-2 w-32 bg-white rounded-lg shadow-lg border border-gray-200 py-1 z-50"
+      role="menu"
+      tabindex="0"
       on:click|stopPropagation
+      on:keydown|stopPropagation
     >
       <button
         on:click={() => switchLanguage('en')}
