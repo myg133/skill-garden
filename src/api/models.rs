@@ -576,6 +576,9 @@ pub struct CreateTenantBody {
     pub slug: String,
     pub billing_plan: Option<String>,
     pub sso_config: Option<serde_json::Value>,
+    /// 首个租户管理员的邮箱（企业模式下必填）
+    #[serde(default)]
+    pub admin_email: Option<String>,
 }
 
 impl From<CreateTenantBody> for crate::models::tenant::NewTenant {

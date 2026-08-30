@@ -11,6 +11,7 @@ use uuid::Uuid;
 use super::helpers::{require_admin, ApiState};
 use crate::api::error::ApiError;
 use crate::api::jwt::AgentContext;
+use crate::TenantMode;
 
 pub async fn list_tenants_handler(
     State(state): State<ApiState>,
@@ -71,6 +72,60 @@ pub async fn create_tenant_handler(
             "Super admin access required".to_string(),
         ));
     }
+
+    // 企业模式：private_enterprise / internal_delivery 必须指定 admin_email
+    let is_enterprise = matches!(
+        state.tenant_config.mode,
+        TenantMode::PrivateEnterprise | TenantMode::InternalDelivery
+    );
+
+    // 提前提取 admin_email 以避免后续借用 body
+    let admin_email_opt = body.admin_email.clone();
+
+    if is_enterprise {
+        let admin_email = admin_email_opt.as_ref().ok_or_else(|| {
+            ApiError::BadRequest("admin_email is required in enterprise mode".to_string())
+        })?;
+
+        // 验证用户存在
+        let admin_user = state
+            .identity
+            .get_by_email(admin_email)
+            .await
+            .map_err(|e| ApiError::InternalError(e.to_string()))?
+            .ok_or_else(|| {
+                ApiError::BadRequest(format!("User with email '{}' not found", admin_email))
+            })?;
+
+        // 创建租户
+        let tenant = state
+            .tenant
+            .create(body.into())
+            .await
+            .map_err(|e| ApiError::BadRequest(e.to_string()))?;
+
+        // 分配 tenant_admin 角色
+        state
+            .tenant_role_assignment
+            .assign(admin_user.id, tenant.id, "tenant_admin", Some(identity_id))
+            .await
+            .map_err(|e| ApiError::InternalError(e.to_string()))?;
+
+        tracing::info!(
+            "Created enterprise tenant '{}' (id={}) with admin '{}' (id={})",
+            tenant.name,
+            tenant.id,
+            admin_email,
+            admin_user.id
+        );
+
+        return Ok((
+            StatusCode::CREATED,
+            Json(serde_json::to_value(tenant).unwrap()),
+        ));
+    }
+
+    // SaaS 模式：保持原有逻辑（无需 admin_email）
     let tenant = state
         .tenant
         .create(body.into())
