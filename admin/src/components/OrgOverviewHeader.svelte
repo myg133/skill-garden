@@ -17,6 +17,13 @@
   export let onCancelEdit = () => {};
   export let onTabChange = () => {};
   export let onDeleteOrg = () => {};
+
+  $: tabs = [
+    { key: 'members', label: $_('common.members') },
+    { key: 'sessions', label: $_('common.sessions') },
+    { key: 'tools', label: $_('common.tools') },
+    { key: 'groups', label: $_('common.groups') }
+  ];
 </script>
 
 <div class="bg-white rounded-2xl border border-gray-200 shadow-card mb-6">
@@ -80,12 +87,7 @@
 
   <!-- Tabs -->
   <div class="px-6 border-t border-gray-200 flex gap-0">
-    {#each [
-      { key: 'members', label: $_('common.members') },
-      { key: 'sessions', label: $_('common.sessions') },
-      { key: 'tools', label: $_('common.tools') },
-      { key: 'groups', label: $_('common.groups') }
-    ] as tab}
+    {#each tabs as tab}
       <button
         on:click={() => onTabChange(tab.key)}
         class="px-5 py-3 text-sm font-semibold border-b-2 transition-all {activeTab === tab.key ? 'border-blue-500 text-blue-700' : 'border-transparent text-gray-500 hover:text-gray-700'}"
