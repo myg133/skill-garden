@@ -80,7 +80,7 @@
     if (!confirm($_('apiKeys.deleteApiKey'))) return;
     try {
       await api.deleteApiKey(id);
-      addToast('API Key revoked', 'success');
+      addToast($_('apiKeys.revoked'), 'success');
       await loadApiKeys();
     } catch (e) {
       addToast(e.message, 'error');
@@ -270,7 +270,7 @@
     {:else}
       <div class="space-y-4">
         <div>
-          <label for="apikey-identity" class="block text-xs font-semibold text-gray-500 uppercase tracking-wider mb-2">Identity</label>
+          <label for="apikey-identity" class="block text-xs font-semibold text-gray-500 uppercase tracking-wider mb-2">{$_('groups.identity')}</label>
           <select
             id="apikey-identity"
             bind:value={newApiKey.identity_id}
@@ -283,7 +283,7 @@
           </select>
         </div>
         <div>
-          <label for="apikey-org" class="block text-xs font-semibold text-gray-500 uppercase tracking-wider mb-2">Organization</label>
+          <label for="apikey-org" class="block text-xs font-semibold text-gray-500 uppercase tracking-wider mb-2">{$_('organizations.title')}</label>
           <select
             id="apikey-org"
             bind:value={newApiKey.organization_id}
@@ -301,7 +301,7 @@
             id="apikey-name"
             type="text"
             bind:value={newApiKey.name}
-            placeholder="My API Key"
+            placeholder={$_('apiKeys.namePlaceholder')}
             class="w-full px-4 py-3 border border-gray-200 rounded-xl text-sm input-focus outline-none font-medium bg-white text-gray-900"
           />
         </div>

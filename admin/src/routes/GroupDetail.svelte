@@ -33,17 +33,17 @@
   const groupRoles = ['lead', 'member'];
 
   const permissionLabels = {
-    'skill.read': 'Read Skills',
-    'skill.write': 'Write Skills',
-    'skill.delete': 'Delete Skills',
-    'member.read': 'Read Members',
-    'member.invite': 'Invite Members',
-    'member.manage': 'Manage Members',
-    'group.read': 'Read Group',
-    'group.write': 'Update Group',
-    'group.delete': 'Delete Group',
-    'settings.read': 'Read Settings',
-    'settings.write': 'Update Settings',
+    'skill.read': $_('groups.permissionSkillRead'),
+    'skill.write': $_('groups.permissionSkillWrite'),
+    'skill.delete': $_('groups.permissionSkillDelete'),
+    'member.read': $_('groups.permissionMemberRead'),
+    'member.invite': $_('groups.permissionMemberInvite'),
+    'member.manage': $_('groups.permissionMemberManage'),
+    'group.read': $_('groups.permissionGroupRead'),
+    'group.write': $_('groups.permissionGroupWrite'),
+    'group.delete': $_('groups.permissionGroupDelete'),
+    'settings.read': $_('groups.permissionSettingsRead'),
+    'settings.write': $_('groups.permissionSettingsWrite'),
   };
 
   onMount(() => {
@@ -492,13 +492,13 @@
           id="add-member-id"
           type="text"
           bind:value={addMemberForm.agent_id}
-          placeholder="UUID of the identity"
+          placeholder={$_('groups.placeholderIdentityUuid')}
           class="w-full px-4 py-3 border border-gray-200 rounded-xl text-sm input-focus outline-none font-medium font-mono bg-white text-gray-900"
         />
         <p class="text-gray-400 text-xs mt-1">{$_('groups.enterIdentityUuid')}</p>
       </div>
       <div>
-        <label for="add-member-role" class="block text-xs font-semibold text-gray-500 uppercase tracking-wider mb-2">Role</label>
+        <label for="add-member-role" class="block text-xs font-semibold text-gray-500 uppercase tracking-wider mb-2">{$_('common.role')}</label>
         <select
           id="add-member-role"
           bind:value={addMemberForm.role}

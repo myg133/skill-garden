@@ -208,7 +208,19 @@
     "roleUpdated": "角色已更新",
     "memberRemoved": "成员已移除",
     "permissionGranted": "权限已授予",
-    "permissionRevoked": "权限已撤销"
+    "permissionRevoked": "权限已撤销",
+    "permissionSkillRead": "读取技能",
+    "permissionSkillWrite": "写入技能",
+    "permissionSkillDelete": "删除技能",
+    "permissionMemberRead": "读取成员",
+    "permissionMemberInvite": "邀请成员",
+    "permissionMemberManage": "管理成员",
+    "permissionGroupRead": "读取分组",
+    "permissionGroupWrite": "更新分组",
+    "permissionGroupDelete": "删除分组",
+    "permissionSettingsRead": "读取设置",
+    "permissionSettingsWrite": "更新设置",
+    "placeholderIdentityUuid": "身份的 UUID"
   },
   "skills": {
     "title": "技能",
@@ -335,7 +347,9 @@
     "apiKeyRevoked": "API 密钥已撤销",
     "apiKeyDisabled": "API 密钥已禁用",
     "apiKeyEnabled": "API 密钥已启用",
-    "unnamed": "未命名"
+    "unnamed": "未命名",
+    "namePlaceholder": "我的 API 密钥",
+    "revoked": "API 密钥已撤销"
   },
   "auditLogs": {
     "title": "审计日志",
@@ -395,7 +409,9 @@
     "reviewerAssigned": "已分配市场审核员角色给 {name}",
     "reviewerRemoved": "已撤销 {name} 的审核员角色",
     "confirmRemove": "确定要将 \"{name}\" 从 {role} 中移除吗？",
-    "assignedAt": "分配时间"
+    "assignedAt": "分配时间",
+    "user": "用户",
+    "tableRole": "角色"
   },
   "roles": {
     "title": "角色",

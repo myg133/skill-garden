@@ -51,6 +51,7 @@
     >
       <button
         on:click={() => switchLanguage('en')}
+        role="menuitem"
         class="w-full px-4 py-2.5 text-left text-sm hover:bg-gray-50 transition-colors flex items-center gap-2
                {currentLocale === 'en' ? 'text-blue-600 font-medium' : 'text-gray-700'}"
       >
@@ -64,6 +65,7 @@
       </button>
       <button
         on:click={() => switchLanguage('zh')}
+        role="menuitem"
         class="w-full px-4 py-2.5 text-left text-sm hover:bg-gray-50 transition-colors flex items-center gap-2
                {currentLocale === 'zh' ? 'text-blue-600 font-medium' : 'text-gray-700'}"
       >

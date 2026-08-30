@@ -208,7 +208,19 @@
     "roleUpdated": "Role updated",
     "memberRemoved": "Member removed",
     "permissionGranted": "Permission granted",
-    "permissionRevoked": "Permission revoked"
+    "permissionRevoked": "Permission revoked",
+    "permissionSkillRead": "Read Skills",
+    "permissionSkillWrite": "Write Skills",
+    "permissionSkillDelete": "Delete Skills",
+    "permissionMemberRead": "Read Members",
+    "permissionMemberInvite": "Invite Members",
+    "permissionMemberManage": "Manage Members",
+    "permissionGroupRead": "Read Group",
+    "permissionGroupWrite": "Update Group",
+    "permissionGroupDelete": "Delete Group",
+    "permissionSettingsRead": "Read Settings",
+    "permissionSettingsWrite": "Update Settings",
+    "placeholderIdentityUuid": "UUID of the identity"
   },
   "skills": {
     "title": "Skills",
@@ -335,7 +347,9 @@
     "apiKeyRevoked": "API Key revoked",
     "apiKeyDisabled": "API Key disabled",
     "apiKeyEnabled": "API Key enabled",
-    "unnamed": "Unnamed"
+    "unnamed": "Unnamed",
+    "namePlaceholder": "My API Key",
+    "revoked": "API Key revoked"
   },
   "auditLogs": {
     "title": "Audit Logs",
@@ -395,7 +409,9 @@
     "reviewerAssigned": "Marketplace Reviewer assigned to {name}",
     "reviewerRemoved": "Reviewer role revoked from {name}",
     "confirmRemove": "Remove \"{name}\" from {role}?",
-    "assignedAt": "Assigned At"
+    "assignedAt": "Assigned At",
+    "user": "User",
+    "tableRole": "Role"
   },
   "roles": {
     "title": "Roles",
