@@ -3,6 +3,7 @@
   import { permissionStore } from '../stores/permission.js';
   import { api } from '../lib/api.js';
   import { navigate, link } from 'svelte-routing';
+  import { _ } from 'svelte-i18n';
 
   let username = '';
   let password = '';
@@ -12,7 +13,7 @@
 
   async function handleLogin() {
     if (!username || !password) {
-      error = 'Please fill in all fields';
+      error = $_('auth.pleaseFillAllFields');
       return;
     }
     loading = true;
@@ -46,7 +47,7 @@
         navigate('/user', { replace: true });
       }
     } catch (e) {
-      error = e.message || 'Login failed';
+      error = e.message || $_('auth.loginFailed');
     } finally {
       loading = false;
     }
@@ -64,13 +65,13 @@
     <div class="text-center mb-8">
       <img src="/images/logo.png" alt="AionHive" class="w-20 h-20 rounded-2xl mb-5 shadow-glow float-anim mx-auto block" />
       <h1 class="text-[28px] font-extrabold text-surface-800 tracking-tight">AionHive</h1>
-      <p class="text-surface-500 text-sm mt-2 font-medium">Admin Console — Sign in to continue</p>
+      <p class="text-surface-500 text-sm mt-2 font-medium">{$_('auth.signInToContinue')}</p>
     </div>
 
     <div class="bg-white/90 backdrop-blur-xl rounded-2xl shadow-elevated-lg p-8 border border-surface-200/60 ring-1 ring-brand-500/5">
       <form on:submit|preventDefault={handleLogin} class="space-y-5">
         <div>
-          <label for="username" class="block text-xs font-semibold text-surface-500 uppercase tracking-wider mb-2">Username</label>
+          <label for="username" class="block text-xs font-semibold text-surface-500 uppercase tracking-wider mb-2">{$_('auth.username')}</label>
           <div class="relative">
             <svg class="absolute left-3.5 top-1/2 -translate-y-1/2 w-4 h-4 text-surface-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
               <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M16 7a4 4 0 11-8 0 4 4 0 018 0zM12 14a7 7 0 00-7 7h14a7 7 0 00-7-7z"/>
@@ -79,14 +80,14 @@
               id="username"
               type="text"
               bind:value={username}
-              placeholder="Enter your username"
+              placeholder={$_('auth.enterUsername')}
               class="w-full pl-10 pr-4 py-3 border border-surface-200 rounded-xl text-sm input-focus outline-none font-medium bg-surface-50/80 placeholder:text-surface-300"
             />
           </div>
         </div>
 
         <div>
-          <label for="password" class="block text-xs font-semibold text-surface-500 uppercase tracking-wider mb-2">Password</label>
+          <label for="password" class="block text-xs font-semibold text-surface-500 uppercase tracking-wider mb-2">{$_('auth.password')}</label>
           <div class="relative">
             <svg class="absolute left-3.5 top-1/2 -translate-y-1/2 w-4 h-4 text-surface-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
               <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M12 15v2m-6 4h12a2 2 0 002-2v-6a2 2 0 00-2-2H6a2 2 0 00-2 2v6a2 2 0 002 2zm10-10V7a4 4 0 00-8 0v4h8z"/>
@@ -96,7 +97,7 @@
               id="password"
               type="text"
               bind:value={password}
-              placeholder="Enter your password"
+              placeholder={$_('auth.enterPassword')}
               class="w-full pl-10 pr-12 py-3 border border-surface-200 rounded-xl text-sm input-focus outline-none font-medium bg-surface-50/80 placeholder:text-surface-300"
             />
             {:else}
@@ -104,7 +105,7 @@
               id="password"
               type="password"
               bind:value={password}
-              placeholder="Enter your password"
+              placeholder={$_('auth.enterPassword')}
               class="w-full pl-10 pr-12 py-3 border border-surface-200 rounded-xl text-sm input-focus outline-none font-medium bg-surface-50/80 placeholder:text-surface-300"
             />
             {/if}
@@ -147,20 +148,20 @@
               <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"/>
               <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z"/>
             </svg>
-            Signing in...
+            {$_('auth.signingIn')}
           {:else}
-            Sign In
+            {$_('auth.signIn')}
           {/if}
         </button>
       </form>
     </div>
 
     <p class="text-center text-surface-500 text-sm mt-5 font-medium">
-      Don't have an account? <a href="/register" use:link class="text-brand-600 hover:text-brand-700 font-semibold">Register</a>
+      {$_('auth.dontHaveAccount')} <a href="/register" use:link class="text-brand-600 hover:text-brand-700 font-semibold">{$_('auth.register')}</a>
     </p>
 
     <p class="text-center text-surface-500 text-xs mt-6 font-medium">
-      AionHive v0.3.0
+      {$_('app.name')} {$_('app.version')}
     </p>
   </div>
 </div>

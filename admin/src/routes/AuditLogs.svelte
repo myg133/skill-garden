@@ -1,5 +1,6 @@
 ﻿<script>
   import { onMount } from 'svelte';
+  import { _ } from 'svelte-i18n';
   import { api } from '../lib/api.js';
   import AuditTable from '../components/AuditTable.svelte';
   import EmptyState from '../components/EmptyState.svelte';
@@ -52,16 +53,16 @@
 
 <div class="p-8">
   <div class="page-header">
-    <h1 class="text-[28px] font-extrabold text-gray-800 tracking-tight">Audit Logs</h1>
-    <p class="text-gray-500 text-sm mt-1.5 font-medium">Track and search all skill operations</p>
+    <h1 class="text-[28px] font-extrabold text-gray-800 tracking-tight">{$_('auditLogs.title')}</h1>
+    <p class="text-gray-500 text-sm mt-1.5 font-medium">{$_('auditLogs.title')}</p>
   </div>
 
   <div class="bg-white rounded-xl border border-gray-200 p-6 mb-6 shadow-card">
     <div class="grid grid-cols-5 gap-4 items-end">
       <div>
-        <label for="audit-action" class="block text-xs font-semibold text-gray-500 uppercase tracking-wider mb-2">Action</label>
+        <label for="audit-action" class="block text-xs font-semibold text-gray-500 uppercase tracking-wider mb-2">{$_('auditLogs.action')}</label>
         <select id="audit-action" bind:value={filters.action} class="w-full px-4 py-2.5 border border-gray-200 rounded-lg text-sm font-medium text-gray-600 input-focus outline-none bg-white select-caret">
-          <option value="">All Actions</option>
+          <option value="">{$_('auditLogs.allActions')}</option>
           <option value="skill_create">skill_create</option>
           <option value="skill_approve">skill_approve</option>
           <option value="skill_reject">skill_reject</option>
@@ -70,16 +71,16 @@
         </select>
       </div>
       <div>
-        <label for="audit-agent" class="block text-xs font-semibold text-gray-500 uppercase tracking-wider mb-2">Agent ID</label>
+        <label for="audit-agent" class="block text-xs font-semibold text-gray-500 uppercase tracking-wider mb-2">{$_('auditLogs.actor')}</label>
         <input
           id="audit-agent"
           bind:value={filters.agent_id}
-          placeholder="Filter by agent"
+          placeholder={$_('auditLogs.filterByActor')}
           class="w-full px-4 py-2.5 border border-gray-200 rounded-lg text-sm input-focus outline-none placeholder:text-gray-300 bg-white"
         />
       </div>
       <div>
-        <label for="audit-from" class="block text-xs font-semibold text-gray-500 uppercase tracking-wider mb-2">From</label>
+        <label for="audit-from" class="block text-xs font-semibold text-gray-500 uppercase tracking-wider mb-2">{$_('common.date')}</label>
         <input
           id="audit-from"
           type="date"
@@ -88,7 +89,7 @@
         />
       </div>
       <div>
-        <label for="audit-to" class="block text-xs font-semibold text-gray-500 uppercase tracking-wider mb-2">To</label>
+        <label for="audit-to" class="block text-xs font-semibold text-gray-500 uppercase tracking-wider mb-2">{$_('common.date')}</label>
         <input
           id="audit-to"
           type="date"
@@ -101,13 +102,13 @@
           on:click={fetchLogs}
           class="btn-primary px-5 py-2.5 rounded-xl text-sm font-semibold"
         >
-          Search
+          {$_('common.search')}
         </button>
         <button
           on:click={resetFilters}
           class="btn-secondary px-4 py-2.5 rounded-xl text-sm font-medium"
         >
-          Reset
+          {$_('common.reset')}
         </button>
       </div>
     </div>

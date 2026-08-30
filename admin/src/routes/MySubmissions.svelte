@@ -1,6 +1,7 @@
 <script>
   import { onMount } from 'svelte';
   import { Link } from 'svelte-routing';
+  import { _ } from 'svelte-i18n';
   import { api } from '../lib/api.js';
   import { addToast } from '../stores/app.js';
   import LoadingSpinner from '../components/LoadingSpinner.svelte';

@@ -5,74 +5,75 @@
  * need: null 表示无需特殊权限（所有人可见）
  * need: "permission_code" 表示需要该权限码
  * systemRole: "role_name" 表示需要该系统角色
+ * labelKey: i18n 翻译 key
  */
 
 export const adminNavRoutes = [
   {
     key: 'overview',
-    label: 'Overview',
+    labelKey: 'nav.overview',
     icon: 'overview',
     tabs: [
-      { href: '/stats',      label: 'Dashboard',    icon: 'dashboard',     need: 'system:admin:access' },
+      { href: '/stats',      labelKey: 'nav.dashboard',    icon: 'dashboard',     need: 'system:admin:access' },
     ]
   },
   {
     key: 'users',
-    label: 'Users',
+    labelKey: 'nav.users',
     icon: 'users',
     tabs: [
-      { href: '/identities', label: 'Identities',    icon: 'identities',    need: 'system:admin:access' },
-      { href: '/api-keys',   label: 'API Keys',      icon: 'api-keys',      need: 'system:admin:access' },
+      { href: '/identities', labelKey: 'nav.identities',    icon: 'identities',    need: 'system:admin:access' },
+      { href: '/api-keys',   labelKey: 'nav.apiKeys',       icon: 'api-keys',      need: 'system:admin:access' },
     ]
   },
   {
     key: 'org',
-    label: 'Organizations',
+    labelKey: 'nav.organizations',
     icon: 'organizations',
     tabs: [
-      { href: '/',             label: 'Organizations', icon: 'organizations', need: 'org:read' },
-      { href: '/groups',       label: 'Groups',        icon: 'groups',        need: 'tenant:read' },
-      { href: '/org-tools',    label: 'Org Tools',     icon: 'org-tools',     need: 'org:read' },
+      { href: '/',             labelKey: 'nav.organizations', icon: 'organizations', need: 'org:read' },
+      { href: '/groups',       labelKey: 'nav.groups',        icon: 'groups',        need: 'tenant:read' },
+      { href: '/org-tools',    labelKey: 'nav.orgTools',      icon: 'org-tools',     need: 'org:read' },
     ]
   },
   {
     key: 'skills',
-    label: 'Content',
+    labelKey: 'nav.content',
     icon: 'skills',
     tabs: [
-      { href: '/marketplace',  label: 'Marketplace',   icon: 'marketplace',   need: null },
-      { href: '/skills',       label: 'Skills',        icon: 'skills',        need: null },
-      { href: '/review',       label: 'Review',        icon: 'review',        need: 'skill:approve_review' },
-      { href: '/marketplace-roles', label: 'Marketplace Roles', icon: 'roles',  need: 'marketplace:role_assign' },
+      { href: '/marketplace',  labelKey: 'nav.marketplace',   icon: 'marketplace',   need: null },
+      { href: '/skills',       labelKey: 'nav.skills',        icon: 'skills',        need: null },
+      { href: '/review',       labelKey: 'nav.review',        icon: 'review',        need: 'skill:approve_review' },
+      { href: '/marketplace-roles', labelKey: 'nav.marketplaceRoles', icon: 'roles',  need: 'marketplace:role_assign' },
     ]
   },
   {
     key: 'account',
-    label: 'Account',
+    labelKey: 'nav.account',
     icon: 'profile',
     tabs: [
-      { href: '/profile',    label: 'My Profile',    icon: 'profile',       need: null },
-      { href: '/my-api-keys',label: 'My API Keys',   icon: 'my-api-keys',   need: null },
+      { href: '/profile',    labelKey: 'nav.myProfile',    icon: 'profile',       need: null },
+      { href: '/my-api-keys',labelKey: 'nav.myApiKeys',  icon: 'my-api-keys',   need: null },
     ]
   },
   {
     key: 'system',
-    label: 'System',
+    labelKey: 'nav.system',
     icon: 'settings',
     tabs: [
-      { href: '/tenants',      label: 'Tenants',        icon: 'tenants',       need: 'tenant:read' },
-      { href: '/system-roles', label: 'System Roles',   icon: 'roles',          need: 'system:admin:access' },
-      { href: '/sessions',     label: 'Sessions',        icon: 'sessions',      need: 'system:admin:access' },
-      { href: '/audit',        label: 'Audit Logs',     icon: 'audit-logs',    need: 'system:admin:access' },
-      { href: '/settings',     label: 'Settings',       icon: 'settings',      need: 'system:admin:access' },
+      { href: '/tenants',      labelKey: 'nav.tenants',        icon: 'tenants',       need: 'tenant:read' },
+      { href: '/system-roles', labelKey: 'nav.systemRoles',   icon: 'roles',          need: 'system:admin:access' },
+      { href: '/sessions',     labelKey: 'nav.sessions',       icon: 'sessions',      need: 'system:admin:access' },
+      { href: '/audit',        labelKey: 'nav.auditLogs',      icon: 'audit-logs',    need: 'system:admin:access' },
+      { href: '/settings',     labelKey: 'nav.settings',       icon: 'settings',      need: 'system:admin:access' },
     ]
   },
   {
     key: 'infra',
-    label: 'Infrastructure',
+    labelKey: 'nav.infrastructure',
     icon: 'infrastructure',
     tabs: [
-      { href: '/sandboxes',    label: 'Sandboxes',      icon: 'sandbox',       need: 'system:admin:access' },
+      { href: '/sandboxes',    labelKey: 'nav.sandboxes',      icon: 'sandbox',       need: 'system:admin:access' },
     ]
   },
 ];
@@ -81,15 +82,15 @@ export const adminNavRoutes = [
 export const userNavRoutes = [
   {
     key: 'dashboard',
-    label: 'Dashboard',
+    labelKey: 'nav.dashboard',
     icon: 'dashboard',
     tabs: [
-      { href: '/user',              label: 'Dashboard',    icon: 'dashboard',    need: null },
-      { href: '/user/marketplace',  label: 'Marketplace',  icon: 'marketplace',  need: null },
-      { href: '/user/skills',       label: 'My Skills',    icon: 'skills',       need: null },
-      { href: '/user/submissions',  label: 'Submissions',  icon: 'submissions',  need: null },
-      { href: '/profile',           label: 'My Profile',   icon: 'profile',      need: null },
-      { href: '/my-api-keys',       label: 'My API Keys',  icon: 'my-api-keys',  need: null },
+      { href: '/user',              labelKey: 'nav.dashboard',    icon: 'dashboard',    need: null },
+      { href: '/user/marketplace',  labelKey: 'nav.marketplace',  icon: 'marketplace',  need: null },
+      { href: '/user/skills',       labelKey: 'nav.mySkills',     icon: 'skills',       need: null },
+      { href: '/user/submissions',  labelKey: 'nav.submissions',  icon: 'submissions',  need: null },
+      { href: '/profile',           labelKey: 'nav.myProfile',    icon: 'profile',      need: null },
+      { href: '/my-api-keys',       labelKey: 'nav.myApiKeys',   icon: 'my-api-keys',  need: null },
     ]
   },
 ];

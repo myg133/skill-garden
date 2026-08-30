@@ -1,6 +1,7 @@
 ﻿<script>
   import { onMount } from 'svelte';
   import { Link } from 'svelte-routing';
+  import { _ } from 'svelte-i18n';
   import { api } from '../lib/api.js';
   import { addToast } from '../stores/app.js';
   import { isAdmin } from '../stores/auth.js';
@@ -70,7 +71,13 @@
   }
 
   function orgRoleLabel(role) {
-    const labels = { owner: 'Owner', admin: 'Admin', reviewer: 'Reviewer', developer: 'Developer', member: 'Member' };
+    const labels = {
+      owner: $_('skills.owner'),
+      admin: $_('skills.admin'),
+      reviewer: $_('skills.reviewer'),
+      developer: $_('skills.developer'),
+      member: $_('skills.member')
+    };
     return labels[role] || role;
   }
 

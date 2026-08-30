@@ -1,5 +1,6 @@
 ﻿<script>
   import { onMount } from 'svelte';
+  import { _ } from 'svelte-i18n';
   import { api } from '../lib/api.js';
   import { addToast } from '../stores/app.js';
   import { auth, isAdmin } from '../stores/auth.js';

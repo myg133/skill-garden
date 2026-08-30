@@ -1,5 +1,6 @@
 ﻿<script>
   import { onMount } from 'svelte';
+  import { _ } from 'svelte-i18n';
   import { api } from '../lib/api.js';
   import { addToast } from '../stores/app.js';
   import { hasPermission } from '../stores/permission.js';
@@ -66,7 +67,7 @@
       const res = await api.createApiKey(payload);
       createdKey = res;
       newApiKey = { identity_id: '', organization_id: '', name: '', scopes: [], rate_limit: 1000 };
-      addToast('API Key created - copy it now!', 'success');
+      addToast($_('apiKeys.apiKeyCreated'), 'success');
       await loadApiKeys();
     } catch (e) {
       addToast(e.message, 'error');
@@ -76,7 +77,7 @@
   }
 
   async function handleDelete(id) {
-    if (!confirm('Revoke this API key?')) return;
+    if (!confirm($_('apiKeys.deleteApiKey'))) return;
     try {
       await api.deleteApiKey(id);
       addToast('API Key revoked', 'success');

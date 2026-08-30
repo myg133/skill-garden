@@ -1,5 +1,6 @@
 ﻿<script>
   import { onMount } from 'svelte';
+  import { _ } from 'svelte-i18n';
   import { api } from '../lib/api.js';
   import StatCard from '../components/StatCard.svelte';
   import AuditTable from '../components/AuditTable.svelte';
@@ -49,8 +50,8 @@
 <div class="p-8">
   <div class="page-header">
     <div>
-      <h1 class="text-[28px] font-extrabold text-gray-800 tracking-tight">Dashboard</h1>
-      <p class="text-gray-500 text-sm mt-1.5 font-medium">Overview of skill activity and metrics</p>
+      <h1 class="text-[28px] font-extrabold text-gray-800 tracking-tight">{$_('stats.title')}</h1>
+      <p class="text-gray-500 text-sm mt-1.5 font-medium">{$_('stats.overview')}</p>
     </div>
   </div>
 
@@ -62,23 +63,23 @@
     <div class="grid grid-cols-1 md:grid-cols-3 gap-5 mb-8">
       <StatCard
         variant="brand"
-        title="Total Skills"
+        title={$_('skills.title')}
         value={stats.total}
-        subtitle="All registered skills"
+        subtitle={$_('stats.totalSkills')}
         icon='<path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M19 11H5m14 0a2 2 0 012 2v6a2 2 0 01-2 2H5a2 2 0 01-2-2v-6a2 2 0 012-2m14 0V9a2 2 0 00-2-2M5 11V9a2 2 0 012-2m0 0V5a2 2 0 012-2h6a2 2 0 012 2v2M7 7h10"/>'
       />
       <StatCard
         variant="amber"
-        title="Pending Review"
+        title={$_('skills.pending')}
         value={stats.pending}
-        subtitle="Awaiting approval"
+        subtitle={$_('review.pendingReviews')}
         icon='<path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z"/>'
       />
       <StatCard
         variant="green"
-        title="Published"
+        title={$_('skills.published')}
         value={stats.published}
-        subtitle="Live in production"
+        subtitle={$_('skills.published')}
         icon='<path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z"/>'
       />
     </div>

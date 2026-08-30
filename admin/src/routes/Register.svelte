@@ -1,6 +1,7 @@
 <script>
   import { api } from '../lib/api.js';
   import { navigate, link } from 'svelte-routing';
+  import { _ } from 'svelte-i18n';
 
   let username = '';
   let displayName = '';
@@ -17,7 +18,7 @@
       return;
     }
     if (password !== confirmPassword) {
-      error = 'Passwords do not match';
+      error = $_('auth.passwordMismatch');
       return;
     }
     if (password.length < 6) {
@@ -30,7 +31,7 @@
       await api.userRegister(username, password, displayName || undefined, email || undefined);
       navigate('/login', { replace: true });
     } catch (e) {
-      error = e.message || 'Registration failed';
+      error = e.message || $_('auth.registrationFailed');
     } finally {
       loading = false;
     }
@@ -48,54 +49,54 @@
     <div class="text-center mb-8">
       <img src="/images/logo.png" alt="AionHive" class="w-20 h-20 rounded-2xl mb-5 shadow-glow float-anim mx-auto block" />
       <h1 class="text-[28px] font-extrabold text-surface-800 tracking-tight">AionHive</h1>
-      <p class="text-surface-500 text-sm mt-2 font-medium">Create your account</p>
+      <p class="text-surface-500 text-sm mt-2 font-medium">{$_('auth.createAccount')}</p>
     </div>
 
     <div class="bg-white/90 backdrop-blur-xl rounded-2xl shadow-elevated-lg p-8 border border-surface-200/60 ring-1 ring-brand-500/5">
       <form on:submit|preventDefault={handleRegister} class="space-y-4">
         <div>
-          <label for="reg-username" class="block text-xs font-semibold text-surface-600 uppercase tracking-wider mb-2">Username <span class="text-rose-500">*</span></label>
+          <label for="reg-username" class="block text-xs font-semibold text-surface-600 uppercase tracking-wider mb-2">{$_('auth.username')} <span class="text-rose-500">*</span></label>
           <input
             id="reg-username"
             type="text"
             bind:value={username}
-            placeholder="Choose a username"
+            placeholder={$_('auth.chooseUsername')}
             class="w-full px-4 py-3 border border-surface-200 rounded-xl text-sm input-focus outline-none font-medium bg-surface-50/80 text-surface-800 placeholder:text-surface-500"
           />
         </div>
 
         <div>
-          <label for="reg-display-name" class="block text-xs font-semibold text-surface-600 uppercase tracking-wider mb-2">Display Name</label>
+          <label for="reg-display-name" class="block text-xs font-semibold text-surface-600 uppercase tracking-wider mb-2">{$_('profile.displayName')}</label>
           <input
             id="reg-display-name"
             type="text"
             bind:value={displayName}
-            placeholder="Your display name (optional)"
+            placeholder={$_('auth.displayNameOptional')}
             class="w-full px-4 py-3 border border-surface-200 rounded-xl text-sm input-focus outline-none font-medium bg-surface-50/80 text-surface-800 placeholder:text-surface-500"
           />
         </div>
 
         <div>
-          <label for="reg-email" class="block text-xs font-semibold text-surface-600 uppercase tracking-wider mb-2">Email <span class="text-rose-500">*</span></label>
+          <label for="reg-email" class="block text-xs font-semibold text-surface-600 uppercase tracking-wider mb-2">{$_('auth.email')} <span class="text-rose-500">*</span></label>
           <input
             id="reg-email"
             type="email"
             bind:value={email}
             required
-            placeholder="Your email address"
+            placeholder={$_('auth.enterEmail')}
             class="w-full px-4 py-3 border border-surface-200 rounded-xl text-sm input-focus outline-none font-medium bg-surface-50/80 text-surface-800 placeholder:text-surface-500"
           />
         </div>
 
         <div>
-          <label for="reg-password" class="block text-xs font-semibold text-surface-600 uppercase tracking-wider mb-2">Password <span class="text-rose-500">*</span></label>
+          <label for="reg-password" class="block text-xs font-semibold text-surface-600 uppercase tracking-wider mb-2">{$_('auth.password')} <span class="text-rose-500">*</span></label>
           <div class="relative">
             {#if showPassword}
             <input
               id="reg-password"
               type="text"
               bind:value={password}
-              placeholder="At least 6 characters"
+              placeholder={$_('auth.passwordAtLeast6')}
               class="w-full px-4 pr-12 py-3 border border-surface-200 rounded-xl text-sm input-focus outline-none font-medium bg-surface-50/80 text-surface-800 placeholder:text-surface-500"
             />
             {:else}
@@ -103,7 +104,7 @@
               id="reg-password"
               type="password"
               bind:value={password}
-              placeholder="At least 6 characters"
+              placeholder={$_('auth.passwordAtLeast6')}
               class="w-full px-4 pr-12 py-3 border border-surface-200 rounded-xl text-sm input-focus outline-none font-medium bg-surface-50/80 text-surface-800 placeholder:text-surface-500"
             />
             {/if}
@@ -128,13 +129,13 @@
         </div>
 
         <div>
-          <label for="reg-confirm-password" class="block text-xs font-semibold text-surface-600 uppercase tracking-wider mb-2">Confirm Password <span class="text-rose-500">*</span></label>
+          <label for="reg-confirm-password" class="block text-xs font-semibold text-surface-600 uppercase tracking-wider mb-2">{$_('auth.confirmPassword')} <span class="text-rose-500">*</span></label>
           {#if showPassword}
           <input
             id="reg-confirm-password"
             type="text"
             bind:value={confirmPassword}
-            placeholder="Re-enter your password"
+            placeholder={$_('auth.enterConfirmPassword')}
             class="w-full px-4 py-3 border border-surface-200 rounded-xl text-sm input-focus outline-none font-medium bg-surface-50/80 text-surface-800 placeholder:text-surface-500"
           />
           {:else}
@@ -142,7 +143,7 @@
             id="reg-confirm-password"
             type="password"
             bind:value={confirmPassword}
-            placeholder="Re-enter your password"
+            placeholder={$_('auth.enterConfirmPassword')}
             class="w-full px-4 py-3 border border-surface-200 rounded-xl text-sm input-focus outline-none font-medium bg-surface-50/80 text-surface-800 placeholder:text-surface-500"
           />
           {/if}
@@ -167,20 +168,20 @@
               <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"/>
               <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z"/>
             </svg>
-            Creating account...
+            {$_('auth.registering')}
           {:else}
-            Create Account
+            {$_('auth.createAccountButton')}
           {/if}
         </button>
       </form>
     </div>
 
     <p class="text-center text-surface-500 text-sm mt-5 font-medium">
-      Already have an account? <a href="/login" use:link class="text-brand-600 hover:text-brand-700 font-semibold">Sign in</a>
+      {$_('auth.alreadyHaveAccount')} <a href="/login" use:link class="text-brand-600 hover:text-brand-700 font-semibold">{$_('auth.login')}</a>
     </p>
 
     <p class="text-center text-surface-500 text-xs mt-6 font-medium">
-      AionHive v0.3.0
+      {$_('app.name')} {$_('app.version')}
     </p>
   </div>
 </div>

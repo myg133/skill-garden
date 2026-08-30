@@ -1,6 +1,9 @@
 import App from './App.svelte';
 import './app.css';
 
+// 初始化 i18n
+import './i18n/index.js';
+
 const app = new App({
   target: document.getElementById('app'),
   props: {

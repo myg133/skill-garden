@@ -10,6 +10,7 @@
   import UserNav from './components/UserNav.svelte';
   import OrgSwitcher from './components/OrgSwitcher.svelte';
   import RoleBadges from './components/RoleBadges.svelte';
+  import LanguageSwitcher from './components/LanguageSwitcher.svelte';
   import Toast from './components/Toast.svelte';
   import Review from './routes/Review.svelte';
   import SkillDetail from './routes/SkillDetail.svelte';
@@ -93,7 +94,7 @@
     <div class="flex h-screen overflow-hidden bg-gray-50 items-center justify-center">
       <div class="flex flex-col items-center gap-3">
         <div class="w-10 h-10 rounded-full border-2 border-blue-500 border-t-transparent animate-spin"></div>
-        <p class="text-sm text-gray-400 font-medium">Loading…</p>
+        <p class="text-sm text-gray-400 font-medium" data-i18n="app.loading">Loading…</p>
       </div>
     </div>
   {:else if showAdminLayout}
@@ -107,6 +108,7 @@
             <OrgSwitcher showPersonal={showPersonalOption} />
           {/if}
           <RoleBadges className="ml-auto flex-shrink-0" />
+          <LanguageSwitcher className="ml-4 flex-shrink-0" />
         </div>
         <!-- Content area -->
         <div class="flex-1 overflow-y-auto relative">
@@ -150,6 +152,7 @@
             <OrgSwitcher showPersonal={showPersonalOption} />
           {/if}
           <RoleBadges className="ml-auto flex-shrink-0" />
+          <LanguageSwitcher className="ml-4 flex-shrink-0" />
         </div>
         <div class="flex-1 overflow-y-auto relative">
           <main class="relative">
