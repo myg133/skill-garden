@@ -138,8 +138,8 @@
   <div class="page-header">
     <div class="flex items-center justify-between">
       <div>
-        <h1 class="text-[28px] font-extrabold text-gray-800 tracking-tight">My Profile</h1>
-        <p class="text-gray-500 text-sm mt-1.5 font-medium">Manage your account information</p>
+        <h1 class="text-[28px] font-extrabold text-gray-800 tracking-tight">{$_('profile.title')}</h1>
+        <p class="text-gray-500 text-sm mt-1.5 font-medium">{$_('profile.description')}</p>
       </div>
       {#if !editing}
         <button
@@ -147,7 +147,7 @@
           class="btn-primary px-5 py-2.5 rounded-xl font-semibold text-sm flex items-center gap-2"
         >
           <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15.232 5.232l3.536 3.536m-2.036-5.036a2.5 2.5 0 113.536 3.536L6.5 21.036H3v-3.572L16.732 3.732z"/></svg>
-          Edit Profile
+          {$_('profile.editProfile')}
         </button>
       {/if}
     </div>
@@ -162,13 +162,13 @@
       <div class="xl:col-span-2 space-y-6">
         <div class="bg-white rounded-2xl border border-gray-200 shadow-card">
           <div class="px-6 py-5 border-b border-gray-100">
-            <h2 class="font-semibold text-gray-800 text-sm">Account Information</h2>
+            <h2 class="font-semibold text-gray-800 text-sm">{$_('profile.accountInformation')}</h2>
           </div>
           <div class="p-6">
             {#if editing}
               <div class="space-y-4">
                 <div>
-                  <label for="display-name" class="block text-xs font-semibold text-gray-500 uppercase tracking-wider mb-2">Display Name</label>
+                  <label for="display-name" class="block text-xs font-semibold text-gray-500 uppercase tracking-wider mb-2">{$_('profile.displayName')}</label>
                   <input
                     id="display-name"
                     type="text"
@@ -178,7 +178,7 @@
                   />
                 </div>
                 <div>
-                  <label for="email" class="block text-xs font-semibold text-gray-500 uppercase tracking-wider mb-2">Email</label>
+                  <label for="email" class="block text-xs font-semibold text-gray-500 uppercase tracking-wider mb-2">{$_('profile.email')}</label>
                   <input
                     id="email"
                     type="email"
@@ -188,7 +188,7 @@
                   />
                 </div>
                 <div>
-                  <label for="avatar-url" class="block text-xs font-semibold text-gray-500 uppercase tracking-wider mb-2">Avatar URL</label>
+                  <label for="avatar-url" class="block text-xs font-semibold text-gray-500 uppercase tracking-wider mb-2">{$_('profile.avatarUrl')}</label>
                   <input
                     id="avatar-url"
                     type="url"
@@ -242,11 +242,11 @@
                 </div>
                 <div class="grid grid-cols-2 gap-4 pt-4 border-t border-gray-100">
                   <div>
-                    <p class="text-gray-400 text-xs font-semibold uppercase tracking-wider mb-1">User ID</p>
+                    <p class="text-gray-400 text-xs font-semibold uppercase tracking-wider mb-1">{$_('profile.userId')}</p>
                     <p class="text-gray-600 text-sm font-mono">{user.id}</p>
                   </div>
                   <div>
-                    <p class="text-gray-400 text-xs font-semibold uppercase tracking-wider mb-1">Created</p>
+                    <p class="text-gray-400 text-xs font-semibold uppercase tracking-wider mb-1">{$_('profile.created')}</p>
                     <p class="text-gray-600 text-sm">{new Date(user.created_at).toLocaleDateString()}</p>
                   </div>
                 </div>
@@ -257,13 +257,13 @@
 
         <div class="bg-white rounded-2xl border border-gray-200 shadow-card">
           <div class="px-6 py-5 border-b border-gray-200 flex items-center justify-between">
-            <h2 class="font-semibold text-gray-800 text-sm">Security</h2>
+            <h2 class="font-semibold text-gray-800 text-sm">{$_('profile.security')}</h2>
           </div>
           <div class="p-6">
             <div class="flex items-center justify-between">
               <div>
                 <p class="text-gray-800 font-semibold text-sm">Password</p>
-                <p class="text-gray-400 text-xs mt-0.5">Last changed: never</p>
+                <p class="text-gray-400 text-xs mt-0.5">{$_('profile.lastChanged')}: {$_('profile.never')}</p>
               </div>
               <button
                 on:click={() => { showPasswordModal = true; newPassword = ''; confirmPassword = ''; }}
@@ -280,7 +280,7 @@
       <div class="space-y-6">
         <div class="bg-white rounded-2xl border border-gray-200 shadow-card">
           <div class="px-6 py-5 border-b border-emerald-100/60">
-            <h2 class="font-semibold text-gray-800 text-sm">My Organizations ({userOrgs.length})</h2>
+            <h2 class="font-semibold text-gray-800 text-sm">{$_('profile.myOrganizations')} ({userOrgs.length})</h2>
           </div>
           <div class="p-4">
             <div class="space-y-3">
@@ -313,10 +313,10 @@
 {#if showPasswordModal}
 <div class="fixed inset-0 bg-black/40 flex items-center justify-center z-50 modal-overlay">
   <div class="bg-white rounded-2xl p-6 w-full max-w-md shadow-elevated-lg border border-gray-200 modal-content">
-    <h2 class="text-lg font-bold text-gray-800 mb-5">Change Password</h2>
+    <h2 class="text-lg font-bold text-gray-800 mb-5">{$_('profile.changePassword')}</h2>
     <div class="space-y-4">
       <div>
-        <label for="new-password" class="block text-xs font-semibold text-gray-500 uppercase tracking-wider mb-2">New Password</label>
+        <label for="new-password" class="block text-xs font-semibold text-gray-500 uppercase tracking-wider mb-2">{$_('profile.newPassword')}</label>
         <input
           id="new-password"
           type="password"
@@ -326,7 +326,7 @@
         />
       </div>
       <div>
-        <label for="confirm-password" class="block text-xs font-semibold text-gray-500 uppercase tracking-wider mb-2">Confirm Password</label>
+        <label for="confirm-password" class="block text-xs font-semibold text-gray-500 uppercase tracking-wider mb-2">{$_('profile.confirmPassword')}</label>
         <input
           id="confirm-password"
           type="password"

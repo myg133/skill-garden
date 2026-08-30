@@ -130,15 +130,15 @@
   <div class="page-header">
     <div class="flex items-center justify-between">
       <div>
-        <h1 class="text-[28px] font-extrabold text-gray-800 tracking-tight">My API Keys</h1>
-        <p class="text-gray-500 text-sm mt-1.5 font-medium">Manage your personal API keys</p>
+        <h1 class="text-[28px] font-extrabold text-gray-800 tracking-tight">{$_('apiKeys.myApiKeys')}</h1>
+        <p class="text-gray-500 text-sm mt-1.5 font-medium">{$_('apiKeys.manageApiKeys')}</p>
       </div>
       <button
         on:click={() => { showCreateModal = true; newKeyForm = { organization_id: '', name: '', expires_in_days: null }; newlyCreatedKey = ''; }}
         class="btn-primary px-5 py-2.5 rounded-xl font-semibold text-sm flex items-center gap-2"
       >
         <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 4v16m8-8H4"/></svg>
-        New API Key
+        {$_('apiKeys.newApiKey')}
       </button>
     </div>
   </div>
@@ -155,19 +155,19 @@
             <div class="w-12 h-12 rounded-2xl bg-indigo-100 flex items-center justify-center mx-auto mb-4">
               <svg class="w-6 h-6 text-indigo-500" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M15 7a2 2 0 012 2m4 0a6 6 0 01-7.743 5.743L11 17H9v2H7v2H4a1 1 0 01-1-1v-2.586a1 1 0 01.293-.707l5.964-5.964A6 6 0 1121 9z"/></svg>
             </div>
-            <p class="text-gray-500 text-sm font-medium">No API keys yet</p>
+            <p class="text-gray-500 text-sm font-medium">{$_('apiKeys.noApiKeys')}</p>
             <p class="text-gray-400 text-xs mt-1">Create your first API key to authenticate with the API</p>
           </div>
         {:else}
           <table class="w-full">
             <thead class="bg-gray-50 border-b border-gray-100">
               <tr>
-                <th class="px-6 py-3 text-left text-xs font-semibold text-gray-500 uppercase tracking-wider">Name</th>
-                <th class="px-6 py-3 text-left text-xs font-semibold text-gray-500 uppercase tracking-wider">Key Prefix</th>
-                <th class="px-6 py-3 text-left text-xs font-semibold text-gray-500 uppercase tracking-wider">Status</th>
-                <th class="px-6 py-3 text-left text-xs font-semibold text-gray-500 uppercase tracking-wider">Created</th>
-                <th class="px-6 py-3 text-left text-xs font-semibold text-gray-500 uppercase tracking-wider">Expires</th>
-                <th class="px-6 py-3 text-right text-xs font-semibold text-gray-500 uppercase tracking-wider">Actions</th>
+                <th class="px-6 py-3 text-left text-xs font-semibold text-gray-500 uppercase tracking-wider">{$_('common.name')}</th>
+                <th class="px-6 py-3 text-left text-xs font-semibold text-gray-500 uppercase tracking-wider">{$_('apiKeys.keyPrefix')}</th>
+                <th class="px-6 py-3 text-left text-xs font-semibold text-gray-500 uppercase tracking-wider">{$_('common.status')}</th>
+                <th class="px-6 py-3 text-left text-xs font-semibold text-gray-500 uppercase tracking-wider">{$_('common.created')}</th>
+                <th class="px-6 py-3 text-left text-xs font-semibold text-gray-500 uppercase tracking-wider">{$_('apiKeys.expiresAt')}</th>
+                <th class="px-6 py-3 text-right text-xs font-semibold text-gray-500 uppercase tracking-wider">{$_('common.actions')}</th>
               </tr>
             </thead>
             <tbody class="divide-y divide-gray-100">
@@ -236,11 +236,11 @@
 {#if showCreateModal}
 <div class="fixed inset-0 bg-black/40 flex items-center justify-center z-50 modal-overlay">
   <div class="bg-white rounded-2xl p-6 w-full max-w-md shadow-elevated-lg border border-gray-200 modal-content">
-    <h2 class="text-lg font-bold text-gray-800 mb-5">Create API Key</h2>
+    <h2 class="text-lg font-bold text-gray-800 mb-5">{$_('apiKeys.createApiKey')}</h2>
     {#if newlyCreatedKey}
       <div class="mb-4 p-4 bg-emerald-50 border border-emerald-200 rounded-xl">
-        <p class="text-emerald-700 text-sm font-semibold mb-2">API Key Created</p>
-        <p class="text-emerald-600 text-xs mb-3">Copy this key now — it will not be shown again.</p>
+        <p class="text-emerald-700 text-sm font-semibold mb-2">{$_('apiKeys.apiKeyCreated')}</p>
+        <p class="text-emerald-600 text-xs mb-3">{$_('apiKeys.copyKeyNow')}</p>
         <div class="flex items-center gap-2">
           <code class="flex-1 text-xs font-mono bg-white border border-emerald-200 rounded-lg px-3 py-2 text-gray-700 break-all">{newlyCreatedKey}</code>
           <button
@@ -262,7 +262,7 @@
     {:else}
       <div class="space-y-4">
         <div>
-          <label for="myapikey-org" class="block text-xs font-semibold text-gray-500 uppercase tracking-wider mb-2">Organization</label>
+          <label for="myapikey-org" class="block text-xs font-semibold text-gray-500 uppercase tracking-wider mb-2">{$_('common.organization')}</label>
           <select
             id="myapikey-org"
             bind:value={newKeyForm.organization_id}
@@ -275,7 +275,7 @@
           </select>
         </div>
         <div>
-          <label for="myapikey-name" class="block text-xs font-semibold text-gray-500 uppercase tracking-wider mb-2">Name</label>
+          <label for="myapikey-name" class="block text-xs font-semibold text-gray-500 uppercase tracking-wider mb-2">{$_('common.name')}</label>
           <input
             id="myapikey-name"
             type="text"
@@ -285,7 +285,7 @@
           />
         </div>
         <div>
-          <label for="myapikey-expires" class="block text-xs font-semibold text-gray-500 uppercase tracking-wider mb-2">Expires In (days)</label>
+          <label for="myapikey-expires" class="block text-xs font-semibold text-gray-500 uppercase tracking-wider mb-2">{$_('apiKeys.expiresAt')}</label>
           <input
             id="myapikey-expires"
             type="number"

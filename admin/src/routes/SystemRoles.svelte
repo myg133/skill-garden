@@ -185,7 +185,7 @@
     <div class="bg-red-50 border border-red-100 text-red-600 px-5 py-4 rounded-xl text-sm font-medium">{error}</div>
   {:else if systemAssignments.length === 0 && tenantAssignments.length === 0}
     <div class="bg-white rounded-xl border border-gray-200 shadow-card">
-      <EmptyState message="No system role assignments yet" />
+      <EmptyState message={$_('roles.noAssignments')} />
     </div>
   {:else}
     <!-- System Role Assignments -->
@@ -352,7 +352,7 @@
         disabled={adding || !addForm.email.trim() || (addForm.role === 'tenant_admin' && !addForm.tenant_id)}
         class="px-5 py-2.5 rounded-xl font-semibold text-sm bg-blue-600 text-white hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed transition-colors shadow-sm"
       >
-        {adding ? 'Assigning...' : 'Confirm'}
+        {adding ? $_('common.loading') : $_('common.confirm')}
       </button>
     </div>
   </div>

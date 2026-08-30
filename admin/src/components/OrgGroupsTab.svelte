@@ -1,5 +1,6 @@
 ﻿<script>
   import Icon from './Icon.svelte';
+  import { _ } from 'svelte-i18n';
 
   export let groups = [];
   export let loadingGroups = false;
@@ -102,31 +103,31 @@
 
 <div class="bg-white rounded-2xl border border-gray-200 shadow-card">
   <div class="px-6 py-4 border-b border-gray-100 flex items-center justify-between">
-    <h2 class="font-semibold text-gray-800 text-sm">Groups ({groups.length})</h2>
+    <h2 class="font-semibold text-gray-800 text-sm">{$_('organizations.groups', { values: { count: groups.length } })}</h2>
     {#if canCreateGroup}
       <button
         on:click={() => { showCreateGroupModal = true; newGroup = { name: '', slug: '', description: '', group_type: 'team' }; }}
         class="btn-primary px-4 py-2 rounded-xl font-semibold text-sm flex items-center gap-2"
       >
         <Icon name="plus" size="w-4 h-4" />
-        New Group
+        {$_('organizations.createGroup')}
       </button>
     {/if}
   </div>
   {#if loadingGroups}
-    <div class="p-8 text-center text-gray-400 text-sm">Loading...</div>
+    <div class="p-8 text-center text-gray-400 text-sm">{$_('organizations.loading')}</div>
   {:else if groups.length === 0}
-    <div class="px-6 py-16 text-center text-gray-400 text-sm font-medium">No groups yet</div>
+    <div class="px-6 py-16 text-center text-gray-400 text-sm font-medium">{$_('organizations.noGroups')}</div>
   {:else}
     <div class="overflow-x-auto">
       <table class="w-full">
         <thead class="bg-gray-50 border-b border-gray-100">
           <tr>
-            <th class="px-6 py-3 text-left text-xs font-semibold text-gray-500 uppercase tracking-wider">Group</th>
-            <th class="px-6 py-3 text-left text-xs font-semibold text-gray-500 uppercase tracking-wider">Type</th>
-            <th class="px-6 py-3 text-left text-xs font-semibold text-gray-500 uppercase tracking-wider">Slug</th>
-            <th class="px-6 py-3 text-left text-xs font-semibold text-gray-500 uppercase tracking-wider">Description</th>
-            <th class="px-6 py-3 text-right text-xs font-semibold text-gray-500 uppercase tracking-wider">Actions</th>
+            <th class="px-6 py-3 text-left text-xs font-semibold text-gray-500 uppercase tracking-wider">{$_('organizations.table.group')}</th>
+            <th class="px-6 py-3 text-left text-xs font-semibold text-gray-500 uppercase tracking-wider">{$_('organizations.table.type')}</th>
+            <th class="px-6 py-3 text-left text-xs font-semibold text-gray-500 uppercase tracking-wider">{$_('organizations.table.slug')}</th>
+            <th class="px-6 py-3 text-left text-xs font-semibold text-gray-500 uppercase tracking-wider">{$_('organizations.table.description')}</th>
+            <th class="px-6 py-3 text-right text-xs font-semibold text-gray-500 uppercase tracking-wider">{$_('organizations.table.actions')}</th>
           </tr>
         </thead>
         <tbody class="divide-y divide-gray-100">
@@ -166,21 +167,21 @@
                 <td colspan="5" class="px-6 py-4 bg-blue-50">
                   <div class="flex gap-3 items-end">
                     <div class="flex-1">
-                      <label for="edit-group-name" class="block text-xs font-semibold text-gray-500 uppercase tracking-wider mb-1">Name</label>
+                      <label for="edit-group-name" class="block text-xs font-semibold text-gray-500 uppercase tracking-wider mb-1">{$_('common.name')}</label>
                       <input id="edit-group-name" type="text" bind:value={editGroupForm.name} class="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm input-focus outline-none bg-white" />
                     </div>
                     <div class="flex-1">
-                      <label for="edit-group-type" class="block text-xs font-semibold text-gray-500 uppercase tracking-wider mb-1">Type</label>
+                      <label for="edit-group-type" class="block text-xs font-semibold text-gray-500 uppercase tracking-wider mb-1">{$_('common.type')}</label>
                       <select id="edit-group-type" bind:value={editGroupForm.group_type} class="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm input-focus outline-none bg-white">
                         {#each groupTypes as gt}<option value={gt}>{gt}</option>{/each}
                       </select>
                     </div>
                     <div class="flex-1">
-                      <label for="edit-group-desc" class="block text-xs font-semibold text-gray-500 uppercase tracking-wider mb-1">Description</label>
+                      <label for="edit-group-desc" class="block text-xs font-semibold text-gray-500 uppercase tracking-wider mb-1">{$_('common.description')}</label>
                       <input id="edit-group-desc" type="text" bind:value={editGroupForm.description} class="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm input-focus outline-none bg-white" />
                     </div>
-                    <button on:click={handleUpdateGroup} class="btn-primary px-4 py-2 rounded-lg text-sm font-semibold">Save</button>
-                    <button on:click={() => editingGroup = null} class="px-4 py-2 text-gray-500 font-semibold text-sm hover:bg-gray-100 rounded-lg">Cancel</button>
+                    <button on:click={handleUpdateGroup} class="btn-primary px-4 py-2 rounded-lg text-sm font-semibold">{$_('common.save')}</button>
+                    <button on:click={() => editingGroup = null} class="px-4 py-2 text-gray-500 font-semibold text-sm hover:bg-gray-100 rounded-lg">{$_('common.cancel')}</button>
                   </div>
                 </td>
               </tr>
@@ -196,29 +197,29 @@
 {#if showCreateGroupModal}
 <div class="fixed inset-0 bg-black/40 flex items-center justify-center z-50 modal-overlay">
   <div class="bg-white rounded-2xl p-6 w-full max-w-md shadow-elevated-lg border border-gray-200 modal-content">
-    <h2 class="text-lg font-bold text-gray-800 mb-5">Create Group</h2>
+    <h2 class="text-lg font-bold text-gray-800 mb-5">{$_('organizations.createGroup')}</h2>
     <div class="space-y-4">
       <div>
-        <label for="group-name" class="block text-xs font-semibold text-gray-500 uppercase tracking-wider mb-2">Name</label>
+        <label for="group-name" class="block text-xs font-semibold text-gray-500 uppercase tracking-wider mb-2">{$_('common.name')}</label>
         <input id="group-name" type="text" bind:value={newGroup.name} placeholder="Group name" class="w-full px-4 py-3 border border-gray-200 rounded-xl text-sm input-focus outline-none font-medium bg-white text-gray-900" />
       </div>
       <div>
-        <label for="group-slug" class="block text-xs font-semibold text-gray-500 uppercase tracking-wider mb-2">Slug</label>
+        <label for="group-slug" class="block text-xs font-semibold text-gray-500 uppercase tracking-wider mb-2">{$_('common.slug')}</label>
         <input id="group-slug" type="text" bind:value={newGroup.slug} placeholder="group-slug" class="w-full px-4 py-3 border border-gray-200 rounded-xl text-sm input-focus outline-none font-medium bg-white text-gray-900" />
       </div>
       <div>
-        <label for="group-type" class="block text-xs font-semibold text-gray-500 uppercase tracking-wider mb-2">Type</label>
+        <label for="group-type" class="block text-xs font-semibold text-gray-500 uppercase tracking-wider mb-2">{$_('common.type')}</label>
         <select id="group-type" bind:value={newGroup.group_type} class="w-full px-4 py-3 border border-gray-200 rounded-xl text-sm input-focus outline-none font-medium bg-white text-gray-900">
           {#each groupTypes as gt}<option value={gt}>{gt}</option>{/each}
         </select>
       </div>
       <div>
-        <label for="group-desc" class="block text-xs font-semibold text-gray-500 uppercase tracking-wider mb-2">Description</label>
+        <label for="group-desc" class="block text-xs font-semibold text-gray-500 uppercase tracking-wider mb-2">{$_('common.description')}</label>
         <input id="group-desc" type="text" bind:value={newGroup.description} placeholder="Optional description" class="w-full px-4 py-3 border border-gray-200 rounded-xl text-sm input-focus outline-none font-medium bg-white text-gray-900" />
       </div>
       <div class="flex gap-3 justify-end pt-1">
-        <button on:click={() => { showCreateGroupModal = false; }} class="px-4 py-2.5 text-gray-500 hover:text-gray-800 font-semibold text-sm transition-all rounded-lg hover:bg-gray-50">Cancel</button>
-        <button on:click={handleCreateGroup} disabled={creating || !newGroup.name.trim() || !newGroup.slug.trim()} class="btn-primary px-5 py-2.5 rounded-xl font-semibold text-sm disabled:opacity-50 disabled:cursor-not-allowed">{creating ? 'Creating...' : 'Create'}</button>
+        <button on:click={() => { showCreateGroupModal = false; }} class="px-4 py-2.5 text-gray-500 hover:text-gray-800 font-semibold text-sm transition-all rounded-lg hover:bg-gray-50">{$_('common.cancel')}</button>
+        <button on:click={handleCreateGroup} disabled={creating || !newGroup.name.trim() || !newGroup.slug.trim()} class="btn-primary px-5 py-2.5 rounded-xl font-semibold text-sm disabled:opacity-50 disabled:cursor-not-allowed">{creating ? $_('common.loading') : $_('common.create')}</button>
       </div>
     </div>
   </div>
@@ -235,7 +236,7 @@
         {#if canManageMembers}
           <button on:click={handleAddGroupMember} class="btn-primary px-3 py-1.5 rounded-lg text-xs font-semibold flex items-center gap-1.5">
             <Icon name="plus" size="w-3.5 h-3.5" />
-            Add Member
+            {$_('groups.addMember')}
           </button>
         {/if}
         <button on:click={() => { showGroupMembersModal = false; selectedGroup = null; }} class="p-2 rounded-lg text-gray-400 hover:text-gray-600 hover:bg-gray-100 transition-all">
@@ -244,17 +245,17 @@
       </div>
     </div>
     {#if loadingGroupMembers}
-      <div class="text-center py-8 text-gray-400">Loading...</div>
+      <div class="text-center py-8 text-gray-400">{$_('organizations.loading')}</div>
     {:else if groupMembers.length === 0}
-      <div class="text-center py-8 text-gray-400 text-sm font-medium">No members in this group</div>
+      <div class="text-center py-8 text-gray-400 text-sm font-medium">{$_('groups.noMembersYet')}</div>
     {:else}
       <div class="overflow-x-auto">
         <table class="w-full">
           <thead class="bg-gray-50 border-b border-gray-200">
             <tr>
-              <th class="px-4 py-3 text-left text-xs font-semibold text-gray-500 uppercase tracking-wider">User</th>
-              <th class="px-4 py-3 text-left text-xs font-semibold text-gray-500 uppercase tracking-wider">Role</th>
-              <th class="px-4 py-3 text-right text-xs font-semibold text-gray-500 uppercase tracking-wider">Actions</th>
+              <th class="px-4 py-3 text-left text-xs font-semibold text-gray-500 uppercase tracking-wider">{$_('organizations.table.user')}</th>
+              <th class="px-4 py-3 text-left text-xs font-semibold text-gray-500 uppercase tracking-wider">{$_('organizations.table.role')}</th>
+              <th class="px-4 py-3 text-right text-xs font-semibold text-gray-500 uppercase tracking-wider">{$_('organizations.table.actions')}</th>
             </tr>
           </thead>
           <tbody class="divide-y divide-gray-100">
@@ -274,8 +275,8 @@
                       <select bind:value={editGroupMemberRole} class="px-2 py-1 border border-gray-200 rounded-lg text-xs input-focus outline-none bg-white">
                         {#each orgRoles as role}<option value={role}>{role}</option>{/each}
                       </select>
-                      <button on:click={() => handleUpdateGroupMemberRole(member.username || member.agent_id)} class="text-emerald-600 hover:text-emerald-700 text-xs font-semibold">Save</button>
-                      <button on:click={() => { editingGroupMember = null; editGroupMemberRole = ''; }} class="text-gray-400 hover:text-gray-600 text-xs">Cancel</button>
+                      <button on:click={() => handleUpdateGroupMemberRole(member.username || member.agent_id)} class="text-emerald-600 hover:text-emerald-700 text-xs font-semibold">{$_('common.save')}</button>
+                      <button on:click={() => { editingGroupMember = null; editGroupMemberRole = ''; }} class="text-gray-400 hover:text-gray-600 text-xs">{$_('common.cancel')}</button>
                     </div>
                   {:else}
                     <span class="px-2.5 py-1 rounded-full text-xs font-medium {getRoleColor(member.role)}">{member.role}</span>

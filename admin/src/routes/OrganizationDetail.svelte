@@ -365,22 +365,22 @@
         {#if activeTab === 'sessions'}
           <div class="bg-white rounded-xl border border-gray-200 shadow-card">
             <div class="px-6 py-4 border-b border-gray-100">
-              <h2 class="font-semibold text-gray-900 text-sm">Sessions</h2>
+              <h2 class="font-semibold text-gray-900 text-sm">{$_('sessions.title')}</h2>
             </div>
             <div class="max-h-96 overflow-y-auto">
               {#if sessions.length === 0}
-                <div class="px-6 py-12 text-center text-gray-400 text-sm font-medium">No sessions</div>
+                <div class="px-6 py-12 text-center text-gray-400 text-sm font-medium">{$_('sessions.noSessionsYet')}</div>
               {:else}
                 <table class="w-full">
                   <thead>
                     <tr class="border-b border-gray-100 bg-gray-50">
-                      <th class="px-6 py-3 text-left text-xs font-semibold text-gray-400 uppercase tracking-wider">Identity</th>
-                      <th class="px-6 py-3 text-left text-xs font-semibold text-gray-400 uppercase tracking-wider">Status</th>
-                      <th class="px-6 py-3 text-left text-xs font-semibold text-gray-400 uppercase tracking-wider">Created</th>
-                      <th class="px-6 py-3 text-left text-xs font-semibold text-gray-400 uppercase tracking-wider">Last Active</th>
-                      <th class="px-6 py-3 text-left text-xs font-semibold text-gray-400 uppercase tracking-wider">Ended</th>
-                      <th class="px-6 py-3 text-left text-xs font-semibold text-gray-400 uppercase tracking-wider">Duration</th>
-                      <th class="px-6 py-3 text-right text-xs font-semibold text-gray-400 uppercase tracking-wider">Actions</th>
+                      <th class="px-6 py-3 text-left text-xs font-semibold text-gray-400 uppercase tracking-wider">{$_('sessions.sessionId')}</th>
+                      <th class="px-6 py-3 text-left text-xs font-semibold text-gray-400 uppercase tracking-wider">{$_('common.status')}</th>
+                      <th class="px-6 py-3 text-left text-xs font-semibold text-gray-400 uppercase tracking-wider">{$_('common.created')}</th>
+                      <th class="px-6 py-3 text-left text-xs font-semibold text-gray-400 uppercase tracking-wider">{$_('sessions.lastActive')}</th>
+                      <th class="px-6 py-3 text-left text-xs font-semibold text-gray-400 uppercase tracking-wider">{$_('sessions.endedLabel')}</th>
+                      <th class="px-6 py-3 text-left text-xs font-semibold text-gray-400 uppercase tracking-wider">{$_('sessions.duration')}</th>
+                      <th class="px-6 py-3 text-right text-xs font-semibold text-gray-400 uppercase tracking-wider">{$_('common.actions')}</th>
                     </tr>
                   </thead>
                   <tbody class="divide-y divide-gray-50">
@@ -399,7 +399,7 @@
                         <td class="px-6 py-4 text-gray-500 text-sm font-medium whitespace-nowrap">{formatDuration(session.created_at, session.ended_at)}</td>
                         <td class="px-6 py-4 text-right">
                           {#if session.status === 'active'}
-                            <button on:click={() => handleEndSession(session.id)} class="text-red-500 hover:text-red-600 text-xs font-semibold transition-colors">End</button>
+                            <button on:click={() => handleEndSession(session.id)} class="text-red-500 hover:text-red-600 text-xs font-semibold transition-colors">{$_('sessions.endSession')}</button>
                           {:else}
                             <span class="text-gray-300 text-xs">—</span>
                           {/if}
@@ -416,20 +416,20 @@
         {#if activeTab === 'tools'}
           <div class="bg-white rounded-xl border border-gray-200 shadow-card">
             <div class="px-6 py-4 border-b border-gray-100 flex items-center justify-between">
-              <h2 class="font-semibold text-gray-900 text-sm">Registered Tools</h2>
+              <h2 class="font-semibold text-gray-900 text-sm">{$_('orgTools.registeredTools')}</h2>
               {#if isOrgAdmin || isTenantOrSuper}
               <button
                 on:click={() => showRegisterToolModal = true}
                 class="btn-primary px-4 py-2 rounded-xl font-semibold text-sm flex items-center gap-2"
               >
                 <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 4v16m8-8H4"/></svg>
-                Register Tool
+                {$_('orgTools.registerTool')}
               </button>
               {/if}
             </div>
             <div class="p-4 max-h-80 overflow-y-auto">
               {#if orgTools.length === 0}
-                <div class="py-12 text-center text-gray-400 text-sm font-medium">No tools registered</div>
+                <div class="py-12 text-center text-gray-400 text-sm font-medium">{$_('orgTools.noToolsYet')}</div>
               {:else}
                 <div class="grid grid-cols-1 sm:grid-cols-2 gap-3">
                   {#each orgTools as tool (tool.id)}
@@ -452,7 +452,7 @@
       <!-- svelte-ignore a11y-click-events-have-key-events a11y-no-static-element-interactions -->
       <div class="bg-white rounded-2xl p-6 w-full max-w-lg shadow-elevated border border-gray-200 max-h-[85vh] overflow-y-auto" on:click|stopPropagation>
         <div class="flex items-center justify-between mb-5">
-          <h2 class="text-lg font-semibold text-gray-800">Register Tool</h2>
+          <h2 class="text-lg font-semibold text-gray-800">{$_('orgTools.registerTool')}</h2>
           <button on:click={() => showRegisterToolModal = false}
             class="p-2 text-gray-400 hover:text-gray-600 hover:bg-gray-100 rounded-xl transition-all">
             <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M6 18L18 6M6 6l12 12"/></svg>
@@ -460,17 +460,17 @@
         </div>
         <div class="space-y-4">
           <div>
-            <label for="tool-name" class="block text-sm font-semibold text-gray-500 mb-2">Tool Name</label>
+            <label for="tool-name" class="block text-sm font-semibold text-gray-500 mb-2">{$_('orgTools.toolName')}</label>
             <input id="tool-name" type="text" bind:value={newTool.name} placeholder="e.g., github-cli, docker-tool"
               class="w-full px-4 py-2.5 border border-gray-200 rounded-xl text-sm input-focus outline-none bg-white text-gray-900" />
           </div>
           <div>
-            <label for="tool-id" class="block text-sm font-semibold text-gray-500 mb-2">Tool ID</label>
+            <label for="tool-id" class="block text-sm font-semibold text-gray-500 mb-2">{$_('orgTools.toolId')}</label>
             <input id="tool-id" type="text" bind:value={newTool.tool_id} placeholder="e.g., github_issue_lister"
               class="w-full px-4 py-2.5 border border-gray-200 rounded-xl text-sm input-focus outline-none bg-white text-gray-900" />
           </div>
           <div>
-            <label for="tool-desc" class="block text-sm font-semibold text-gray-500 mb-2">Description</label>
+            <label for="tool-desc" class="block text-sm font-semibold text-gray-500 mb-2">{$_('common.description')}</label>
             <input id="tool-desc" type="text" bind:value={newTool.description} placeholder="Describe what this tool does"
               class="w-full px-4 py-2.5 border border-gray-200 rounded-xl text-sm input-focus outline-none bg-white text-gray-900" />
           </div>
@@ -491,7 +491,7 @@
               class="px-4 py-2.5 text-gray-500 hover:text-gray-800 font-semibold text-sm transition-all rounded-lg hover:bg-gray-50">Cancel</button>
             <button on:click={handleRegisterTool} disabled={registeringTool || !newTool.name.trim() || !newTool.tool_id.trim()}
               class="btn-primary px-5 py-2.5 rounded-xl font-semibold text-sm disabled:opacity-50">
-              {registeringTool ? 'Registering...' : 'Register'}
+              {registeringTool ? $_('orgTools.registering') : $_('orgTools.register')}
             </button>
           </div>
         </div>
@@ -521,7 +521,7 @@
   {#if showInviteModal}
   <div class="fixed inset-0 bg-black/40 flex items-center justify-center z-50 modal-overlay">
     <div class="bg-white rounded-xl p-6 w-full max-w-md shadow-elevated-lg border border-gray-200 modal-content">
-      <h2 class="text-lg font-bold text-gray-900 mb-5">Invite Member</h2>
+      <h2 class="text-lg font-bold text-gray-900 mb-5">{$_('organizations.inviteMember')}</h2>
       <div class="space-y-4">
         <div>
           <label for="invite-email" class="block text-xs font-semibold text-gray-500 uppercase tracking-wider mb-2">Email</label>
@@ -546,7 +546,7 @@
   {#if showAddMemberModal}
   <div class="fixed inset-0 bg-black/40 flex items-center justify-center z-50 modal-overlay">
     <div class="bg-white rounded-xl p-6 w-full max-w-md shadow-elevated-lg border border-gray-200 modal-content">
-      <h2 class="text-lg font-bold text-gray-900 mb-5">Add Member to {selectedGroupForAdd?.name}</h2>
+      <h2 class="text-lg font-bold text-gray-900 mb-5">{$_('groups.addMemberToGroup')}: {selectedGroupForAdd?.name}</h2>
       <div class="space-y-4">
         <div>
           <label for="add-member-id" class="block text-xs font-semibold text-gray-500 uppercase tracking-wider mb-2">Identity ID (UUID)</label>

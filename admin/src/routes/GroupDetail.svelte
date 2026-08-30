@@ -429,7 +429,7 @@
         <div class="grid grid-cols-2 gap-0">
           <div class="border-r border-purple-100/60">
             <div class="px-6 py-3 bg-amber-50/50 border-b border-purple-100/60">
-              <h3 class="font-semibold text-gray-700 text-xs uppercase tracking-wider">Lead</h3>
+              <h3 class="font-semibold text-gray-700 text-xs uppercase tracking-wider">{$_('groups.lead')}</h3>
             </div>
             <div class="divide-y divide-purple-100/40">
               {#each permissions.lead || [] as perm (perm.permission_code)}
@@ -451,7 +451,7 @@
           </div>
           <div>
             <div class="px-6 py-3 bg-gray-50/50 border-b border-purple-100/60">
-              <h3 class="font-semibold text-gray-700 text-xs uppercase tracking-wider">Member</h3>
+              <h3 class="font-semibold text-gray-700 text-xs uppercase tracking-wider">{$_('groups.member')}</h3>
             </div>
             <div class="divide-y divide-purple-100/40">
               {#each permissions.member || [] as perm (perm.permission_code)}

@@ -63,8 +63,8 @@
   <div class="page-header">
     <div class="flex items-center justify-between">
       <div>
-        <h1 class="text-[28px] font-extrabold text-gray-800 tracking-tight">Sessions</h1>
-        <p class="text-gray-500 text-sm mt-1.5 font-medium">Monitor active and past MCP sessions per identity</p>
+        <h1 class="text-[28px] font-extrabold text-gray-800 tracking-tight">{$_('sessions.title')}</h1>
+        <p class="text-gray-500 text-sm mt-1.5 font-medium">{$_('sessions.description')}</p>
       </div>
       <div class="flex gap-2.5">
         <select
@@ -94,20 +94,20 @@
     <div class="bg-rose-50 border border-rose-100 text-rose-600 px-5 py-4 rounded-2xl text-sm font-medium">{error}</div>
   {:else if sessions.length === 0}
     <div class="bg-white rounded-2xl border border-gray-200 shadow-card">
-      <EmptyState message="No sessions found" />
+      <EmptyState message={$_('sessions.noSessionsFound')} />
     </div>
   {:else}
     <div class="bg-white rounded-2xl border border-gray-200 overflow-hidden shadow-card">
       <table class="w-full">
         <thead>
           <tr class="border-b border-gray-100 bg-gray-50">
-            <th class="px-5 py-4 text-left text-xs font-semibold text-gray-400 uppercase tracking-wider">Session ID</th>
-            <th class="px-5 py-4 text-left text-xs font-semibold text-gray-400 uppercase tracking-wider">Identity</th>
-            <th class="px-5 py-4 text-left text-xs font-semibold text-gray-400 uppercase tracking-wider">Organization</th>
-            <th class="px-5 py-4 text-left text-xs font-semibold text-gray-400 uppercase tracking-wider">Status</th>
-            <th class="px-5 py-4 text-left text-xs font-semibold text-gray-400 uppercase tracking-wider">Duration</th>
-            <th class="px-5 py-4 text-left text-xs font-semibold text-gray-400 uppercase tracking-wider">Created</th>
-            <th class="px-5 py-4 text-right text-xs font-semibold text-gray-400 uppercase tracking-wider">Actions</th>
+            <th class="px-5 py-4 text-left text-xs font-semibold text-gray-400 uppercase tracking-wider">{$_('sessions.sessionId')}</th>
+            <th class="px-5 py-4 text-left text-xs font-semibold text-gray-400 uppercase tracking-wider">{$_('nav.identities')}</th>
+            <th class="px-5 py-4 text-left text-xs font-semibold text-gray-400 uppercase tracking-wider">{$_('sessions.organization')}</th>
+            <th class="px-5 py-4 text-left text-xs font-semibold text-gray-400 uppercase tracking-wider">{$_('common.status')}</th>
+            <th class="px-5 py-4 text-left text-xs font-semibold text-gray-400 uppercase tracking-wider">{$_('sessions.duration')}</th>
+            <th class="px-5 py-4 text-left text-xs font-semibold text-gray-400 uppercase tracking-wider">{$_('common.created')}</th>
+            <th class="px-5 py-4 text-right text-xs font-semibold text-gray-400 uppercase tracking-wider">{$_('common.actions')}</th>
           </tr>
         </thead>
         <tbody class="divide-y divide-gray-50">
@@ -131,10 +131,10 @@
                     on:click={() => handleEndSession(session.id)}
                     class="text-rose-500 hover:text-rose-600 text-sm font-semibold transition-colors"
                   >
-                    End Session
+                    {$_('sessions.endSession')}
                   </button>
                 {:else if session.status !== 'active'}
-                  <span class="text-gray-300 text-sm font-medium">Ended</span>
+                  <span class="text-gray-300 text-sm font-medium">{$_('sessions.endedLabel')}</span>
                 {/if}
               </td>
             </tr>

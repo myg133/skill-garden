@@ -1,5 +1,6 @@
 ﻿<script>
   import Icon from './Icon.svelte';
+  import { _ } from 'svelte-i18n';
 
   export let members = [];
   export let orgRoles = ['owner', 'admin', 'reviewer', 'developer', 'member'];
@@ -44,30 +45,30 @@
 
 <div class="bg-white rounded-2xl border border-gray-200 shadow-card">
   <div class="px-6 py-4 border-b border-gray-100 flex items-center justify-between">
-    <h2 class="font-semibold text-gray-800 text-sm">Organization Members ({members.length})</h2>
+    <h2 class="font-semibold text-gray-800 text-sm">{$_('organizations.membersCount', { values: { count: members.length } })}</h2>
     {#if canInviteMember}
       <button
         on:click={onInvite}
         class="btn-primary px-4 py-2 rounded-xl font-semibold text-sm flex items-center gap-2"
       >
         <Icon name="plus" size="w-4 h-4" />
-        Invite Member
+        {$_('organizations.inviteMember')}
       </button>
     {/if}
   </div>
   <div class="overflow-x-auto">
     {#if members.length === 0}
-      <div class="px-6 py-16 text-center text-gray-400 text-sm font-medium">No members yet</div>
+      <div class="px-6 py-16 text-center text-gray-400 text-sm font-medium">{$_('organizations.noMembers')}</div>
     {:else}
       <table class="w-full">
         <thead class="bg-gray-50 border-b border-gray-100">
           <tr>
             <th class="px-6 py-3 text-left text-xs font-semibold text-gray-500 uppercase tracking-wider w-12">ID</th>
-            <th class="px-6 py-3 text-left text-xs font-semibold text-gray-500 uppercase tracking-wider">User</th>
-            <th class="px-6 py-3 text-left text-xs font-semibold text-gray-500 uppercase tracking-wider">Email</th>
-            <th class="px-6 py-3 text-left text-xs font-semibold text-gray-500 uppercase tracking-wider">Role</th>
-            <th class="px-6 py-3 text-left text-xs font-semibold text-gray-500 uppercase tracking-wider">Joined</th>
-            <th class="px-6 py-3 text-right text-xs font-semibold text-gray-500 uppercase tracking-wider">Actions</th>
+            <th class="px-6 py-3 text-left text-xs font-semibold text-gray-500 uppercase tracking-wider">{$_('organizations.table.user')}</th>
+            <th class="px-6 py-3 text-left text-xs font-semibold text-gray-500 uppercase tracking-wider">{$_('organizations.table.email')}</th>
+            <th class="px-6 py-3 text-left text-xs font-semibold text-gray-500 uppercase tracking-wider">{$_('organizations.table.role')}</th>
+            <th class="px-6 py-3 text-left text-xs font-semibold text-gray-500 uppercase tracking-wider">{$_('organizations.table.joined')}</th>
+            <th class="px-6 py-3 text-right text-xs font-semibold text-gray-500 uppercase tracking-wider">{$_('organizations.table.actions')}</th>
           </tr>
         </thead>
         <tbody class="divide-y divide-gray-100">

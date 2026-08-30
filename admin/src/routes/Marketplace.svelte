@@ -135,7 +135,7 @@
         type="text"
         bind:value={keyword}
         on:keydown={handleKeydown}
-        placeholder="Search skills by name or description..."
+        placeholder={$_('marketplace.searchPlaceholder')}
         class="w-full pl-10 pr-4 py-2.5 bg-white border border-gray-200 rounded-lg text-sm text-gray-900 placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 transition-all"
       />
     </div>
@@ -143,11 +143,11 @@
     <select
       bind:value={tagFilter}
       on:change={() => handleTagFilter(tagFilter)}
-      aria-label="Filter by tag"
+      aria-label={$_('marketplace.filterByTag')}
       class="px-4 py-2.5 bg-white border border-gray-200 rounded-lg text-sm text-gray-700 focus:outline-none focus:ring-2 focus:ring-blue-500/20 cursor-pointer"
     >
-      <option value="" disabled selected hidden>Filter by tag</option>
-      <option value="">All tags</option>
+      <option value="" disabled selected hidden>{$_('marketplace.filterByTag')}</option>
+      <option value="">{$_('common.all')}</option>
       {#each allTags as tag}
         <option value={tag}>{tag}</option>
       {/each}
@@ -157,7 +157,7 @@
       on:click={handleSearch}
       class="px-5 py-2.5 bg-blue-600 text-white rounded-lg text-sm font-semibold hover:bg-blue-700 transition-colors shadow-sm"
     >
-      Search
+      {$_('common.search')}
     </button>
 
     {#if keyword || tagFilter}
@@ -165,7 +165,7 @@
         on:click={handleClearFilters}
         class="px-4 py-2.5 text-gray-500 hover:text-gray-700 text-sm font-medium transition-colors"
       >
-        Clear filters
+        {$_('marketplace.clearFilters')}
       </button>
     {/if}
   </div>

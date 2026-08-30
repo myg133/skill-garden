@@ -96,14 +96,14 @@
   <!-- Header -->
   <div class="flex items-center justify-between mb-6">
     <div>
-      <h1 class="text-2xl font-bold text-gray-900">Submissions</h1>
-      <p class="text-gray-500 text-sm mt-1">Manage your skills and track review status</p>
+      <h1 class="text-2xl font-bold text-gray-900">{$_('submissions.title')}</h1>
+      <p class="text-gray-500 text-sm mt-1">{$_('submissions.manageSkills')}</p>
     </div>
     <Link to="/user/skills" class="inline-flex items-center gap-2 px-4 py-2 bg-indigo-600 text-white text-sm font-medium rounded-lg hover:bg-indigo-700 transition-colors">
       <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
         <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 4v16m8-8H4"/>
       </svg>
-      New Skill
+      {$_('submissions.createSkill')}
     </Link>
   </div>
 
@@ -115,19 +115,19 @@
     <!-- Stats -->
     <div class="grid grid-cols-4 gap-4 mb-6">
       <button on:click={() => filter = 'all'} class="bg-white rounded-xl border {filter === 'all' ? 'border-indigo-300 ring-1 ring-indigo-100' : 'border-gray-200'} p-4 text-left hover:border-indigo-300 transition-all duration-200">
-        <p class="text-xs font-medium text-gray-400 uppercase tracking-wider mb-0.5">All</p>
+        <p class="text-xs font-medium text-gray-400 uppercase tracking-wider mb-0.5">{$_('submissions.all')}</p>
         <p class="text-2xl font-bold text-gray-900">{totalSkills}</p>
       </button>
       <button on:click={() => filter = 'published'} class="bg-white rounded-xl border {filter === 'published' ? 'border-emerald-300 ring-1 ring-emerald-100' : 'border-gray-200'} p-4 text-left hover:border-emerald-300 transition-all duration-200">
-        <p class="text-xs font-medium text-emerald-500 uppercase tracking-wider mb-0.5">Published</p>
+        <p class="text-xs font-medium text-emerald-500 uppercase tracking-wider mb-0.5">{$_('submissions.published')}</p>
         <p class="text-2xl font-bold text-emerald-600">{publishedCount}</p>
       </button>
       <button on:click={() => filter = 'pending'} class="bg-white rounded-xl border {filter === 'pending' ? 'border-amber-300 ring-1 ring-amber-100' : 'border-gray-200'} p-4 text-left hover:border-amber-300 transition-all duration-200">
-        <p class="text-xs font-medium text-amber-500 uppercase tracking-wider mb-0.5">Pending</p>
+        <p class="text-xs font-medium text-amber-500 uppercase tracking-wider mb-0.5">{$_('submissions.pending')}</p>
         <p class="text-2xl font-bold text-amber-600">{pendingCount}</p>
       </button>
       <button on:click={() => filter = 'rejected'} class="bg-white rounded-xl border {filter === 'rejected' ? 'border-red-300 ring-1 ring-red-100' : 'border-gray-200'} p-4 text-left hover:border-red-300 transition-all duration-200">
-        <p class="text-xs font-medium text-red-500 uppercase tracking-wider mb-0.5">Rejected</p>
+        <p class="text-xs font-medium text-red-500 uppercase tracking-wider mb-0.5">{$_('submissions.rejected')}</p>
         <p class="text-2xl font-bold text-red-600">{rejectedCount}</p>
       </button>
     </div>
@@ -139,12 +139,12 @@
           <table class="w-full">
             <thead>
               <tr class="border-b border-gray-100 bg-gray-50/50">
-                <th class="text-left text-xs font-semibold text-gray-400 uppercase tracking-wider px-6 py-3">Skill Name</th>
-                <th class="text-left text-xs font-semibold text-gray-400 uppercase tracking-wider px-6 py-3">Version</th>
-                <th class="text-left text-xs font-semibold text-gray-400 uppercase tracking-wider px-6 py-3">Status</th>
-                <th class="text-left text-xs font-semibold text-gray-400 uppercase tracking-wider px-6 py-3">Visibility</th>
-                <th class="text-left text-xs font-semibold text-gray-400 uppercase tracking-wider px-6 py-3">Created</th>
-                <th class="text-right text-xs font-semibold text-gray-400 uppercase tracking-wider px-6 py-3">Actions</th>
+                <th class="text-left text-xs font-semibold text-gray-400 uppercase tracking-wider px-6 py-3">{$_('submissions.table.skillName')}</th>
+                <th class="text-left text-xs font-semibold text-gray-400 uppercase tracking-wider px-6 py-3">{$_('submissions.table.version')}</th>
+                <th class="text-left text-xs font-semibold text-gray-400 uppercase tracking-wider px-6 py-3">{$_('submissions.table.status')}</th>
+                <th class="text-left text-xs font-semibold text-gray-400 uppercase tracking-wider px-6 py-3">{$_('submissions.table.visibility')}</th>
+                <th class="text-left text-xs font-semibold text-gray-400 uppercase tracking-wider px-6 py-3">{$_('submissions.table.created')}</th>
+                <th class="text-right text-xs font-semibold text-gray-400 uppercase tracking-wider px-6 py-3">{$_('submissions.table.actions')}</th>
               </tr>
             </thead>
             <tbody>
@@ -159,7 +159,7 @@
                       {statusLabel(skill.status)}
                     </span>
                     {#if skill.status === 'rejected' && skill.reject_reason}
-                      <span class="block text-[10px] text-red-500 mt-0.5" title={skill.reject_reason}>Reason: {skill.reject_reason}</span>
+                      <span class="block text-[10px] text-red-500 mt-0.5" title={skill.reject_reason}>{$_('submissions.reason')}: {skill.reject_reason}</span>
                     {/if}
                   </td>
                   <td class="px-6 py-3.5 text-xs text-gray-500 capitalize">{skill.visibility || 'public'}</td>
@@ -193,7 +193,7 @@
                         </button>
                       {/if}
                       {#if skill.status === 'pending_review'}
-                        <span class="text-[10px] text-amber-500 italic">Awaiting review</span>
+                        <span class="text-[10px] text-amber-500 italic">{$_('submissions.awaitingReview')}</span>
                       {/if}
                       {#if skill.status === 'published'}
                         <Link to="/user/skills/{skill.id}?from=submissions" class="text-xs text-indigo-600 hover:text-indigo-700 font-medium">
@@ -216,14 +216,14 @@
           </svg>
         </div>
         {#if filter !== 'all'}
-          <p class="text-sm text-gray-500 mb-1">No {statusLabel(filter)} skills</p>
-          <p class="text-xs text-gray-400 mb-4">Try a different filter or create a new skill</p>
-          <button on:click={() => filter = 'all'} class="text-sm text-indigo-600 hover:text-indigo-700 font-medium">Show all</button>
+          <p class="text-sm text-gray-500 mb-1">{$_('submissions.noSubmissionsForFilter', { values: { status: statusLabel(filter) } })}</p>
+          <p class="text-xs text-gray-400 mb-4">{$_('submissions.tryDifferentFilter')}</p>
+          <button on:click={() => filter = 'all'} class="text-sm text-indigo-600 hover:text-indigo-700 font-medium">{$_('submissions.showAll')}</button>
         {:else}
-          <p class="text-sm text-gray-500 mb-1">No submissions yet</p>
-          <p class="text-xs text-gray-400 mb-4">Upload your first skill to get started</p>
+          <p class="text-sm text-gray-500 mb-1">{$_('submissions.noSubmissions')}</p>
+          <p class="text-xs text-gray-400 mb-4">{$_('submissions.uploadFirstSkill')}</p>
           <Link to="/user/skills" class="inline-flex items-center gap-2 px-4 py-2 bg-indigo-600 text-white text-sm font-medium rounded-lg hover:bg-indigo-700 transition-colors">
-            Create Skill
+            {$_('submissions.createSkill')}
           </Link>
         {/if}
       </div>

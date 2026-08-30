@@ -1,4 +1,5 @@
 ﻿<script>
+  import { _ } from 'svelte-i18n';
   export let logs = [];
 
   function actionBadge(action) {
@@ -50,12 +51,12 @@
 <table class="w-full">
   <thead>
     <tr class="border-b border-gray-100 bg-gray-50">
-      <th class="px-4 py-2 text-left text-xs font-semibold text-gray-400 uppercase tracking-wider">Timestamp</th>
-      <th class="px-4 py-2 text-left text-xs font-semibold text-gray-400 uppercase tracking-wider">Operator</th>
-      <th class="px-4 py-2 text-left text-xs font-semibold text-gray-400 uppercase tracking-wider">Action</th>
-      <th class="px-4 py-2 text-left text-xs font-semibold text-gray-400 uppercase tracking-wider">Resource</th>
-      <th class="px-4 py-2 text-left text-xs font-semibold text-gray-400 uppercase tracking-wider">Details</th>
-      <th class="px-4 py-2 text-left text-xs font-semibold text-gray-400 uppercase tracking-wider">IP</th>
+      <th class="px-4 py-2 text-left text-xs font-semibold text-gray-400 uppercase tracking-wider">{$_('auditLogs.timestamp')}</th>
+      <th class="px-4 py-2 text-left text-xs font-semibold text-gray-400 uppercase tracking-wider">{$_('auditLogs.operator')}</th>
+      <th class="px-4 py-2 text-left text-xs font-semibold text-gray-400 uppercase tracking-wider">{$_('auditLogs.action')}</th>
+      <th class="px-4 py-2 text-left text-xs font-semibold text-gray-400 uppercase tracking-wider">{$_('auditLogs.resource')}</th>
+      <th class="px-4 py-2 text-left text-xs font-semibold text-gray-400 uppercase tracking-wider">{$_('auditLogs.details')}</th>
+      <th class="px-4 py-2 text-left text-xs font-semibold text-gray-400 uppercase tracking-wider">{$_('auditLogs.ip')}</th>
     </tr>
   </thead>
   <tbody class="divide-y divide-gray-50">

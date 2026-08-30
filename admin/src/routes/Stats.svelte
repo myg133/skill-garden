@@ -88,8 +88,8 @@
       <div class="lg:col-span-2 bg-white rounded-xl border border-gray-200 shadow-card overflow-hidden">
         <div class="px-6 py-4 border-b border-gray-100 flex items-center justify-between">
           <div>
-            <h2 class="font-semibold text-gray-900 text-sm">Recent Activity</h2>
-            <p class="text-gray-400 text-xs mt-0.5">Latest audit log entries</p>
+            <h2 class="font-semibold text-gray-900 text-sm">{$_('stats.recentActivity')}</h2>
+            <p class="text-gray-400 text-xs mt-0.5">{$_('stats.latestAuditEntries')}</p>
           </div>
           <span class="w-2 h-2 rounded-full bg-emerald-500 pulse-dot"></span>
         </div>
@@ -99,7 +99,7 @@
           </div>
         {:else}
           <div class="p-12 text-center">
-            <p class="text-gray-400 text-sm">No recent activity</p>
+            <p class="text-gray-400 text-sm">{$_('stats.noRecentActivity')}</p>
           </div>
         {/if}
       </div>
@@ -107,26 +107,26 @@
       <div class="flex flex-col gap-5">
         <!-- System Health -->
         <div class="bg-white rounded-xl border border-gray-200 shadow-card p-6">
-          <h3 class="font-semibold text-gray-900 text-sm mb-4">System Health</h3>
+          <h3 class="font-semibold text-gray-900 text-sm mb-4">{$_('stats.systemHealth')}</h3>
           <div class="space-y-3">
             <div class="flex items-center justify-between py-2">
               <div class="flex items-center gap-2">
                 <Icon name="sandbox" size="w-4 h-4" className="text-gray-400" />
-                <span class="text-gray-500 text-sm">Sandbox</span>
+                <span class="text-gray-500 text-sm">{$_('stats.sandbox')}</span>
               </div>
               {#if sandboxHealth}
                 <span class="inline-flex items-center gap-1.5 text-xs font-semibold {sandboxHealth.docker_connected ? 'text-emerald-600' : 'text-amber-600'}">
                   <span class="w-1.5 h-1.5 rounded-full {sandboxHealth.docker_connected ? 'bg-emerald-500' : 'bg-amber-500'}"></span>
-                  {sandboxHealth.docker_connected ? 'connected' : 'disconnected'}
+                  {sandboxHealth.docker_connected ? $_('stats.connected') : $_('stats.disconnected')}
                 </span>
               {:else}
-                <span class="text-gray-400 text-xs">unavailable</span>
+                <span class="text-gray-400 text-xs">{$_('stats.unavailable')}</span>
               {/if}
             </div>
             {#if sandboxHealth?.active_containers !== undefined}
               <hr class="divider-soft" />
               <div class="flex items-center justify-between py-2">
-                <span class="text-gray-500 text-sm">Active containers</span>
+                <span class="text-gray-500 text-sm">{$_('stats.activeContainers')}</span>
                 <span class="font-semibold text-blue-600 text-sm">{sandboxHealth.active_containers}</span>
               </div>
             {/if}
@@ -135,27 +135,27 @@
 
         <!-- Quick Stats -->
         <div class="bg-white rounded-xl border border-gray-200 shadow-card p-6">
-          <h3 class="font-semibold text-gray-900 text-sm mb-4">Quick Stats</h3>
+          <h3 class="font-semibold text-gray-900 text-sm mb-4">{$_('stats.quickStats')}</h3>
           <div class="space-y-4">
           <div class="flex items-center justify-between py-2">
-            <span class="text-gray-500 text-sm">Approval Rate</span>
+            <span class="text-gray-500 text-sm">{$_('stats.approvalRate')}</span>
             <span class="font-semibold text-emerald-600 text-sm">
               {stats.total > 0 ? ((stats.published / stats.total) * 100).toFixed(0) : 0}%
             </span>
           </div>
           <hr class="divider-soft" />
           <div class="flex items-center justify-between py-2">
-            <span class="text-gray-500 text-sm">Pending Queue</span>
+            <span class="text-gray-500 text-sm">{$_('stats.pendingQueue')}</span>
             <span class="font-semibold text-amber-600 text-sm">{stats.pending}</span>
           </div>
           <hr class="divider-soft" />
           <div class="flex items-center justify-between py-2">
-            <span class="text-gray-500 text-sm">Total Published</span>
+            <span class="text-gray-500 text-sm">{$_('stats.totalPublished')}</span>
             <span class="font-semibold text-blue-600 text-sm">{stats.published}</span>
           </div>
           <hr class="divider-soft" />
           <div class="flex items-center justify-between py-2">
-            <span class="text-gray-500 text-sm">Total Skills</span>
+            <span class="text-gray-500 text-sm">{$_('stats.totalSkills')}</span>
             <span class="font-semibold text-gray-900 text-sm">{stats.total}</span>
           </div>
         </div>

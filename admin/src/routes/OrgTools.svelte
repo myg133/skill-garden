@@ -124,8 +124,8 @@
 <div class="p-8">
   <div class="page-header flex items-center justify-between">
     <div>
-      <h1 class="text-[28px] font-extrabold text-gray-800 tracking-tight">Org Tools</h1>
-      <p class="text-gray-500 text-sm mt-1.5 font-medium">Manage organization tools and schemas</p>
+      <h1 class="text-[28px] font-extrabold text-gray-800 tracking-tight">{$_('orgTools.title')}</h1>
+      <p class="text-gray-500 text-sm mt-1.5 font-medium">{$_('orgTools.description')}</p>
     </div>
     {#if hasPermission(ACT.create)}
       <button
@@ -133,7 +133,7 @@
         class="btn-primary px-5 py-2.5 rounded-xl font-semibold text-sm flex items-center gap-2"
       >
         <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 4v16m8-8H4"/></svg>
-        Register Tool
+        {$_('orgTools.registerTool')}
       </button>
     {/if}
   </div>
@@ -144,19 +144,19 @@
     <div class="bg-rose-50 border border-rose-100 text-rose-600 px-5 py-4 rounded-2xl text-sm font-medium">{error}</div>
   {:else if tools.length === 0}
     <div class="bg-white rounded-2xl border border-gray-200 shadow-card">
-      <EmptyState message="No tools registered yet" />
+      <EmptyState message={$_('orgTools.noToolsYet')} />
     </div>
   {:else}
     <div class="bg-white rounded-2xl border border-gray-200 overflow-hidden shadow-card">
       <table class="w-full">
         <thead>
           <tr class="border-b border-gray-100 bg-gray-50">
-            <th class="px-6 py-4 text-left text-xs font-semibold text-gray-400 uppercase tracking-wider">Name</th>
-            <th class="px-6 py-4 text-left text-xs font-semibold text-gray-400 uppercase tracking-wider">Tool ID</th>
-            <th class="px-6 py-4 text-left text-xs font-semibold text-gray-400 uppercase tracking-wider">Description</th>
-            <th class="px-6 py-4 text-left text-xs font-semibold text-gray-400 uppercase tracking-wider">Status</th>
-            <th class="px-6 py-4 text-left text-xs font-semibold text-gray-400 uppercase tracking-wider">Registered</th>
-            <th class="px-6 py-4 text-right text-xs font-semibold text-gray-400 uppercase tracking-wider">Actions</th>
+            <th class="px-6 py-4 text-left text-xs font-semibold text-gray-400 uppercase tracking-wider">{$_('common.name')}</th>
+            <th class="px-6 py-4 text-left text-xs font-semibold text-gray-400 uppercase tracking-wider">{$_('orgTools.toolId')}</th>
+            <th class="px-6 py-4 text-left text-xs font-semibold text-gray-400 uppercase tracking-wider">{$_('common.description')}</th>
+            <th class="px-6 py-4 text-left text-xs font-semibold text-gray-400 uppercase tracking-wider">{$_('common.status')}</th>
+            <th class="px-6 py-4 text-left text-xs font-semibold text-gray-400 uppercase tracking-wider">{$_('orgTools.registered')}</th>
+            <th class="px-6 py-4 text-right text-xs font-semibold text-gray-400 uppercase tracking-wider">{$_('common.actions')}</th>
           </tr>
         </thead>
         <tbody class="divide-y divide-gray-50">
@@ -180,13 +180,13 @@
                       on:click={() => handleApprove(tool.id)}
                       class="text-emerald-600 hover:text-emerald-700 text-sm font-semibold transition-colors"
                     >
-                      Approve
+                      {$_('orgTools.approve')}
                     </button>
                     <button
                       on:click={() => handleReject(tool.id)}
                       class="text-rose-500 hover:text-rose-600 text-sm font-semibold transition-colors"
                     >
-                      Reject
+                      {$_('orgTools.reject')}
                     </button>
                   {/if}
                   {#if hasPermission(ACT.delete)}
@@ -213,7 +213,7 @@
       <!-- svelte-ignore a11y-click-events-have-key-events a11y-no-static-element-interactions -->
       <div class="bg-white rounded-2xl p-6 w-full max-w-lg shadow-elevated border border-gray-200 max-h-[85vh] overflow-y-auto" on:click|stopPropagation>
         <div class="flex items-center justify-between mb-5">
-          <h2 class="text-lg font-semibold text-gray-800">Register Tool</h2>
+          <h2 class="text-lg font-semibold text-gray-800">{$_('orgTools.registerTool')}</h2>
           <button
             on:click={() => showRegisterModal = false}
             class="p-2 text-gray-400 hover:text-gray-600 hover:bg-gray-100 rounded-xl transition-all duration-200"
@@ -223,7 +223,7 @@
         </div>
         <div class="space-y-4">
       <div>
-        <label for="org-select" class="block text-sm font-semibold text-gray-500 mb-2">Organization</label>
+        <label for="org-select" class="block text-sm font-semibold text-gray-500 mb-2">{$_('orgTools.organization')}</label>
         <select
           id="org-select"
           bind:value={selectedOrgId}
@@ -236,7 +236,7 @@
       </div>
 
       <div>
-        <label for="tool-name" class="block text-sm font-semibold text-gray-500 mb-2">Tool Name</label>
+        <label for="tool-name" class="block text-sm font-semibold text-gray-500 mb-2">{$_('orgTools.toolName')}</label>
         <input
           id="tool-name"
           type="text"
@@ -247,7 +247,7 @@
       </div>
 
       <div>
-        <label for="tool-id" class="block text-sm font-semibold text-gray-500 mb-2">Tool ID</label>
+        <label for="tool-id" class="block text-sm font-semibold text-gray-500 mb-2">{$_('orgTools.toolId')}</label>
         <input
           id="tool-id"
           type="text"
@@ -258,7 +258,7 @@
       </div>
 
       <div>
-        <label for="tool-desc" class="block text-sm font-semibold text-gray-500 mb-2">Description</label>
+        <label for="tool-desc" class="block text-sm font-semibold text-gray-500 mb-2">{$_('common.description')}</label>
         <input
           id="tool-desc"
           type="text"
@@ -269,7 +269,7 @@
       </div>
 
       <div>
-        <label for="tool-schema" class="block text-sm font-semibold text-gray-500 mb-2">Schema (JSON) <span class="text-gray-400 font-normal text-xs">— 定义工具接受的输入参数</span></label>
+        <label for="tool-schema" class="block text-sm font-semibold text-gray-500 mb-2">{$_('orgTools.schema')} <span class="text-gray-400 font-normal text-xs">— {$_('orgTools.schemaHint')}</span></label>
         <textarea
           id="tool-schema"
           bind:value={newTool.schema}
@@ -287,7 +287,7 @@
       </div>
 
       <div>
-        <label for="tool-impl" class="block text-sm font-semibold text-gray-500 mb-2">Implementation (JSON) <span class="text-gray-400 font-normal text-xs">— 指定镜像、容器内执行的命令和超时</span></label>
+        <label for="tool-impl" class="block text-sm font-semibold text-gray-500 mb-2">{$_('orgTools.implementation')} <span class="text-gray-400 font-normal text-xs">— {$_('orgTools.implementationHint')}</span></label>
         <textarea
           id="tool-impl"
           bind:value={newTool.implementation}
@@ -307,14 +307,14 @@
             on:click={() => showRegisterModal = false}
             class="btn-secondary px-5 py-2.5 rounded-xl text-sm font-medium"
           >
-            Cancel
+            {$_('common.cancel')}
           </button>
           <button
             on:click={handleRegister}
             disabled={!newTool.name || !newTool.tool_id || registering}
             class="btn-primary px-6 py-2.5 rounded-xl text-sm font-semibold disabled:opacity-50 disabled:cursor-not-allowed"
           >
-            {registering ? 'Registering...' : 'Register'}
+            {registering ? $_('orgTools.registering') : $_('orgTools.register')}
           </button>
     </div>
   </div>

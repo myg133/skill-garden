@@ -65,8 +65,8 @@
   <div class="page-header">
     <div class="flex items-center justify-between">
       <div>
-        <h1 class="text-[28px] font-extrabold text-gray-800 tracking-tight">Tenants</h1>
-        <p class="text-gray-500 text-sm mt-1.5 font-medium">Manage tenant organizations and companies</p>
+        <h1 class="text-[28px] font-extrabold text-gray-800 tracking-tight">{$_('tenants.title')}</h1>
+        <p class="text-gray-500 text-sm mt-1.5 font-medium">{$_('tenants.description')}</p>
       </div>
       {#if hasPermission(ACT.create)}
       <button
@@ -74,7 +74,7 @@
         class="btn-primary px-5 py-2.5 rounded-xl font-semibold text-sm flex items-center gap-2"
       >
         <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 4v16m8-8H4"/></svg>
-        New Tenant
+        {$_('tenants.newTenant')}
       </button>
       {/if}
     </div>
@@ -86,13 +86,13 @@
     <div class="bg-rose-50 border border-rose-100 text-rose-600 px-5 py-4 rounded-2xl text-sm font-medium">{error}</div>
   {:else if tenants.length === 0}
     <div class="bg-white rounded-xl border border-gray-200 shadow-card">
-      <EmptyState message="No tenants yet">
+      <EmptyState message={$_('tenants.noTenants')}>
         {#if hasPermission(ACT.create)}
         <button
           on:click={() => showCreateModal = true}
           class="mt-4 btn-primary px-5 py-2.5 rounded-lg font-semibold text-sm"
         >
-          Create your first tenant
+          {$_('tenants.createFirst')}
         </button>
         {/if}
       </EmptyState>
@@ -136,25 +136,25 @@
 {#if showCreateModal}
 <div class="fixed inset-0 bg-black/40 flex items-center justify-center z-50 modal-overlay">
   <div class="bg-white rounded-xl p-6 w-full max-w-md shadow-elevated-lg border border-gray-200 modal-content">
-    <h2 class="text-lg font-bold text-gray-900 mb-5">Create Tenant</h2>
+    <h2 class="text-lg font-bold text-gray-900 mb-5">{$_('tenants.createTenant')}</h2>
     <div class="space-y-4">
       <div>
-        <label for="tenant-name" class="block text-xs font-semibold text-gray-500 uppercase tracking-wider mb-2">Name</label>
+        <label for="tenant-name" class="block text-xs font-semibold text-gray-500 uppercase tracking-wider mb-2">{$_('tenants.name')}</label>
         <input
           id="tenant-name"
           type="text"
           bind:value={newTenant.name}
-          placeholder="Company name"
+          placeholder={$_('tenants.companyName')}
           class="w-full px-4 py-3 border border-gray-200 rounded-xl text-sm input-focus outline-none font-medium bg-white text-gray-900"
         />
       </div>
       <div>
-        <label for="tenant-slug" class="block text-xs font-semibold text-gray-500 uppercase tracking-wider mb-2">Slug</label>
+        <label for="tenant-slug" class="block text-xs font-semibold text-gray-500 uppercase tracking-wider mb-2">{$_('tenants.slug')}</label>
         <input
           id="tenant-slug"
           type="text"
           bind:value={newTenant.slug}
-          placeholder="company-slug"
+          placeholder={$_('tenants.companySlug')}
           class="w-full px-4 py-3 border border-gray-200 rounded-xl text-sm input-focus outline-none font-medium bg-white text-gray-900"
         />
       </div>

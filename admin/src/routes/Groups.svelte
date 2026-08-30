@@ -164,8 +164,8 @@
   <div class="page-header">
     <div class="flex items-center justify-between">
       <div>
-        <h1 class="text-[28px] font-extrabold text-gray-800 tracking-tight">Groups</h1>
-        <p class="text-gray-500 text-sm mt-1.5 font-medium">Manage teams, projects and departments within organizations</p>
+        <h1 class="text-[28px] font-extrabold text-gray-800 tracking-tight">{$_('groups.title')}</h1>
+        <p class="text-gray-500 text-sm mt-1.5 font-medium">{$_('groups.description')}</p>
       </div>
       {#if hasPermission(ACT.create)}
       <button
@@ -173,7 +173,7 @@
         class="btn-primary px-5 py-2.5 rounded-xl font-semibold text-sm flex items-center gap-2"
       >
         <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 4v16m8-8H4"/></svg>
-        New Group
+        {$_('groups.newGroup')}
       </button>
       {/if}
     </div>
@@ -185,13 +185,13 @@
     <div class="bg-red-50 border border-red-100 text-red-600 px-5 py-4 rounded-xl text-sm font-medium">{error}</div>
   {:else if groups.length === 0}
     <div class="bg-white rounded-xl border border-gray-200 shadow-card">
-      <EmptyState message="No groups yet">
+      <EmptyState message={$_('groups.noGroups')}>
         {#if hasPermission(ACT.create)}
         <button
           on:click={openCreateModal}
           class="mt-4 btn-primary px-5 py-2.5 rounded-lg font-semibold text-sm"
         >
-          Create your first group
+          {$_('groups.createFirst')}
         </button>
         {/if}
       </EmptyState>
@@ -217,7 +217,7 @@
               </span>
             </div>
             <div class="mt-4 pt-4 border-t border-gray-100">
-              <p class="text-gray-400 text-xs mb-2">Organization: {getOrgName(group.organization_id)}</p>
+              <p class="text-gray-400 text-xs mb-2">{$_('groups.organization')}: {getOrgName(group.organization_id)}</p>
               {#if group.description}
                 <p class="text-gray-600 text-sm">{group.description}</p>
               {/if}
@@ -241,23 +241,23 @@
 {#if showCreateModal}
 <div class="fixed inset-0 bg-black/40 flex items-center justify-center z-50 modal-overlay">
   <div class="bg-white rounded-xl p-6 w-full max-w-lg shadow-elevated-lg border border-gray-200 modal-content max-h-[90vh] overflow-y-auto">
-    <h2 class="text-lg font-bold text-gray-800 mb-5">Create Group</h2>
+    <h2 class="text-lg font-bold text-gray-800 mb-5">{$_('groups.createGroup')}</h2>
     <div class="space-y-4">
       <div>
-        <label for="group-org" class="block text-xs font-semibold text-gray-500 uppercase tracking-wider mb-2">Organization</label>
+        <label for="group-org" class="block text-xs font-semibold text-gray-500 uppercase tracking-wider mb-2">{$_('groups.organization')}</label>
         <select
           id="group-org"
           bind:value={newGroup.organization_id}
           class="w-full px-4 py-3 border border-gray-200 rounded-xl text-sm input-focus outline-none font-medium bg-white text-gray-900"
         >
-          <option value="" disabled selected hidden>Select organization</option>
+          <option value="" disabled selected hidden>{$_('groups.selectOrganization')}</option>
           {#each organizations as org}
             <option value={org.id}>{org.name}</option>
           {/each}
         </select>
       </div>
       <div>
-        <label for="group-name" class="block text-xs font-semibold text-gray-500 uppercase tracking-wider mb-2">Name</label>
+        <label for="group-name" class="block text-xs font-semibold text-gray-500 uppercase tracking-wider mb-2">{$_('groups.name')}</label>
         <input
           id="group-name"
           type="text"
@@ -267,7 +267,7 @@
         />
       </div>
       <div>
-        <label for="group-slug" class="block text-xs font-semibold text-gray-500 uppercase tracking-wider mb-2">Slug</label>
+        <label for="group-slug" class="block text-xs font-semibold text-gray-500 uppercase tracking-wider mb-2">{$_('groups.slug')}</label>
         <input
           id="group-slug"
           type="text"
@@ -277,7 +277,7 @@
         />
       </div>
       <div>
-        <label for="group-type" class="block text-xs font-semibold text-gray-500 uppercase tracking-wider mb-2">Type</label>
+        <label for="group-type" class="block text-xs font-semibold text-gray-500 uppercase tracking-wider mb-2">{$_('common.type')}</label>
         <select
           id="group-type"
           bind:value={newGroup.group_type}
@@ -289,7 +289,7 @@
         </select>
       </div>
       <div>
-        <label for="group-desc" class="block text-xs font-semibold text-gray-500 uppercase tracking-wider mb-2">Description (optional)</label>
+        <label for="group-desc" class="block text-xs font-semibold text-gray-500 uppercase tracking-wider mb-2">{$_('groups.descriptionOptional')}</label>
         <textarea
           id="group-desc"
           bind:value={newGroup.description}
@@ -304,7 +304,7 @@
           on:click={() => showPermissionConfig = !showPermissionConfig}
           class="w-full flex items-center justify-between px-4 py-3 rounded-xl border border-gray-200 bg-white hover:bg-gray-50 transition-colors text-sm font-medium text-gray-700"
         >
-          <span>Configure Default Permissions</span>
+          <span>{$_('groups.configureDefaultPermissions')}</span>
           <svg class="w-4 h-4 transition-transform {showPermissionConfig ? 'rotate-180' : ''}" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 9l-7 7-7-7"/></svg>
         </button>
 
@@ -313,7 +313,7 @@
             <div class="grid grid-cols-2 divide-x divide-surface-200">
               <div>
                 <div class="px-4 py-2.5 bg-amber-50 border-b border-gray-200">
-                  <h3 class="font-semibold text-gray-700 text-xs uppercase tracking-wider">Lead</h3>
+                  <h3 class="font-semibold text-gray-700 text-xs uppercase tracking-wider">{$_('groups.lead')}</h3>
                 </div>
                 <div class="max-h-[300px] overflow-y-auto divide-y divide-gray-100">
                   {#each defaultPermissions.lead as permCode}
@@ -332,7 +332,7 @@
               </div>
               <div>
                 <div class="px-4 py-2.5 bg-gray-50 border-b border-gray-200">
-                  <h3 class="font-semibold text-gray-700 text-xs uppercase tracking-wider">Member</h3>
+                  <h3 class="font-semibold text-gray-700 text-xs uppercase tracking-wider">{$_('groups.member')}</h3>
                 </div>
                 <div class="max-h-[300px] overflow-y-auto divide-y divide-gray-100">
                   {#each defaultPermissions.member as permCode}
@@ -359,14 +359,14 @@
           on:click={() => { showCreateModal = false; showPermissionConfig = false; newGroup = { organization_id: '', name: '', slug: '', description: '', group_type: 'team' }; }}
           class="px-4 py-2.5 text-gray-500 hover:text-gray-800 font-semibold text-sm transition-all rounded-lg hover:bg-gray-50"
         >
-          Cancel
+          {$_('common.cancel')}
         </button>
         <button
           on:click={handleCreate}
           disabled={creating || !newGroup.organization_id || !newGroup.name.trim() || !newGroup.slug.trim()}
           class="btn-primary px-5 py-2.5 rounded-xl font-semibold text-sm disabled:opacity-50 disabled:cursor-not-allowed"
         >
-          {creating ? 'Creating...' : 'Create'}
+          {creating ? $_('common.loading') : $_('common.create')}
         </button>
       </div>
     </div>

@@ -639,15 +639,15 @@
     <button
       on:click={() => activeTab = 'marketplace-stats'}
       class="px-4 py-2 rounded-lg text-sm font-semibold transition-all {activeTab === 'marketplace-stats' ? 'bg-white text-gray-800 shadow-sm' : 'text-gray-500 hover:text-gray-700'}"
-    >Market Stats</button>
+    >{$_('skills.marketStats.title')}</button>
     <button
       on:click={() => activeTab = 'marketplace-list'}
       class="px-4 py-2 rounded-lg text-sm font-semibold transition-all {activeTab === 'marketplace-list' ? 'bg-white text-gray-800 shadow-sm' : 'text-gray-500 hover:text-gray-700'}"
-    >Marketplace Skills</button>
+    >{$_('skills.marketplaceSkills')}</button>
     <button
       on:click={() => activeTab = 'personal'}
       class="px-4 py-2 rounded-lg text-sm font-semibold transition-all {activeTab === 'personal' ? 'bg-white text-gray-800 shadow-sm' : 'text-gray-500 hover:text-gray-700'}"
-    >Personal</button>
+    >{$_('skills.personal')}</button>
   </div>
   {/if}
 
@@ -655,19 +655,19 @@
   {#if isMarketplaceRole && activeTab === 'marketplace-stats'}
   <div class="grid grid-cols-4 gap-4 mb-6">
     <div class="bg-white rounded-xl border border-gray-200 p-5 shadow-card">
-      <p class="text-xs font-semibold text-gray-500 uppercase tracking-wider mb-2">Listed</p>
+      <p class="text-xs font-semibold text-gray-500 uppercase tracking-wider mb-2">{$_('skills.marketStats.listed')}</p>
       <p class="text-2xl font-bold text-emerald-600">{marketStats.listed}</p>
     </div>
     <div class="bg-white rounded-xl border border-gray-200 p-5 shadow-card">
-      <p class="text-xs font-semibold text-gray-500 uppercase tracking-wider mb-2">Pending Review</p>
+      <p class="text-xs font-semibold text-gray-500 uppercase tracking-wider mb-2">{$_('skills.marketStats.pending')}</p>
       <p class="text-2xl font-bold text-amber-600">{marketStats.pending}</p>
     </div>
     <div class="bg-white rounded-xl border border-gray-200 p-5 shadow-card">
-      <p class="text-xs font-semibold text-gray-500 uppercase tracking-wider mb-2">New This Month</p>
+      <p class="text-xs font-semibold text-gray-500 uppercase tracking-wider mb-2">{$_('skills.marketStats.newThisMonth')}</p>
       <p class="text-2xl font-bold text-blue-600">{marketStats.newThisMonth}</p>
     </div>
     <div class="bg-white rounded-xl border border-gray-200 p-5 shadow-card">
-      <p class="text-xs font-semibold text-gray-500 uppercase tracking-wider mb-2">Downloads</p>
+      <p class="text-xs font-semibold text-gray-500 uppercase tracking-wider mb-2">{$_('skills.marketStats.downloads')}</p>
       <p class="text-2xl font-bold text-purple-600">{marketStats.downloads}</p>
     </div>
   </div>
@@ -684,7 +684,7 @@
         type="text"
         bind:value={keyword}
         on:keydown={handleKeydown}
-        placeholder="Search skills by name or description..."
+        placeholder={$_('skills.searchPlaceholder')}
         class="w-full pl-10 pr-4 py-2.5 bg-white border border-gray-200 rounded-lg text-sm text-gray-900 placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 transition-all"
       />
     </div>
@@ -692,11 +692,11 @@
     <select
       bind:value={tagFilter}
       on:change={() => handleTagFilter(tagFilter)}
-      aria-label="Filter by tag"
+      aria-label={$_('skills.table.tags')}
       class="px-4 py-2.5 bg-white border border-gray-200 rounded-lg text-sm text-gray-700 focus:outline-none focus:ring-2 focus:ring-blue-500/20 cursor-pointer"
     >
-      <option value="" disabled selected hidden>Filter by tag</option>
-      <option value="">All tags</option>
+      <option value="" disabled selected hidden>{$_('common.filter')}</option>
+      <option value="">{$_('common.all')}</option>
       {#each allTags as tag}
         <option value={tag}>{tag}</option>
       {/each}
@@ -706,7 +706,7 @@
       on:click={handleSearch}
       class="px-5 py-2.5 bg-blue-600 text-white rounded-lg text-sm font-semibold hover:bg-blue-700 transition-colors shadow-sm"
     >
-      Search
+      {$_('common.search')}
     </button>
 
     {#if keyword || tagFilter}
@@ -714,7 +714,7 @@
         on:click={handleClearFilters}
         class="px-4 py-2.5 text-gray-500 hover:text-gray-700 text-sm font-medium transition-colors"
       >
-        Clear filters
+        {$_('common.clearFilter')}
       </button>
     {/if}
   </div>
@@ -735,28 +735,28 @@
         <table class="w-full">
           <thead>
             <tr class="border-b border-gray-100 bg-gray-50">
-              <th class="px-6 py-4 text-left"><SortHeader label="Name" sortKey="name" currentSort="{{key: sortKey, dir: sortDir}}" onSort={handleSort} /></th>
-              <th class="px-6 py-4 text-left"><SortHeader label="Version" sortKey="version" currentSort="{{key: sortKey, dir: sortDir}}" onSort={handleSort} /></th>
-              <th class="px-6 py-4 text-left"><SortHeader label="Status" sortKey="status" currentSort="{{key: sortKey, dir: sortDir}}" onSort={handleSort} /></th>
+              <th class="px-6 py-4 text-left"><SortHeader label={$_('skills.table.name')} sortKey="name" currentSort="{{key: sortKey, dir: sortDir}}" onSort={handleSort} /></th>
+              <th class="px-6 py-4 text-left"><SortHeader label={$_('skills.table.version')} sortKey="version" currentSort="{{key: sortKey, dir: sortDir}}" onSort={handleSort} /></th>
+              <th class="px-6 py-4 text-left"><SortHeader label={$_('skills.table.status')} sortKey="status" currentSort="{{key: sortKey, dir: sortDir}}" onSort={handleSort} /></th>
               {#if isMarketplaceRole}
-              <th class="px-6 py-4 text-left"><SortHeader label="Mkt Status" sortKey="marketplace_status" currentSort="{{key: sortKey, dir: sortDir}}" onSort={handleSort} /></th>
+              <th class="px-6 py-4 text-left"><SortHeader label={$_('skills.table.mktStatus')} sortKey="marketplace_status" currentSort="{{key: sortKey, dir: sortDir}}" onSort={handleSort} /></th>
               {/if}
               {#if !isMarketplaceRole}
-              <th class="px-6 py-4 text-left"><SortHeader label="Tags" /></th>
+              <th class="px-6 py-4 text-left"><SortHeader label={$_('skills.table.tags')} /></th>
               {/if}
               {#if !isMarketplaceRole && !inPersonalSpace}
-              <th class="px-6 py-4 text-left"><SortHeader label="Visibility" sortKey="visibility" currentSort="{{key: sortKey, dir: sortDir}}" onSort={handleSort} /></th>
+              <th class="px-6 py-4 text-left"><SortHeader label={$_('skills.table.visibility')} sortKey="visibility" currentSort="{{key: sortKey, dir: sortDir}}" onSort={handleSort} /></th>
               {/if}
               {#if isMarketplaceRole}
-              <th class="px-6 py-4 text-left"><SortHeader label="Source" /></th>
+              <th class="px-6 py-4 text-left"><SortHeader label={$_('skills.table.source')} /></th>
               {:else if !inPersonalSpace}
-              <th class="px-6 py-4 text-left"><SortHeader label="Author" sortKey="author_agent_id" currentSort="{{key: sortKey, dir: sortDir}}" onSort={handleSort} /></th>
+              <th class="px-6 py-4 text-left"><SortHeader label={$_('skills.table.author')} sortKey="author_agent_id" currentSort="{{key: sortKey, dir: sortDir}}" onSort={handleSort} /></th>
               {/if}
               {#if !isMarketplaceRole}
-              <th class="px-6 py-4 text-left"><SortHeader label="Installs" sortKey="install_count" currentSort="{{key: sortKey, dir: sortDir}}" onSort={handleSort} /></th>
-              <th class="px-6 py-4 text-left"><SortHeader label="Created" sortKey="created" currentSort="{{key: sortKey, dir: sortDir}}" onSort={handleSort} /></th>
+              <th class="px-6 py-4 text-left"><SortHeader label={$_('skills.table.installs')} sortKey="install_count" currentSort="{{key: sortKey, dir: sortDir}}" onSort={handleSort} /></th>
+              <th class="px-6 py-4 text-left"><SortHeader label={$_('skills.table.created')} sortKey="created" currentSort="{{key: sortKey, dir: sortDir}}" onSort={handleSort} /></th>
               {/if}
-              <th class="px-6 py-4 text-left"><SortHeader label="Actions" /></th>
+              <th class="px-6 py-4 text-left"><SortHeader label={$_('skills.table.actions')} /></th>
             </tr>
           </thead>
           <tbody>

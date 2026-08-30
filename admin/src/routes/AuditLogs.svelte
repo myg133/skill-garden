@@ -120,7 +120,7 @@
     <div class="bg-red-50 border border-red-100 text-red-600 px-5 py-4 rounded-xl text-sm font-medium">{error}</div>
   {:else if logs.length === 0}
     <div class="bg-white rounded-xl border border-gray-200 shadow-card">
-      <EmptyState message="No audit logs match your filters" />
+      <EmptyState message={$_('auditLogs.noLogsMatch')} />
     </div>
   {:else}
     <div class="bg-white rounded-xl border border-gray-200 overflow-hidden shadow-card">
