@@ -116,12 +116,12 @@
 <div class="p-8">
   <div class="page-header flex items-center justify-between mb-6">
     <div>
-      <h1 class="text-[28px] font-extrabold text-gray-800 tracking-tight">Marketplace</h1>
-      <p class="text-gray-500 text-sm mt-1.5 font-medium">Discover skills from the community</p>
+      <h1 class="text-[28px] font-extrabold text-gray-800 tracking-tight">{$_('marketplace.title')}</h1>
+      <p class="text-gray-500 text-sm mt-1.5 font-medium">{$_('marketplace.subtitle')}</p>
     </div>
     <span class="inline-flex items-center gap-1.5 px-3.5 py-2 bg-white text-blue-700 rounded-xl text-sm font-semibold ring-1 ring-sky-600/20">
       <span class="w-1.5 h-1.5 rounded-full bg-blue-500"></span>
-      {total} skills
+      {$_('marketplace.skillsCount', { values: { count: total } })}
     </span>
   </div>
 
@@ -176,7 +176,7 @@
     <div class="bg-red-50 border border-red-100 text-red-600 px-5 py-4 rounded-xl text-sm font-medium">{error}</div>
   {:else if skills.length === 0}
     <div class="bg-white rounded-xl border border-gray-200 shadow-card">
-      <EmptyState message="No marketplace skills available yet" />
+      <EmptyState message={$_('marketplace.noSkillsAvailable')} />
     </div>
   {:else}
     <!-- Card Grid -->
@@ -195,7 +195,7 @@
               </Link>
               {#if skill.author_name || skill.author_agent_id}
                 <p class="text-gray-400 text-xs mt-0.5">
-                  by {skill.author_name || skill.author_agent_id}
+                  {$_('marketplace.byAuthor', { values: { author: skill.author_name || skill.author_agent_id } })}
                 </p>
               {/if}
             </div>
@@ -205,7 +205,7 @@
           <!-- Description -->
           <div class="px-5 pb-3 flex-1">
             <p class="text-gray-500 text-sm leading-relaxed line-clamp-2">
-              {truncate(skill.description, 120) || 'No description'}
+              {truncate(skill.description, 120) || $_('marketplace.noDescription')}
             </p>
           </div>
 
@@ -225,7 +225,7 @@
           <div class="px-5 pb-3 flex items-center gap-4 text-xs text-gray-400">
             <span class="flex items-center gap-1">
               <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4"/></svg>
-              {skill.install_count || 0} installs
+              {$_('marketplace.installCount', { values: { count: skill.install_count || 0 } })}
             </span>
             <span class="flex items-center gap-1">
               <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M7 7h.01M7 3h5c.512 0 1.024.195 1.414.586l7 7a2 2 0 010 2.828l-7 7a2 2 0 01-2.828 0l-7-7A1.994 1.994 0 013 12V7a4 4 0 014-4z"/></svg>
@@ -242,7 +242,7 @@
               class="inline-flex items-center gap-1.5 px-4 py-2 text-blue-600 rounded-lg text-sm font-semibold hover:bg-blue-50 transition-colors"
             >
               <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z"/><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M2.458 12C3.732 7.943 7.523 5 12 5c4.478 0 8.268 2.943 9.542 7-1.274 4.057-5.064 7-9.542 7-4.477 0-8.268-2.943-9.542-7z"/></svg>
-              Details
+              {$_('marketplace.viewDetails')}
             </Link>
 
             {#if canDelist}
@@ -261,7 +261,7 @@
     {#if totalPages > 1}
       <div class="flex items-center justify-between mt-6 px-2">
         <span class="text-gray-500 text-sm">
-          Page {page} of {totalPages} ({total} total)
+          {$_('marketplace.pagination', { values: { page, totalPages, total } })}
         </span>
         <div class="flex gap-1.5">
           <button
@@ -269,7 +269,7 @@
             disabled={page <= 1}
             class="px-3.5 py-2 bg-white border border-gray-200 rounded-lg text-sm font-medium text-gray-700 hover:bg-gray-50 disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
           >
-            Previous
+            {$_('common.previous')}
           </button>
           {#each Array(totalPages) as _, i}
             {@const pageNum = i + 1}
@@ -289,7 +289,7 @@
             disabled={page >= totalPages}
             class="px-3.5 py-2 bg-white border border-gray-200 rounded-lg text-sm font-medium text-gray-700 hover:bg-gray-50 disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
           >
-            Next
+            {$_('common.next')}
           </button>
         </div>
       </div>

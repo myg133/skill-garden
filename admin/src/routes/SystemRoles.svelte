@@ -163,9 +163,9 @@
 <div class="p-8">
   <div class="page-header flex items-center justify-between">
     <div>
-      <h1 class="text-[28px] font-extrabold text-gray-800 tracking-tight">System Roles</h1>
+      <h1 class="text-[28px] font-extrabold text-gray-800 tracking-tight">{$_('systemRoles.title')}</h1>
       <p class="text-gray-500 text-sm mt-1.5 font-medium">
-        Assign top-level roles (marketplace_admin / tenant_admin) by user email
+        {$_('systemRoles.description')}
       </p>
     </div>
     {#if hasSystemRole('super_admin')}
@@ -174,7 +174,7 @@
         class="px-5 py-2.5 rounded-xl font-semibold text-sm flex items-center gap-2 bg-blue-600 text-white hover:bg-blue-700 transition-colors shadow-sm"
       >
         <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 4v16m8-8H4"/></svg>
-        Add Administrator
+        {$_('systemRoles.addAdministrator')}
       </button>
     {/if}
   </div>
@@ -192,16 +192,16 @@
     {#if systemAssignments.length > 0}
     <div class="bg-white rounded-xl border border-gray-200 overflow-hidden shadow-card mb-6">
       <div class="px-6 py-3 bg-gray-50 border-b border-gray-200">
-        <span class="text-xs font-semibold text-gray-500 uppercase tracking-wider">System Roles (marketplace_admin)</span>
+        <span class="text-xs font-semibold text-gray-500 uppercase tracking-wider">{$_('systemRoles.systemRolesSection')}</span>
       </div>
       <table class="w-full">
         <thead>
           <tr class="border-b border-gray-100 bg-gray-50/50">
-            <th class="px-6 py-3 text-left text-xs font-semibold text-gray-500 uppercase tracking-wider">User</th>
-            <th class="px-6 py-3 text-left text-xs font-semibold text-gray-500 uppercase tracking-wider">Email</th>
-            <th class="px-6 py-3 text-left text-xs font-semibold text-gray-500 uppercase tracking-wider">Role</th>
-            <th class="px-6 py-3 text-left text-xs font-semibold text-gray-500 uppercase tracking-wider">Assigned At</th>
-            <th class="px-6 py-3 text-left text-xs font-semibold text-gray-500 uppercase tracking-wider">Actions</th>
+            <th class="px-6 py-3 text-left text-xs font-semibold text-gray-500 uppercase tracking-wider">{$_('systemRoles.user')}</th>
+            <th class="px-6 py-3 text-left text-xs font-semibold text-gray-500 uppercase tracking-wider">{$_('systemRoles.email')}</th>
+            <th class="px-6 py-3 text-left text-xs font-semibold text-gray-500 uppercase tracking-wider">{$_('systemRoles.role')}</th>
+            <th class="px-6 py-3 text-left text-xs font-semibold text-gray-500 uppercase tracking-wider">{$_('systemRoles.assignedAt')}</th>
+            <th class="px-6 py-3 text-left text-xs font-semibold text-gray-500 uppercase tracking-wider">{$_('systemRoles.actions')}</th>
           </tr>
         </thead>
         <tbody class="divide-y divide-gray-100">
@@ -225,7 +225,7 @@
                   on:click={() => handleRemove(a)}
                   class="px-3 py-1.5 rounded-lg text-xs font-semibold text-red-600 hover:bg-red-50 border border-red-200 transition-colors"
                 >
-                  Remove
+                  {$_('systemRoles.remove')}
                 </button>
               </td>
             </tr>
@@ -239,17 +239,17 @@
     {#if tenantAssignments.length > 0}
     <div class="bg-white rounded-xl border border-gray-200 overflow-hidden shadow-card">
       <div class="px-6 py-3 bg-gray-50 border-b border-gray-200">
-        <span class="text-xs font-semibold text-gray-500 uppercase tracking-wider">Tenant Roles (tenant_admin)</span>
+        <span class="text-xs font-semibold text-gray-500 uppercase tracking-wider">{$_('systemRoles.tenantRolesSection')}</span>
       </div>
       <table class="w-full">
         <thead>
           <tr class="border-b border-gray-100 bg-gray-50/50">
-            <th class="px-6 py-3 text-left text-xs font-semibold text-gray-500 uppercase tracking-wider">User</th>
-            <th class="px-6 py-3 text-left text-xs font-semibold text-gray-500 uppercase tracking-wider">Email</th>
-            <th class="px-6 py-3 text-left text-xs font-semibold text-gray-500 uppercase tracking-wider">Role</th>
-            <th class="px-6 py-3 text-left text-xs font-semibold text-gray-500 uppercase tracking-wider">Tenant</th>
-            <th class="px-6 py-3 text-left text-xs font-semibold text-gray-500 uppercase tracking-wider">Assigned At</th>
-            <th class="px-6 py-3 text-left text-xs font-semibold text-gray-500 uppercase tracking-wider">Actions</th>
+            <th class="px-6 py-3 text-left text-xs font-semibold text-gray-500 uppercase tracking-wider">{$_('systemRoles.user')}</th>
+            <th class="px-6 py-3 text-left text-xs font-semibold text-gray-500 uppercase tracking-wider">{$_('systemRoles.email')}</th>
+            <th class="px-6 py-3 text-left text-xs font-semibold text-gray-500 uppercase tracking-wider">{$_('systemRoles.role')}</th>
+            <th class="px-6 py-3 text-left text-xs font-semibold text-gray-500 uppercase tracking-wider">{$_('systemRoles.tenant')}</th>
+            <th class="px-6 py-3 text-left text-xs font-semibold text-gray-500 uppercase tracking-wider">{$_('systemRoles.assignedAt')}</th>
+            <th class="px-6 py-3 text-left text-xs font-semibold text-gray-500 uppercase tracking-wider">{$_('systemRoles.actions')}</th>
           </tr>
         </thead>
         <tbody class="divide-y divide-gray-100">
@@ -275,7 +275,7 @@
                   on:click={() => handleRemove(a)}
                   class="px-3 py-1.5 rounded-lg text-xs font-semibold text-red-600 hover:bg-red-50 border border-red-200 transition-colors"
                 >
-                  Remove
+                  {$_('systemRoles.remove')}
                 </button>
               </td>
             </tr>
@@ -292,7 +292,7 @@
 <div class="fixed inset-0 bg-black/40 flex items-center justify-center z-50 modal-overlay" role="button" tabindex="-1" on:click|self={() => showAddModal = false} on:keydown|self={(e) => e.key === 'Escape' && (showAddModal = false)}>
   <div class="bg-white rounded-xl p-6 w-full max-w-md shadow-elevated-lg border border-gray-200 modal-content">
     <div class="flex items-center justify-between mb-5">
-      <h2 class="text-lg font-bold text-gray-900">Add Administrator</h2>
+      <h2 class="text-lg font-bold text-gray-900">{$_('systemRoles.addAdministrator')}</h2>
       <button on:click={() => showAddModal = false} class="p-1.5 rounded-lg text-gray-400 hover:text-gray-600 hover:bg-gray-100">
         <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"/></svg>
       </button>
@@ -300,12 +300,12 @@
 
     <div class="space-y-4">
       <div>
-        <label for="add-email" class="block text-xs font-semibold text-gray-500 uppercase tracking-wider mb-2">User Email *</label>
+        <label for="add-email" class="block text-xs font-semibold text-gray-500 uppercase tracking-wider mb-2">{$_('systemRoles.userEmail')} *</label>
         <input
           id="add-email"
           type="email"
           bind:value={addForm.email}
-          placeholder="user@example.com"
+          placeholder={$_('systemRoles.enterEmail')}
           class="w-full px-4 py-3 border border-gray-200 rounded-xl text-sm input-focus outline-none font-medium bg-white text-gray-900"
         />
       </div>
@@ -325,13 +325,13 @@
 
       {#if addForm.role === 'tenant_admin'}
       <div>
-        <label for="add-tenant-select" class="block text-xs font-semibold text-gray-500 uppercase tracking-wider mb-2">Tenant *</label>
+        <label for="add-tenant-select" class="block text-xs font-semibold text-gray-500 uppercase tracking-wider mb-2">{$_('systemRoles.tenant')} *</label>
         <select
           id="add-tenant-select"
           bind:value={addForm.tenant_id}
           class="w-full px-4 py-3 border border-gray-200 rounded-xl text-sm input-focus outline-none font-medium bg-white text-gray-900"
         >
-          <option value="">-- Select tenant --</option>
+          <option value="">{$_('systemRoles.selectTenant')}</option>
           {#each tenants as t (t.id)}
             <option value={t.id}>{t.name}</option>
           {/each}
@@ -345,7 +345,7 @@
         on:click={() => showAddModal = false}
         class="px-4 py-2.5 text-gray-500 hover:text-gray-800 font-semibold text-sm transition-all rounded-lg hover:bg-gray-50"
       >
-        Cancel
+        {$_('common.cancel')}
       </button>
       <button
         on:click={handleAdd}

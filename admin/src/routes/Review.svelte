@@ -99,32 +99,32 @@
 <div class="p-8">
   <div class="page-header flex items-center justify-between">
     <div>
-      <h1 class="text-[28px] font-extrabold text-gray-800 tracking-tight">Review Queue</h1>
-      <p class="text-gray-500 text-sm mt-1.5 font-medium">Review pending skill submissions</p>
+      <h1 class="text-[28px] font-extrabold text-gray-800 tracking-tight">{$_('review.title')}</h1>
+      <p class="text-gray-500 text-sm mt-1.5 font-medium">{$_('review.description')}</p>
     </div>
     <div class="flex items-center gap-3">
       {#if canReviewInternal && skills.length > 0}
         <span class="inline-flex items-center gap-1.5 px-3.5 py-2 bg-amber-50 text-amber-700 rounded-xl text-sm font-semibold ring-1 ring-amber-600/20">
           <span class="w-1.5 h-1.5 rounded-full bg-amber-500 pulse-dot"></span>
-          Internal: {skills.length}
+          {$_('review.internal')}: {skills.length}
         </span>
       {/if}
       {#if canReviewMarketplace && marketplaceSkills.length > 0}
         <span class="inline-flex items-center gap-1.5 px-3.5 py-2 bg-blue-50 text-blue-700 rounded-xl text-sm font-semibold ring-1 ring-blue-600/20">
           <span class="w-1.5 h-1.5 rounded-full bg-blue-500 pulse-dot"></span>
-          Market: {marketplaceSkills.length}
+          {$_('review.market')}: {marketplaceSkills.length}
         </span>
       {/if}
       {#if canReviewMarketplace && delistRequestSkills.length > 0}
         <span class="inline-flex items-center gap-1.5 px-3.5 py-2 bg-orange-50 text-orange-700 rounded-xl text-sm font-semibold ring-1 ring-orange-600/20">
           <span class="w-1.5 h-1.5 rounded-full bg-orange-500 pulse-dot"></span>
-          Delist: {delistRequestSkills.length}
+          {$_('review.delist')}: {delistRequestSkills.length}
         </span>
       {/if}
       {#if canReviewMarketplace && updateRequestSkills.length > 0}
         <span class="inline-flex items-center gap-1.5 px-3.5 py-2 bg-purple-50 text-purple-700 rounded-xl text-sm font-semibold ring-1 ring-purple-600/20">
           <span class="w-1.5 h-1.5 rounded-full bg-purple-500 pulse-dot"></span>
-          Updates: {updateRequestSkills.length}
+          {$_('review.updates')}: {updateRequestSkills.length}
         </span>
       {/if}
     </div>
@@ -138,7 +138,7 @@
         on:click={() => activeQueue = 'internal'}
         class="px-4 py-2 text-sm font-semibold rounded-xl transition-all duration-200 {activeQueue === 'internal' ? 'bg-amber-500 text-white shadow-sm shadow-amber-500/20' : 'bg-gray-100 text-gray-600 hover:bg-gray-200'}"
       >
-        Internal Review ({skills.length})
+        {$_('review.internalReview')} ({skills.length})
       </button>
       {/if}
       {#if canReviewMarketplace}
@@ -146,19 +146,19 @@
         on:click={() => activeQueue = 'marketplace'}
         class="px-4 py-2 text-sm font-semibold rounded-xl transition-all duration-200 {activeQueue === 'marketplace' ? 'bg-blue-500 text-white shadow-sm shadow-blue-500/20' : 'bg-gray-100 text-gray-600 hover:bg-gray-200'}"
       >
-        Marketplace Review ({marketplaceSkills.length})
+        {$_('review.marketplaceReview')} ({marketplaceSkills.length})
       </button>
       <button
         on:click={() => activeQueue = 'delist'}
         class="px-4 py-2 text-sm font-semibold rounded-xl transition-all duration-200 {activeQueue === 'delist' ? 'bg-orange-500 text-white shadow-sm shadow-orange-500/20' : 'bg-gray-100 text-gray-600 hover:bg-gray-200'}"
       >
-        Delist Requests ({delistRequestSkills.length})
+        {$_('review.delistRequests')} ({delistRequestSkills.length})
       </button>
       <button
         on:click={() => activeQueue = 'update'}
         class="px-4 py-2 text-sm font-semibold rounded-xl transition-all duration-200 {activeQueue === 'update' ? 'bg-purple-500 text-white shadow-sm shadow-purple-500/20' : 'bg-gray-100 text-gray-600 hover:bg-gray-200'}"
       >
-        Pending Updates ({updateRequestSkills.length})
+        {$_('review.pendingUpdates')} ({updateRequestSkills.length})
       </button>
       {/if}
     </div>
@@ -173,11 +173,11 @@
     {#if activeQueue === 'internal'}
       {#if !canReviewInternal}
         <div class="bg-white rounded-xl border border-gray-200 shadow-card">
-          <EmptyState message="No permission to review internal submissions" />
+          <EmptyState message={$_('review.noPermissionInternal')} />
         </div>
       {:else if skills.length === 0}
         <div class="bg-white rounded-xl border border-gray-200 shadow-card">
-          <EmptyState message="No pending internal reviews" />
+          <EmptyState message={$_('review.noPendingInternal')} />
         </div>
       {:else}
         <div class="space-y-4">
@@ -186,11 +186,11 @@
               <div class="flex items-center justify-between">
                 <div>
                   <h3 class="text-lg font-bold text-gray-800">{skill.name}</h3>
-                  <p class="text-sm text-gray-500 mt-1">{skill.description || 'No description'}</p>
+                  <p class="text-sm text-gray-500 mt-1">{skill.description || $_('marketplace.noDescription')}</p>
                   <div class="flex items-center gap-3 mt-3 text-xs text-gray-400">
-                    <span>v{skill.version || '1.0.0'}</span>
-                    <span>by {skill.author_name || skill.author_agent_id || 'Unknown'}</span>
-                    <span>{(skill.created || skill.created_at) ? new Date(skill.created || skill.created_at).toLocaleDateString() : 'N/A'}</span>
+                    <span>{$_('review.version')} {skill.version || '1.0.0'}</span>
+                    <span>{$_('review.by')} {skill.author_name || skill.author_agent_id || $_('skills.unknown')}</span>
+                    <span>{(skill.created || skill.created_at) ? new Date(skill.created || skill.created_at).toLocaleDateString() : $_('skills.unknown')}</span>
                   </div>
                   {#if skill.tags && skill.tags.length > 0}
                     <div class="flex gap-1.5 mt-2 flex-wrap">
@@ -212,11 +212,11 @@
       <!-- Marketplace Review Queue -->
       {#if !canReviewMarketplace}
         <div class="bg-white rounded-xl border border-gray-200 shadow-card">
-          <EmptyState message="No permission to review marketplace submissions" />
+          <EmptyState message={$_('review.noPermissionMarketplace')} />
         </div>
       {:else if marketplaceSkills.length === 0}
         <div class="bg-white rounded-xl border border-gray-200 shadow-card">
-          <EmptyState message="No pending marketplace reviews" />
+          <EmptyState message={$_('review.noPendingMarketplace')} />
         </div>
       {:else}
         <div class="space-y-4">
@@ -244,19 +244,19 @@
                     href={`/skills/${skill.id}`}
                     class="px-3 py-1.5 text-xs font-semibold bg-gray-100 text-gray-600 rounded-lg hover:bg-gray-200 transition-colors"
                   >
-                    View
+                    {$_('review.view')}
                   </a>
                   <button
                     on:click={() => handleMarketplaceApprove(skill.id, skill.name)}
                     class="px-4 py-1.5 text-xs font-semibold bg-emerald-500 text-white rounded-lg hover:bg-emerald-600 transition-all duration-200 shadow-sm shadow-emerald-500/20 active:scale-[0.97]"
                   >
-                    通过
+                    {$_('review.approved')}
                   </button>
                   <button
                     on:click={() => handleMarketplaceReject(skill.id, skill.name)}
                     class="px-4 py-1.5 text-xs font-semibold bg-rose-500 text-white rounded-lg hover:bg-rose-600 transition-all duration-200 shadow-sm shadow-rose-500/20 active:scale-[0.97]"
                   >
-                    驳回
+                    {$_('review.rejected')}
                   </button>
                 </div>
               </div>
@@ -268,11 +268,11 @@
       <!-- Delist Request Queue -->
       {#if !canReviewMarketplace}
         <div class="bg-white rounded-xl border border-gray-200 shadow-card">
-          <EmptyState message="No permission to review delist requests" />
+          <EmptyState message={$_('review.noPermissionDelist')} />
         </div>
       {:else if delistRequestSkills.length === 0}
         <div class="bg-white rounded-xl border border-gray-200 shadow-card">
-          <EmptyState message="No pending delist requests" />
+          <EmptyState message={$_('review.noPendingDelist')} />
         </div>
       {:else}
         <div class="space-y-4">
@@ -294,7 +294,7 @@
                     </span>
                   </div>
                   {#if skill.review_comment}
-                    <p class="text-sm text-orange-600 mt-2 bg-orange-50 px-3 py-1.5 rounded-lg">原因：{skill.review_comment}</p>
+                    <p class="text-sm text-orange-600 mt-2 bg-orange-50 px-3 py-1.5 rounded-lg">{$_('review.reason')}：{skill.review_comment}</p>
                   {/if}
                   {#if skill.tags && skill.tags.length > 0}
                     <div class="flex gap-1.5 mt-2 flex-wrap">
@@ -309,19 +309,19 @@
                     href={`/skills/${skill.id}`}
                     class="px-3 py-1.5 text-xs font-semibold bg-gray-100 text-gray-600 rounded-lg hover:bg-gray-200 transition-colors"
                   >
-                    View
+                    {$_('review.view')}
                   </a>
                   <button
                     on:click={() => handleApproveDelist(skill.id, skill.name)}
                     class="px-4 py-1.5 text-xs font-semibold bg-emerald-500 text-white rounded-lg hover:bg-emerald-600 transition-all duration-200 shadow-sm shadow-emerald-500/20 active:scale-[0.97]"
                   >
-                    批准下架
+                    {$_('review.approveDelist')}
                   </button>
                   <button
                     on:click={() => handleRejectDelist(skill.id, skill.name)}
                     class="px-4 py-1.5 text-xs font-semibold bg-rose-500 text-white rounded-lg hover:bg-rose-600 transition-all duration-200 shadow-sm shadow-rose-500/20 active:scale-[0.97]"
                   >
-                    驳回
+                    {$_('review.rejected')}
                   </button>
                 </div>
               </div>
@@ -333,11 +333,11 @@
       <!-- Pending Updates Queue -->
       {#if !canReviewMarketplace}
         <div class="bg-white rounded-xl border border-gray-200 shadow-card">
-          <EmptyState message="No permission to review updates" />
+          <EmptyState message={$_('review.noPermissionUpdates')} />
         </div>
       {:else if updateRequestSkills.length === 0}
         <div class="bg-white rounded-xl border border-gray-200 shadow-card">
-          <EmptyState message="No pending content updates" />
+          <EmptyState message={$_('review.noPendingUpdates')} />
         </div>
       {:else}
         <div class="space-y-4">
@@ -362,18 +362,18 @@
                   <!-- Draft content diff -->
                   {#if skill.draft_content}
                     <div class="mt-4 p-4 bg-gray-50 rounded-xl border border-gray-100">
-                      <h4 class="text-xs font-semibold text-gray-500 uppercase tracking-wider mb-3">待审核的更改</h4>
+                      <h4 class="text-xs font-semibold text-gray-500 uppercase tracking-wider mb-3">{$_('review.pendingChanges')}</h4>
                       <div class="space-y-3">
                         {#if skill.draft_content.description}
                           <div>
-                            <span class="text-[11px] font-semibold text-gray-400 uppercase">Description</span>
+                            <span class="text-[11px] font-semibold text-gray-400 uppercase">{$_('common.description')}</span>
                             <div class="mt-1 grid grid-cols-2 gap-2">
                               <div class="p-2 bg-rose-50 rounded-lg border border-rose-100">
-                                <div class="text-[10px] text-rose-400 font-medium mb-0.5">当前</div>
+                                <div class="text-[10px] text-rose-400 font-medium mb-0.5">{$_('review.current')}</div>
                                 <div class="text-xs text-gray-700 line-clamp-3">{skill.description || '-'}</div>
                               </div>
                               <div class="p-2 bg-emerald-50 rounded-lg border border-emerald-100">
-                                <div class="text-[10px] text-emerald-500 font-medium mb-0.5">更新为</div>
+                                <div class="text-[10px] text-emerald-500 font-medium mb-0.5">{$_('review.updateTo')}</div>
                                 <div class="text-xs text-gray-700 line-clamp-3">{skill.draft_content.description}</div>
                               </div>
                             </div>
@@ -381,10 +381,10 @@
                         {/if}
                         {#if skill.draft_content.tags}
                           <div>
-                            <span class="text-[11px] font-semibold text-gray-400 uppercase">Tags</span>
+                            <span class="text-[11px] font-semibold text-gray-400 uppercase">{$_('skills.table.tags')}</span>
                             <div class="mt-1 grid grid-cols-2 gap-2">
                               <div class="p-2 bg-rose-50 rounded-lg border border-rose-100">
-                                <div class="text-[10px] text-rose-400 font-medium mb-0.5">当前</div>
+                                <div class="text-[10px] text-rose-400 font-medium mb-0.5">{$_('review.current')}</div>
                                 <div class="flex gap-1 flex-wrap">
                                   {#each (skill.tags || []) as t}
                                     <span class="px-1.5 py-0.5 bg-rose-100 text-rose-700 rounded text-[10px] font-medium">{t}</span>
@@ -392,7 +392,7 @@
                                 </div>
                               </div>
                               <div class="p-2 bg-emerald-50 rounded-lg border border-emerald-100">
-                                <div class="text-[10px] text-emerald-500 font-medium mb-0.5">更新为</div>
+                                <div class="text-[10px] text-emerald-500 font-medium mb-0.5">{$_('review.updateTo')}</div>
                                 <div class="flex gap-1 flex-wrap">
                                   {#each skill.draft_content.tags as t}
                                     <span class="px-1.5 py-0.5 bg-emerald-100 text-emerald-700 rounded text-[10px] font-medium">{t}</span>
@@ -404,14 +404,14 @@
                         {/if}
                         {#if skill.draft_content.content}
                           <div>
-                            <span class="text-[11px] font-semibold text-gray-400 uppercase">Content</span>
+                            <span class="text-[11px] font-semibold text-gray-400 uppercase">{$_('review.contentUpdate')}</span>
                             <div class="mt-1 grid grid-cols-2 gap-2">
                               <div class="p-2 bg-rose-50 rounded-lg border border-rose-100">
-                                <div class="text-[10px] text-rose-400 font-medium mb-0.5">当前 (前200字符)</div>
+                                <div class="text-[10px] text-rose-400 font-medium mb-0.5">{$_('review.current')} (200 chars)</div>
                                 <pre class="text-[10px] text-gray-700 whitespace-pre-wrap font-mono max-h-32 overflow-y-auto">{skill.content?.substring(0, 200) || '-'}</pre>
                               </div>
                               <div class="p-2 bg-emerald-50 rounded-lg border border-emerald-100">
-                                <div class="text-[10px] text-emerald-500 font-medium mb-0.5">更新为 (前200字符)</div>
+                                <div class="text-[10px] text-emerald-500 font-medium mb-0.5">{$_('review.updateTo')} (200 chars)</div>
                                 <pre class="text-[10px] text-gray-700 whitespace-pre-wrap font-mono max-h-32 overflow-y-auto">{skill.draft_content.content?.substring(0, 200) || '-'}</pre>
                               </div>
                             </div>
@@ -420,7 +420,7 @@
                       </div>
                     </div>
                   {:else}
-                    <div class="mt-3 text-xs text-gray-400 italic">无具体更改内容</div>
+                    <div class="mt-3 text-xs text-gray-400 italic">{$_('review.noSpecificChanges')}</div>
                   {/if}
                 </div>
                 <div class="flex items-center gap-2 flex-shrink-0 ml-4">
@@ -428,19 +428,19 @@
                     href={`/skills/${skill.id}`}
                     class="px-3 py-1.5 text-xs font-semibold bg-gray-100 text-gray-600 rounded-lg hover:bg-gray-200 transition-colors"
                   >
-                    View
+                    {$_('review.view')}
                   </a>
                   <button
                     on:click={() => handleApproveUpdate(skill.id, skill.name)}
                     class="px-4 py-1.5 text-xs font-semibold bg-emerald-500 text-white rounded-lg hover:bg-emerald-600 transition-all duration-200 shadow-sm shadow-emerald-500/20 active:scale-[0.97]"
                   >
-                    批准更新
+                    {$_('review.approveUpdate')}
                   </button>
                   <button
                     on:click={() => handleRejectUpdate(skill.id, skill.name)}
                     class="px-4 py-1.5 text-xs font-semibold bg-rose-500 text-white rounded-lg hover:bg-rose-600 transition-all duration-200 shadow-sm shadow-rose-500/20 active:scale-[0.97]"
                   >
-                    驳回
+                    {$_('review.rejected')}
                   </button>
                 </div>
               </div>

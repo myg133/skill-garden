@@ -903,7 +903,7 @@
       {#if totalPages > 1 && !isMarketplaceRole}
         <div class="flex items-center justify-between mt-5 px-2">
           <span class="text-gray-500 text-sm">
-            Page {page} of {totalPages} ({total} total)
+            {$_('skills.pagination', { values: { page, totalPages, total } })}
           </span>
           <div class="flex gap-1.5">
             <button
@@ -911,7 +911,7 @@
               disabled={page <= 1}
               class="px-3.5 py-2 bg-white border border-gray-200 rounded-lg text-sm font-medium text-gray-700 hover:bg-gray-50 disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
             >
-              Previous
+              {$_('common.previous')}
             </button>
             {#each Array(totalPages) as _, i}
               {@const pageNum = i + 1}
@@ -931,7 +931,7 @@
               disabled={page >= totalPages}
               class="px-3.5 py-2 bg-white border border-gray-200 rounded-lg text-sm font-medium text-gray-700 hover:bg-gray-50 disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
             >
-              Next
+              {$_('common.next')}
             </button>
           </div>
         </div>
@@ -945,7 +945,7 @@
   {#if createStep === 'upload'}
   <!-- Step 1: Upload ZIP -->
   <div class="bg-white rounded-xl p-6 w-full max-w-lg shadow-elevated-lg border border-gray-200 modal-content">
-    <h2 class="text-lg font-bold text-gray-900 mb-5">Upload Skill Package</h2>
+    <h2 class="text-lg font-bold text-gray-900 mb-5">{$_('skills.uploadSkillPackage')}</h2>
     <div
       role="button"
       tabindex="0"
@@ -957,13 +957,13 @@
       on:click={() => document.getElementById('skill-file-input')?.click()}
     >
       {#if uploading}
-        <LoadingSpinner text="Uploading & analyzing..." />
+        <LoadingSpinner text={$_('skills.uploadingAnalyzing')} />
       {:else if uploadedFileName}
         <div class="flex items-center justify-center gap-3">
           <svg class="w-8 h-8 text-emerald-500" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z"/></svg>
           <div class="text-left">
             <p class="text-sm font-semibold text-gray-700">{uploadedFileName}</p>
-            <p class="text-xs text-gray-400">Processing...</p>
+            <p class="text-xs text-gray-400">{$_('skills.uploadProcessing')}</p>
           </div>
         </div>
       {:else}
@@ -971,9 +971,9 @@
           <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M7 16a4 4 0 01-.88-7.903A5 5 0 1115.9 6L16 6a5 5 0 011 9.9M15 13l-3-3m0 0l-3 3m3-3v12"/>
         </svg>
         <p class="text-sm text-gray-500 font-medium">
-          {isDragging ? 'Drop your ZIP here' : 'Drag & drop a .zip file here, or click to browse'}
+          {isDragging ? $_('skills.dropzone') : $_('skills.dragDropZip')}
         </p>
-        <p class="text-xs text-gray-400 mt-1">Upload a ZIP package containing SKILL.md + optional files</p>
+        <p class="text-xs text-gray-400 mt-1">{$_('skills.skillFileInput')}</p>
       {/if}
       <input
         id="skill-file-input"
@@ -988,7 +988,7 @@
         on:click={closeCreateModal}
         class="px-5 py-2.5 border border-gray-200 rounded-xl text-sm font-semibold text-gray-600 hover:bg-gray-100 transition-colors"
       >
-        Cancel
+        {$_('common.cancel')}
       </button>
     </div>
   </div>
@@ -1014,7 +1014,7 @@
           on:click={closeCreateModal}
           class="px-4 py-2 border border-gray-200 rounded-lg text-sm font-semibold text-gray-600 hover:bg-gray-100 transition-colors"
         >
-          Cancel
+          {$_('common.cancel')}
         </button>
         <button
           on:click={handleConfirmUpload}
@@ -1026,7 +1026,7 @@
             Uploading...
           {:else}
             <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-8l-4-4m0 0L8 8m4-4v12"/></svg>
-            Confirm Upload
+            {$_('skills.confirmUpload')}
           {/if}
         </button>
       </div>
@@ -1050,20 +1050,20 @@
     <!-- Owner type selector -->
     {#if userOrgs.length > 0}
     <div class="flex-shrink-0 px-6 py-3 border-b border-gray-100 bg-white flex items-center gap-4">
-      <span class="text-xs font-semibold text-gray-500 uppercase tracking-wider">Owner</span>
+      <span class="text-xs font-semibold text-gray-500 uppercase tracking-wider">{$_('skills.owner')}</span>
       <div class="flex items-center gap-3">
         <label class="flex items-center gap-1.5 cursor-pointer">
           <input type="radio" bind:group={ownerType} value="user" class="w-3.5 h-3.5 text-blue-600" />
-          <span class="text-sm text-gray-700">Personal</span>
+          <span class="text-sm text-gray-700">{$_('skills.personal')}</span>
         </label>
         <label class="flex items-center gap-1.5 cursor-pointer">
           <input type="radio" bind:group={ownerType} value="organization" class="w-3.5 h-3.5 text-blue-600" />
-          <span class="text-sm text-gray-700">Organization</span>
+          <span class="text-sm text-gray-700">{$_('organizations.title')}</span>
         </label>
       </div>
       {#if ownerType === 'organization'}
         <select bind:value={selectedOrgId} class="ml-2 px-3 py-1.5 border border-gray-200 rounded-lg text-sm text-gray-700 bg-white focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500">
-          <option value="">-- Select Organization --</option>
+          <option value="">{$_('skills.selectOrganization')}</option>
           {#each userOrgs as org (org.id)}
             <option value={org.id}>
               {org.name}{org.slug ? ` (@${org.slug})` : ''}{org.role ? ` · ${org.role}` : ''}
@@ -1078,7 +1078,7 @@
     <div class="flex-1 flex overflow-hidden min-h-0">
       <!-- File tree sidebar -->
       <div class="w-56 flex-shrink-0 border-r border-gray-200 overflow-y-auto bg-gray-50">
-        <div class="px-3 py-2 text-[11px] font-semibold text-gray-400 uppercase tracking-wider">Files</div>
+        <div class="px-3 py-2 text-[11px] font-semibold text-gray-400 uppercase tracking-wider">{$_('skills.files')}</div>
         <div class="px-1 pb-2">
           {#each fileTreeNodes as node (node.path || node.name)}
             <FileTreeNode
@@ -1096,7 +1096,7 @@
       <!-- Content viewer -->
       <div class="flex-1 overflow-hidden flex flex-col min-w-0">
         <div class="flex-shrink-0 px-4 py-2 border-b border-gray-100 bg-white flex items-center gap-2">
-          <span class="text-[11px] font-semibold text-gray-400 uppercase tracking-wider">Content</span>
+          <span class="text-[11px] font-semibold text-gray-400 uppercase tracking-wider">{$_('skills.content')}</span>
           {#if selectedFilePath}
             <span class="text-xs text-gray-600 font-mono truncate flex-1">{selectedFilePath}</span>
           {/if}
@@ -1121,7 +1121,7 @@
             {/if}
           {:else}
             <div class="flex items-center justify-center h-full text-gray-400 text-sm">
-              Select a file from the sidebar to preview
+              {$_('skills.selectFileToPreview')}
             </div>
           {/if}
         </div>
