@@ -8,15 +8,31 @@
 
 ```
 Deploy/
-├── docker/                         # Docker Compose 配置
-│   ├── docker-compose.yml          # 本地开发
-│   ├── docker-compose.prod.yml      # 生产高可用
-│   └── .env.example                # 环境变量示例
-├── apps/
-│   └── aion-hive/                  # Helm Chart
+├── docker-compose/               # Docker Compose 配置
+│   ├── docker-compose.yml       # 本地开发
+│   ├── docker-compose.prod.yml  # 生产高可用
+│   ├── nginx.conf
+│   ├── .env.example
+│   └── environments/           # Docker 环境配置
+│       ├── .env.staging
+│       └── .env.production
+│
+├── k8s/                       # K8s Manifests (不使用 Helm 时)
+│   ├── namespace.yaml
+│   ├── deployment.yaml
+│   ├── service.yaml
+│   ├── ingress.yaml
+│   ├── secret.yaml
+│   ├── pvc.yaml
+│   ├── serviceaccount.yaml
+│   ├── hpa.yaml
+│   └── pdb.yaml
+│
+├── helm/                      # Helm Chart (K8s 生产部署)
+│   └── aion-hive/
 │       ├── Chart.yaml
-│       ├── values.yaml              # 默认配置
-│       ├── templates/              # K8s 资源模板
+│       ├── values.yaml         # 默认配置
+│       ├── templates/          # K8s 资源模板
 │       │   ├── deployment.yaml
 │       │   ├── service.yaml
 │       │   ├── ingress.yaml
@@ -28,30 +44,17 @@ Deploy/
 │       │   ├── pdb.yaml
 │       │   ├── _helpers.tpl
 │       │   └── NOTES.txt
-│       └── environments/
+│       └── environments/       # Helm values 环境配置
 │           ├── values.staging.yaml
 │           └── values.production.yaml
-├── k8s/                           # 原始 K8s Manifests
-│   ├── namespace.yaml
-│   ├── deployment.yaml
-│   ├── service.yaml
-│   ├── ingress.yaml
-│   ├── secret.yaml
-│   ├── pvc.yaml
-│   ├── serviceaccount.yaml
-│   ├── hpa.yaml
-│   └── pdb.yaml
-├── scripts/                       # 部署脚本
-│   ├── deploy-helm.sh             # Helm 部署
-│   ├── deploy-k8s.sh              # K8s 直接部署
-│   ├── deploy.sh                  # Docker Compose 部署
-│   ├── rollback.sh
-│   └── healthcheck.sh
-└── environments/                   # 环境级别配置
-    ├── staging/
-    │   └── .env
-    └── production/
-        └── .env
+│
+├── scripts/                   # 部署脚本
+│   ├── deploy-helm.sh
+│   ├── deploy-k8s.sh
+│   ├── healthcheck.sh
+│   └── rollback.sh
+│
+└── releases/                  # 发布记录
 ```
 
 ## 核心原则
@@ -82,13 +85,15 @@ docker.io/aionhive/aion-hive:<tag>
 ### 1. Docker Compose (本地开发)
 
 ```bash
-cd Deploy/docker
+cd Deploy/docker-compose
 
 # 复制环境变量文件
 cp .env.example .env
 # 编辑 .env 配置
 
 # 启动服务
+podman-compose up -d
+# 或
 docker-compose up -d
 
 # 查看日志
@@ -113,7 +118,7 @@ kubectl create secret generic aionhive-secret -n aionhive \
 ./scripts/deploy-helm.sh install production v0.3.0
 
 # 或者手动部署
-cd apps/aion-hive
+cd helm/aion-hive
 helm upgrade --install aionhive . \
   --namespace aionhive \
   --create-namespace \

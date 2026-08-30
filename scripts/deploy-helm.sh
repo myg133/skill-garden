@@ -5,7 +5,7 @@
 
 set -e
 
-CHART_PATH="$(cd "$(dirname "$0")/../apps/aion-hive" && pwd)"
+CHART_PATH="$(cd "$(dirname "$0")/../helm/aion-hive" && pwd)"
 NAMESPACE="${NAMESPACE:-aionhive}"
 RELEASE_NAME="${RELEASE_NAME:-aionhive}"
 CONTEXT="${KUBECTL_CONTEXT:-}"
