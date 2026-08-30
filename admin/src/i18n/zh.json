@@ -138,7 +138,8 @@
     "tools": "工具",
     "sessions": "会话",
     "groups": "分组",
-    "add": "添加"
+    "add": "添加",
+    "members": "成员"
   },
   "organizations": {
     "title": "组织",

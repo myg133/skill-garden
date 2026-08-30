@@ -138,7 +138,8 @@
     "tools": "Tools",
     "sessions": "Sessions",
     "groups": "Groups",
-    "add": "Add"
+    "add": "Add",
+    "members": "Members"
   },
   "organizations": {
     "title": "Organizations",
