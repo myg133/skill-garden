@@ -90,6 +90,10 @@
     </div>
   {:else if showLogin}
     <div class="min-h-screen bg-surface-950">
+      <!-- 登录页面语言切换器 -->
+      <div class="absolute top-4 right-4 z-50">
+        <LanguageSwitcher />
+      </div>
       <Route path="/login" component={Login} />
       <Route path="/register" component={Register} />
       <Route path="*" component={Login} />

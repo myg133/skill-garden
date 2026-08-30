@@ -54,7 +54,7 @@
   }
 </script>
 
-<div class="min-h-screen relative overflow-hidden flex items-center justify-center p-6" style="background: linear-gradient(160deg, #dbeafe 0%, #e0f2fe 30%, #f0f9ff 60%, #f8fafc 100%);">
+<div class="min-h-screen relative overflow-hidden flex items-center justify-center p-6" style="background: linear-gradient(135deg, #dbeafe 0%, #e0f2fe 50%, #f8fafc 100%);">
   <div class="absolute inset-0 bg-dot-pattern opacity-40"></div>
 
   <div class="absolute top-1/4 -left-24 w-80 h-80 rounded-full bg-purple-400/15 blur-3xl"></div>
