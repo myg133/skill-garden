@@ -67,6 +67,7 @@
             <th class="px-6 py-3 text-left text-xs font-semibold text-gray-500 uppercase tracking-wider">{$_('organizations.table.user')}</th>
             <th class="px-6 py-3 text-left text-xs font-semibold text-gray-500 uppercase tracking-wider">{$_('organizations.table.email')}</th>
             <th class="px-6 py-3 text-left text-xs font-semibold text-gray-500 uppercase tracking-wider">{$_('organizations.table.role')}</th>
+            <th class="px-6 py-3 text-left text-xs font-semibold text-gray-500 uppercase tracking-wider">{$_('groups.title')}</th>
             <th class="px-6 py-3 text-left text-xs font-semibold text-gray-500 uppercase tracking-wider">{$_('organizations.table.joined')}</th>
             <th class="px-6 py-3 text-right text-xs font-semibold text-gray-500 uppercase tracking-wider">{$_('organizations.table.actions')}</th>
           </tr>
@@ -111,6 +112,19 @@
                   </div>
                 {:else}
                   <span class="px-2.5 py-1 rounded-full text-xs font-medium {getRoleColor(member.role)}">{member.role}</span>
+                {/if}
+              </td>
+              <td class="px-6 py-4">
+                {#if member.groups && member.groups.length > 0}
+                  <div class="flex flex-wrap gap-1">
+                    {#each member.groups as group}
+                      <span class="px-2 py-0.5 rounded text-xs font-medium bg-gray-100 text-gray-600" title={group.role}>
+                        {group.name}
+                      </span>
+                    {/each}
+                  </div>
+                {:else}
+                  <span class="text-gray-400 text-xs">-</span>
                 {/if}
               </td>
               <td class="px-6 py-4 text-sm text-gray-500">

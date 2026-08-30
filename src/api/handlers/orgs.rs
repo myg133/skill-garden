@@ -121,28 +121,18 @@ pub async fn list_org_members_handler(
     Path(org_id): Path<Uuid>,
     agent_context: AgentContext,
 ) -> Result<impl IntoResponse, ApiError> {
+    use crate::db::repositories::org_membership::OrgMembershipRepository;
+    let pool = state.agent_repo.pool().clone();
+
     require_admin(&state, &agent_context).await?;
 
-    let agents = state
-        .agent_repo
-        .find_by_org(org_id)
+    let org_membership_repo = OrgMembershipRepository::new(pool);
+    let members = org_membership_repo
+        .list_all_members(org_id)
         .await
         .map_err(|e| ApiError::InternalError(e.to_string()))?;
 
-    let members: Vec<_> = agents
-        .into_iter()
-        .map(|a| crate::api::models::OrgMemberResponse {
-            agent_id: a.agent_id,
-            name: a.agent_name,
-            capabilities: a.capabilities,
-            joined_at: a.created_at.to_rfc3339(),
-        })
-        .collect();
-
-    Ok((
-        StatusCode::OK,
-        Json(crate::api::models::OrgMemberListResponse { members }),
-    ))
+    Ok((StatusCode::OK, Json(members)))
 }
 
 pub async fn add_org_member_handler(
@@ -656,7 +646,7 @@ pub async fn list_org_members_by_slug_handler(
 
     let org_membership_repo = OrgMembershipRepository::new(pool);
     let members = org_membership_repo
-        .list_members(org.id)
+        .list_all_members(org.id)
         .await
         .map_err(|e| ApiError::BadRequest(format!("Failed to list members: {}", e)))?;
 
@@ -683,7 +673,7 @@ pub async fn list_org_members_by_id_handler(
 
     let org_membership_repo = OrgMembershipRepository::new(pool);
     let members = org_membership_repo
-        .list_members(org.id)
+        .list_all_members(org.id)
         .await
         .map_err(|e| ApiError::BadRequest(format!("Failed to list members: {}", e)))?;
 
