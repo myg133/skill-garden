@@ -58,6 +58,9 @@ secrets/
 # Agent 运行时目录
 .pi/
 
+# Wiki 草稿
+.zread/
+
 # Rust
 **/*.rs.bk
 Cargo.lock

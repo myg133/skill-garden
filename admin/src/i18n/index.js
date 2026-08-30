@@ -3,7 +3,7 @@
  * 支持浏览器语言自动检测、localStorage 持久化和 URL 参数覆盖
  */
 
-import { register, init, getLocaleFromNavigator, locale } from 'svelte-i18n';
+import { register, init, getLocaleFromNavigator, locale, isLoading } from 'svelte-i18n';
 
 // 注册语言包
 register('en', () => import('./en.json'));
@@ -81,4 +81,4 @@ locale.subscribe(value => {
   }
 });
 
-export { locale };
+export { locale, isLoading };

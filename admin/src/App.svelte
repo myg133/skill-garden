@@ -3,9 +3,9 @@
   import { writable } from 'svelte/store';
   import { Router, Route } from 'svelte-routing';
 
-
   import { isAuthenticated, isAdmin } from './stores/auth.js';
   import { isAnyAdmin, permissionStore } from './stores/permission.js';
+  import { isLoading as i18nLoading } from './i18n/index.js';
   import Nav from './components/Nav.svelte';
   import UserNav from './components/UserNav.svelte';
   import OrgSwitcher from './components/OrgSwitcher.svelte';
@@ -83,7 +83,12 @@
 </script>
 
 <Router {url}>
-  {#if showLogin}
+  {#if $i18nLoading}
+    <!-- i18n 加载中，防止 $_() 调用报错 -->
+    <div class="min-h-screen flex items-center justify-center bg-surface-950">
+      <div class="w-10 h-10 rounded-full border-2 border-blue-500 border-t-transparent animate-spin"></div>
+    </div>
+  {:else if showLogin}
     <div class="min-h-screen bg-surface-950">
       <Route path="/login" component={Login} />
       <Route path="/register" component={Register} />
