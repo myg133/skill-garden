@@ -137,7 +137,9 @@
     "tenant": "Tenant",
     "tools": "Tools",
     "sessions": "Sessions",
-    "groups": "Groups"
+    "groups": "Groups",
+    "add": "Add",
+    "members": "Members"
   },
   "organizations": {
     "title": "Organizations",
