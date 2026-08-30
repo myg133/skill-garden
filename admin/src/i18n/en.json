@@ -62,7 +62,8 @@
     "mySkills": "My Skills",
     "submissions": "Submissions",
     "expandSidebar": "Expand sidebar",
-    "collapseSidebar": "Collapse sidebar"
+    "collapseSidebar": "Collapse sidebar",
+    "members": "Members"
   },
   "common": {
     "search": "Search",
@@ -848,6 +849,33 @@
   "language": {
     "english": "English",
     "chinese": "中文",
-    "characters": "characters"
+    "characters": "characters",
+    "allTenants": "All Tenants",
+    "noTenant": "No Tenant"
+  },
+  "orgMembers": {
+    "title": "Organization Members",
+    "description": "Manage your organization members",
+    "addMember": "Add Member",
+    "remove": "Remove",
+    "noMembers": "No members found",
+    "addFirstMember": "Add the first member",
+    "selectOrg": "Organization",
+    "member": "Member",
+    "email": "Email",
+    "role": "Role",
+    "joinedAt": "Joined",
+    "add": "Add"
+  },
+  "quickActions": {
+    "manageMembers": "Manage Members",
+    "viewOrganizations": "View Organizations",
+    "inviteMembers": "Invite Members",
+    "addMembers": "Add Members",
+    "manageTools": "Manage Tools",
+    "viewSkills": "View Skills",
+    "viewStats": "View Statistics",
+    "manageTenants": "Manage Tenants",
+    "viewAudit": "View Audit Logs"
   }
 }

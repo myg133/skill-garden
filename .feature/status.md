@@ -1,59 +1,72 @@
-# REQ-002 状态
+# REQ-003 Phase 1 状态
 
 ## 基本信息
 
 | 属性 | 值 |
-|------|------|
-| **REQ 编号** | REQ-002 |
-| **标题** | Tenant-Org-User 加入流程优化 |
-| **状态** | 已完成 |
+|------|-----|
+| **REQ 编号** | REQ-003 |
+| **阶段** | Phase 1 |
+| **标题** | 菜单/导航差异化 |
+| **状态** | 开发中 |
 | **开始日期** | 2024-08-30 |
 | **负责人** | anspire-open-developer |
 
-## 优先级
+## 功能要求
 
-| Phase | 标题 | 优先级 | 估计工时 | 状态 |
-|-------|------|--------|----------|------|
-| 1.1 | 组员搜索添加 | P0 | 4h | ✅ 已完成 |
-| 1.2 | 加入申请流程 | P1 | 12h | ✅ 已完成 |
-| 1.3 | 组织层级可视化 | P1 | 8h | ✅ 已完成 |
+### 1.1 角色专属导航菜单
+| 角色 | 可见菜单组 |
+|------|-----------|
+| `super_admin` | 概览 / 租户 / 用户 / 组织 / 内容 / 系统 / 基础设施 |
+| `tenant_admin` | 概览 / 租户 / 组织 / 内容 |
+| `org_admin` | 概览 / 组织 / 成员 / 工具 |
 
-## 已完成功能
+### 1.2 角色专属默认着陆页
+| 角色 | 默认页面 |
+|------|---------|
+| `super_admin` | `/stats` |
+| `tenant_admin` | 第一个租户详情页 |
+| `org_admin` | 第一个组织详情页 |
+| 其他 | `/user` |
 
-### Phase 1.1: 组员搜索添加
-- [x] 后端搜索 API (`GET /api/v1/identities/search`)
-- [x] IdentityService 和 IdentityRepository 新增 search 方法
-- [x] 前端搜索组件 (GroupDetail.svelte)
-- [x] 保留 UUID 输入方式作为备选
+### 1.3 快捷操作卡片
+- tenant_admin: "管理成员" / "查看组织" / "邀请成员"
+- org_admin: "添加成员" / "管理工具" / "查看 Skills"
 
-### Phase 1.2: 加入申请流程
-- [x] 数据模型迁移 (`org_join_requests` 表)
-- [x] `join_policy` 字段添加到 organizations 表
-- [x] OrgJoinRequestRepository 和 OrgJoinRequestService
-- [x] API 端点:
-  - POST /orgs/:id/join-request
-  - DELETE /orgs/:id/join-request
-  - GET /orgs/:id/my-join-request
-  - GET /orgs/:id/join-requests
-  - PUT /orgs/:id/join-requests/:request_id
-- [x] 审批通过后自动创建 org_memberships 记录
+## 改动文件
+- `admin/src/stores/permission.js` - 新增角色判断函数
+- `admin/src/App.svelte` - 角色专属着陆页逻辑
+- `admin/src/components/Nav.svelte` - 角色化菜单渲染
+- `admin/src/config/nav-routes.js` - 角色专属导航配置
 
-### Phase 1.3: 组织层级可视化
-- [x] Tenants.svelte: 显示关联组织和租户管理员
-- [x] OrganizationDetail.svelte: 显示所属租户
-- [x] OrgOverviewHeader.svelte: 新增 tenantName 属性
+## 验收标准
+- [ ] AC-001: super_admin 登录后看到完整菜单
+- [ ] AC-002: tenant_admin 登录后只看到租户相关菜单
+- [ ] AC-003: org_admin 登录后只看到组织相关菜单
+- [ ] AC-004: 普通用户登录后跳转到 /user
+- [ ] AC-005: super_admin 默认进入 /stats
+- [ ] AC-006: tenant_admin 默认进入租户详情页
+- [ ] AC-007: org_admin 默认进入组织详情页
+- [ ] AC-008: 各角色概览页面显示相关的快捷操作
 
-## 技术决策
+## 开发进度
 
-| 决策 | 值 |
-|------|-----|
-| join_policy 默认值 | approval_required |
-| 申请留言 | 可选 |
-| 多审批人 | 是 |
-| Group 名称唯一性 | 同一 Org 内唯一 |
+### Step 1: 接收任务
+- [x] 确认工作区
+- [x] 读 manifest.json
+- [x] 读需求文档
+- [x] 更新 status.md
 
-## 提交历史
+### Step 2: 开发实现
+- [ ] permission.js - 新增 isTenantAdmin, isOrgAdmin, getDefaultRoute
+- [ ] nav-routes.js - 扩展角色专属路由配置
+- [ ] Nav.svelte - 角色化菜单渲染
+- [ ] App.svelte - 角色专属着陆页逻辑
 
-- 2024-08-30: Phase 1.1 完成 - 组员搜索功能
-- 2024-08-30: Phase 1.2 完成 - 组织加入申请流程
-- 2024-08-30: Phase 1.3 完成 - 组织层级可视化
+### Step 3: 自验证
+- [ ] 追溯性检查
+- [ ] 测试验证
+- [ ] 质量检查
+
+### Step 4: 提交验证
+- [ ] 更新状态
+- [ ] 通知 BA Agent

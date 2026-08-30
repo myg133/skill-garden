@@ -2,6 +2,37 @@
 
 所有重要的项目变更都将记录在此文件中。
 
+## [Unreleased] - 2026-08-30
+
+### 功能更新
+
+#### REQ-003 Phase 1: 菜单/导航差异化
+
+- **角色专属导航菜单**
+  - `super_admin`: 完整菜单（概览/租户/用户/组织/内容/系统/基础设施）
+  - `tenant_admin`: 租户相关菜单（概览/租户/组织/内容）
+  - `org_admin`: 组织相关菜单（概览/组织/成员/工具）
+
+- **角色专属默认着陆页**
+  - `super_admin` → `/stats`
+  - `tenant_admin` → `/tenants/{id}`
+  - `org_admin` → `/organizations/{id}`
+  - 其他用户 → `/user`
+
+- **快捷操作卡片**
+  - 各角色概览页面显示相关的快捷操作入口
+
+### 改动文件
+
+- `admin/src/stores/permission.js` - 新增角色判断函数
+- `admin/src/config/nav-routes.js` - 角色专属导航配置
+- `admin/src/components/Nav.svelte` - 角色化菜单渲染
+- `admin/src/App.svelte` - 角色专属着陆页逻辑
+- `admin/src/routes/TenantDetail.svelte` - 租户详情页（新）
+- `admin/src/routes/OrgMembers.svelte` - 组织成员页（新）
+- `admin/src/i18n/en.json` - 新增翻译键
+- `admin/src/i18n/zh.json` - 新增翻译键
+
 ## [0.3.0] - 2026-04-20
 
 ### 重大更新

@@ -1,17 +1,28 @@
 {
-  "req": "REQ-001",
-  "title": "Admin UI 多语言支持（中/英）",
-  "status": "进行中",
-  "created": "2024-08-30",
-  "priority": "P0",
-  "worktree": "feature-REQ-001",
-  "branch": "feature/REQ-001",
-  "assigned_to": "anspire-open-developer",
-  "estimate_hours": 16,
-  "technologies": ["svelte-i18n"],
-  "files_to_modify": [
-    "admin/src/i18n/*",
-    "admin/src/routes/*.svelte",
-    "admin/src/components/*.svelte"
+  "req": "REQ-003",
+  "phase": "Phase 1",
+  "title": "菜单/导航差异化",
+  "assignedTo": "anspire-open-developer",
+  "status": "in_progress",
+  "startedAt": "2024-08-30",
+  "worktree": "feature-REQ-003-phase1",
+  "branch": "feature/REQ-003-phase1",
+  "baseBranch": "develop",
+  "description": "角色专属导航菜单、默认着陆页、快捷操作卡片",
+  "files": [
+    "admin/src/App.svelte",
+    "admin/src/components/Nav.svelte",
+    "admin/src/stores/permission.js",
+    "admin/src/config/nav-routes.js"
+  ],
+  "acceptanceCriteria": [
+    "AC-001: super_admin 登录后看到完整菜单",
+    "AC-002: tenant_admin 登录后只看到租户相关菜单",
+    "AC-003: org_admin 登录后只看到组织相关菜单",
+    "AC-004: 普通用户登录后跳转到 /user",
+    "AC-005: super_admin 默认进入 /stats",
+    "AC-006: tenant_admin 默认进入租户详情页",
+    "AC-007: org_admin 默认进入组织详情页",
+    "AC-008: 各角色概览页面显示相关的快捷操作"
   ]
 }
