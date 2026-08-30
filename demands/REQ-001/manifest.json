@@ -1,0 +1,17 @@
+{
+  "req": "REQ-001",
+  "title": "Admin UI 多语言支持（中/英）",
+  "status": "draft",
+  "created": "2024-08-30",
+  "priority": "P0",
+  "worktree": null,
+  "branch": null,
+  "assigned_to": null,
+  "estimate_hours": 16,
+  "technologies": ["svelte-i18n"],
+  "files_to_modify": [
+    "src/i18n/*",
+    "src/routes/*.svelte",
+    "src/components/*.svelte"
+  ]
+}
