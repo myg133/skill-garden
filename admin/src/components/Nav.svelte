@@ -2,10 +2,10 @@
   import { useLocation, navigate } from 'svelte-routing';
   import { _ } from 'svelte-i18n';
   import { auth, selectedNav } from '../stores/auth.js';
-  import { adminNavRoutes } from '../config/nav-routes.js';
+  import { adminNavRoutes, filterNavRoutesByRole } from '../config/nav-routes.js';
   import Icon from './Icon.svelte';
 
-  import { hasPermission, permissionStore } from '../stores/permission.js';
+  import { hasPermission, permissionStore, isSuperAdmin, isTenantAdmin, isOrgAdmin } from '../stores/permission.js';
 
   const STORAGE_KEY = 'nav_collapsed';
   const SIDEBAR_KEY = 'sidebar_collapsed';
@@ -72,6 +72,9 @@
     localStorage.setItem(SIDEBAR_KEY, String(sidebarCollapsed));
   }
 
+  /**
+   * 判断用户是否有权限查看菜单项
+   */
   function canSee(child, state) {
     if (!child.need) return true;
     if (child.systemRole) {
@@ -80,12 +83,28 @@
     return hasPermission(child.need);
   }
 
+  /**
+   * 获取用户角色标识
+   */
+  function getUserRole() {
+    if (isSuperAdmin()) return 'super_admin';
+    if (isTenantAdmin()) return 'tenant_admin';
+    if (isOrgAdmin()) return 'org_admin';
+    return null;
+  }
+
   // 权限未加载时不显示任何菜单（避免闪烁先全量再过滤）
-  // loaded 后按权限过滤；使用 key 避免响应式重建导致 DOM 丢失点击事件
+  // loaded 后按角色 + 权限过滤；使用 key 避免响应式重建导致 DOM 丢失点击事件
   $: filteredGroups = $permissionStore.loaded
-    ? adminNavRoutes
-        .map(g => ({ ...g, children: g.tabs.filter(c => canSee(c, $permissionStore)) }))
-        .filter(g => g.children.length > 0)
+    ? (() => {
+        const userRole = getUserRole();
+        // 先按角色过滤组
+        const roleFiltered = filterNavRoutesByRole(userRole);
+        // 再按权限过滤每个组内的菜单项
+        return roleFiltered
+          .map(g => ({ ...g, children: g.tabs.filter(c => canSee(c, $permissionStore)) }))
+          .filter(g => g.children.length > 0);
+      })()
     : [];
 
   // 当前实际路由路径

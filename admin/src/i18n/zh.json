@@ -62,7 +62,8 @@
     "mySkills": "我的技能",
     "submissions": "我的提交",
     "expandSidebar": "展开侧边栏",
-    "collapseSidebar": "收起侧边栏"
+    "collapseSidebar": "收起侧边栏",
+    "members": "成员"
   },
   "common": {
     "search": "搜索",
@@ -851,5 +852,30 @@
     "english": "English",
     "chinese": "中文",
     "characters": "字符"
+  },
+  "orgMembers": {
+    "title": "组织成员",
+    "description": "管理您的组织成员",
+    "addMember": "添加成员",
+    "remove": "移除",
+    "noMembers": "暂无成员",
+    "addFirstMember": "添加第一位成员",
+    "selectOrg": "组织",
+    "member": "成员",
+    "email": "邮箱",
+    "role": "角色",
+    "joinedAt": "加入时间",
+    "add": "添加"
+  },
+  "quickActions": {
+    "manageMembers": "管理成员",
+    "viewOrganizations": "查看组织",
+    "inviteMembers": "邀请成员",
+    "addMembers": "添加成员",
+    "manageTools": "管理工具",
+    "viewSkills": "查看技能",
+    "viewStats": "查看统计",
+    "manageTenants": "管理租户",
+    "viewAudit": "查看审计日志"
   }
 }

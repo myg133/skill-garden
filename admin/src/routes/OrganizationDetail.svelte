@@ -5,6 +5,7 @@
   import { api } from '../lib/api.js';
   import { addToast } from '../stores/app.js';
   import { hasPermission, hasOrgRole, permissionStore } from '../stores/permission.js';
+  import { getQuickActionsForRole, ROLE_ORG_ADMIN } from '../config/nav-routes.js';
   import { ACTIONS } from '../config/actions.js';
   import { selectedOrg } from '../stores/org.js';
   import LoadingSpinner from '../components/LoadingSpinner.svelte';
@@ -66,6 +67,10 @@
   $: isOrgDeveloper = hasOrgRole(id, 'owner', 'admin', 'reviewer', 'developer');
   $: isTenantOrSuper = ($permissionStore.tenantRoles || []).some(t => t.role === 'tenant_admin')
     || ($permissionStore.systemRoles || []).some(r => r === 'super_admin');
+
+  // Quick actions for org_admin (when user is viewing their own org)
+  $: isOrgAdminRole = ($permissionStore.orgRoles || []).some(r => r.org_id === id && (r.role === 'org_admin' || r.role === 'owner'));
+  $: quickActions = isOrgAdminRole ? getQuickActionsForRole(ROLE_ORG_ADMIN) : [];
 
   // --- Reactive tab loading ---
   $: if (activeTab === 'members' && organization) { loadMembers(); }
@@ -326,6 +331,24 @@
 </script>
 
 <div class="p-8">
+  {#if quickActions.length > 0}
+  <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4 mb-8">
+    {#each quickActions as action (action.key)}
+      <a
+        href={action.href}
+        class="bg-white rounded-xl border border-gray-200 shadow-card p-5 flex items-center gap-4 hover:shadow-md hover:border-blue-200 transition-all group"
+      >
+        <div class="w-10 h-10 rounded-lg bg-emerald-50 flex items-center justify-center flex-shrink-0 group-hover:bg-emerald-100 transition-colors">
+          <Icon name={action.icon} size="w-5 h-5" className="text-emerald-600" />
+        </div>
+        <span class="text-sm font-semibold text-gray-700 group-hover:text-emerald-600 transition-colors">
+          {$_(action.labelKey)}
+        </span>
+      </a>
+    {/each}
+  </div>
+  {/if}
+
   {#if loading}
     <LoadingSpinner />
   {:else if error}

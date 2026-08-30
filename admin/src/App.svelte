@@ -4,7 +4,7 @@
   import { Router, Route } from 'svelte-routing';
 
   import { isAuthenticated, isAdmin } from './stores/auth.js';
-  import { isAnyAdmin, permissionStore } from './stores/permission.js';
+  import { isAnyAdmin, permissionStore, isSuperAdmin, isTenantAdmin, isOrgAdmin, getDefaultRoute, getFirstTenantId, getFirstOrgId } from './stores/permission.js';
   import { isLoading as i18nLoading } from './i18n/index.js';
   import Nav from './components/Nav.svelte';
   import UserNav from './components/UserNav.svelte';
@@ -25,6 +25,8 @@
   import OrgTools from './routes/OrgTools.svelte';
   import Settings from './routes/Settings.svelte';
   import Tenants from './routes/Tenants.svelte';
+  import TenantDetail from './routes/TenantDetail.svelte';
+  import OrgMembers from './routes/OrgMembers.svelte';
   import Identities from './routes/Identities.svelte';
   import Groups from './routes/Groups.svelte';
   import GroupDetail from './routes/GroupDetail.svelte';
@@ -59,6 +61,34 @@
 
   // 已登录但权限还在加载中 → 展示加载状态
   $: permissionsLoading = $isAuthenticated && !$permissionStore.loaded;
+
+  // 角色判断
+  $: isSA = $permissionStore.loaded && isSuperAdmin();
+  $: isTA = $permissionStore.loaded && isTenantAdmin();
+  $: isOA = $permissionStore.loaded && isOrgAdmin();
+
+  // 首次登录时记录是否已处理默认路由重定向
+  let defaultRouteHandled = false;
+  let pendingRedirect = null;
+
+  // 当权限加载完成后，检查是否需要重定向到默认页面
+  $: if ($permissionStore.loaded && !defaultRouteHandled && $isAuthenticated) {
+    const path = window.location.pathname;
+    // 仅在根路径或用户仪表盘时重定向
+    if (path === '/' || path === '/user') {
+      const defaultRoute = getDefaultRoute();
+      if (defaultRoute && defaultRoute !== path) {
+        pendingRedirect = defaultRoute;
+      }
+    }
+    defaultRouteHandled = true;
+  }
+
+  // 执行重定向
+  $: if (pendingRedirect && typeof window !== 'undefined') {
+    window.location.href = pendingRedirect;
+    pendingRedirect = null;
+  }
 
   onMount(async () => {
     // 拦截 svelte-routing 的 navigation
@@ -135,6 +165,12 @@
             <Route path="/org-tools" component={OrgTools} />
             <Route path="/settings" component={Settings} />
             <Route path="/tenants" component={Tenants} />
+            <!-- 租户详情页 - 用于 tenant_admin 默认着陆 -->
+            <Route path="/tenants/:id" let:params>
+              <TenantDetail id={params.id} />
+            </Route>
+            <!-- 组织成员页 - 用于 org_admin 快捷访问 -->
+            <Route path="/org-members" component={OrgMembers} />
             <Route path="/identities" component={Identities} />
             <Route path="/groups" component={Groups} />
             <Route path="/groups/:id" component={GroupDetail} />

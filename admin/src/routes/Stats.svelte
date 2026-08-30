@@ -2,6 +2,8 @@
   import { onMount } from 'svelte';
   import { _ } from 'svelte-i18n';
   import { api } from '../lib/api.js';
+  import { permissionStore } from '../stores/permission.js';
+  import { getQuickActionsForRole, ROLE_SUPER_ADMIN } from '../config/nav-routes.js';
   import StatCard from '../components/StatCard.svelte';
   import AuditTable from '../components/AuditTable.svelte';
   import LoadingSpinner from '../components/LoadingSpinner.svelte';
@@ -12,6 +14,10 @@
   let sandboxHealth = null;
   let loading = true;
   let error = '';
+
+  // Quick actions for super_admin
+  $: currentRole = $permissionStore.systemRoles.includes(ROLE_SUPER_ADMIN) ? ROLE_SUPER_ADMIN : null;
+  $: quickActions = currentRole ? getQuickActionsForRole(currentRole) : [];
 
   onMount(async () => {
     try {
@@ -54,6 +60,24 @@
       <p class="text-gray-500 text-sm mt-1.5 font-medium">{$_('stats.overview')}</p>
     </div>
   </div>
+
+  {#if quickActions.length > 0}
+  <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4 mb-8">
+    {#each quickActions as action (action.key)}
+      <a
+        href={action.href}
+        class="bg-white rounded-xl border border-gray-200 shadow-card p-5 flex items-center gap-4 hover:shadow-md hover:border-blue-200 transition-all group"
+      >
+        <div class="w-10 h-10 rounded-lg bg-blue-50 flex items-center justify-center flex-shrink-0 group-hover:bg-blue-100 transition-colors">
+          <Icon name={action.icon} size="w-5 h-5" className="text-blue-600" />
+        </div>
+        <span class="text-sm font-semibold text-gray-700 group-hover:text-blue-600 transition-colors">
+          {$_(action.labelKey)}
+        </span>
+      </a>
+    {/each}
+  </div>
+  {/if}
 
   {#if loading}
     <LoadingSpinner />

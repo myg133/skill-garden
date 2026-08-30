@@ -169,3 +169,74 @@ export function isAnyAdmin() {
 export function isPureUser() {
   return !isAnyAdmin();
 }
+
+/** 判断当前用户是否为超级管理员 */
+export function isSuperAdmin() {
+  const s = get(permissionStore);
+  return s.systemRoles.includes('super_admin');
+}
+
+/** 判断当前用户是否为租户管理员（在任何租户中） */
+export function isTenantAdmin() {
+  const s = get(permissionStore);
+  return s.tenantRoles.some(t => t.role === 'tenant_admin');
+}
+
+/** 判断当前用户是否为组织管理员（在任何组织中） */
+export function isOrgAdmin() {
+  const s = get(permissionStore);
+  return s.orgRoles.some(r => r.role === 'org_admin' || r.role === 'owner');
+}
+
+/**
+ * 获取角色专属默认路由
+ * @returns {string} 默认路由路径
+ */
+export function getDefaultRoute() {
+  const s = get(permissionStore);
+
+  // super_admin → /stats
+  if (s.systemRoles.includes('super_admin')) {
+    return '/stats';
+  }
+
+  // tenant_admin → 第一个租户详情页
+  if (isTenantAdmin()) {
+    const tenantId = s.tenantRoles.find(t => t.role === 'tenant_admin')?.tenant_id;
+    if (tenantId) {
+      return `/tenants/${tenantId}`;
+    }
+    return '/tenants';
+  }
+
+  // org_admin → 第一个组织详情页
+  if (isOrgAdmin()) {
+    const orgId = s.orgRoles.find(r => r.role === 'org_admin' || r.role === 'owner')?.org_id;
+    if (orgId) {
+      return `/organizations/${orgId}`;
+    }
+    return '/';
+  }
+
+  // 其他用户 → /user
+  return '/user';
+}
+
+/**
+ * 获取用户所属的第一个租户 ID（用于 tenant_admin）
+ * @returns {string|null}
+ */
+export function getFirstTenantId() {
+  const s = get(permissionStore);
+  return s.tenantRoles.find(t => t.role === 'tenant_admin')?.tenant_id || null;
+}
+
+/**
+ * 获取用户所属的第一个组织 ID（用于 org_admin）
+ * @returns {string|null}
+ */
+export function getFirstOrgId() {
+  const s = get(permissionStore);
+  const adminRole = s.orgRoles.find(r => r.role === 'org_admin' || r.role === 'owner');
+  return adminRole?.org_id || null;
+}
