@@ -249,6 +249,11 @@
   },
   "skills": {
     "title": "Skills",
+    "mySkills": "My Skills",
+    "marketplaceDescription": "Marketplace skill management and personal skills",
+    "adminDescription": "All skills across all tenants and organizations",
+    "personalDescription": "Your personal skill library",
+    "orgDescription": "Skills in {org}",
     "marketplace": "Marketplace",
     "personal": "Personal",
     "listed": "Listed",

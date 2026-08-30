@@ -594,22 +594,22 @@
     <div>
       <h1 class="text-[28px] font-extrabold text-gray-800 tracking-tight">
         {#if isMarketplaceRole || $isAdmin || isSuperAdmin}
-          Skills
+          {$_('skills.title')}
         {:else if inPersonalSpace}
-          My Skills
+          {$_('skills.mySkills')}
         {:else}
-          Skills
+          {$_('skills.title')}
         {/if}
       </h1>
       <p class="text-gray-500 text-sm mt-1.5 font-medium">
         {#if isMarketplaceRole}
-          Marketplace skill management and personal skills
+          {$_('skills.marketplaceDescription')}
         {:else if $isAdmin || isSuperAdmin}
-          All skills across all tenants and organizations
+          {$_('skills.adminDescription')}
         {:else if inPersonalSpace}
-          Your personal skill space
+          {$_('skills.personalDescription')}
         {:else if currentOrgId}
-          Skills in {currentOrgName}
+          {$_('skills.orgDescription').replace('{org}', currentOrgName)}
           <span class="ml-2 inline-flex items-center px-2 py-0.5 text-xs rounded-full {orgRoleBadgeColor(currentOrgRole)}">{orgRoleLabel(currentOrgRole)}</span>
         {:else}
           Browse and manage all skills

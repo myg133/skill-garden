@@ -249,6 +249,11 @@
   },
   "skills": {
     "title": "技能",
+    "mySkills": "我的技能",
+    "marketplaceDescription": "市场技能管理和个人技能",
+    "adminDescription": "跨租户和组织的全部技能",
+    "personalDescription": "您的个人技能库",
+    "orgDescription": "{org} 中的技能",
     "marketplace": "市场",
     "personal": "个人",
     "listed": "已上架",
