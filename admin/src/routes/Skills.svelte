@@ -623,7 +623,7 @@
         class="btn-primary px-5 py-2.5 rounded-xl font-semibold text-sm flex items-center gap-2"
       >
         <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 4v16m8-8H4"/></svg>
-        New Skill
+        {$_('skills.newSkill')}
       </button>
       {/if}
       <span class="inline-flex items-center gap-1.5 px-3.5 py-2 bg-white text-blue-700 rounded-xl text-sm font-semibold ring-1 ring-sky-600/20">
