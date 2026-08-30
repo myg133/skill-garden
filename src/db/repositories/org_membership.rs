@@ -134,8 +134,8 @@ impl OrgMembershipRepository {
                 i.display_name,
                 i.name,
                 i.identity_type,
-                COALESCE(om.role, gm.default_role) as role,
-                LEAST(om.joined_at, COALESCE(gm.created_at, NOW())) as joined_at
+                COALESCE(om.role, gm.role) as role,
+                LEAST(om.joined_at, COALESCE(gm.joined_at, NOW())) as joined_at
             FROM identities i
             LEFT JOIN org_memberships om ON i.id = om.identity_id AND om.organization_id = $1
             LEFT JOIN memberships gm ON i.id = gm.identity_id
