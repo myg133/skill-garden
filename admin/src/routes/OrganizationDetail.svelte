@@ -26,6 +26,7 @@
   let orgTools = [];
   let members = [];
   let groups = [];
+  let tenantName = null;
   let loading = true;
   let error = '';
   let loadingGroups = false;
@@ -85,6 +86,17 @@
       organization = orgRes;
       sessions = sessionsRes.data || [];
       orgTools = toolsRes.data || [];
+      
+      // Load tenant name if this org has a tenant
+      if (orgRes.tenant_id) {
+        try {
+          const tenantRes = await api.getTenant(orgRes.tenant_id);
+          tenantName = tenantRes.name;
+        } catch (e) {
+          console.error('Failed to load tenant:', e);
+          tenantName = null;
+        }
+      }
     } catch (e) {
       error = e.message;
     } finally {
@@ -336,6 +348,7 @@
       {activeSessionCount}
       toolCount={orgTools.length}
       {activeTab}
+      {tenantName}
       canEdit={isOrgAdmin || isTenantOrSuper}
       canDelete={isOrgOwner || isTenantOrSuper}
       onStartEdit={startEdit}

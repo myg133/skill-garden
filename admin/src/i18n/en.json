@@ -580,6 +580,8 @@
     "deleteTenant": "Delete this tenant?",
     "tenantCreated": "Tenant created",
     "tenantDeleted": "Tenant deleted",
+    "tenantAdmins": "Tenant Admins",
+    "noTenantAdmins": "No tenant admins",
     "organizations": "Organizations",
     "users": "Users",
     "name": "Name",

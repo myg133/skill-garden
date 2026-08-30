@@ -580,6 +580,8 @@
     "deleteTenant": "确定要删除此租户吗？",
     "tenantCreated": "租户已创建",
     "tenantDeleted": "租户已删除",
+    "tenantAdmins": "租户管理员",
+    "noTenantAdmins": "暂无租户管理员",
     "organizations": "组织",
     "users": "用户",
     "name": "名称",

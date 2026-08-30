@@ -406,6 +406,34 @@ export const api = {
     return request(`/admin/tenant-role-assignments${qs ? `?${qs}` : ''}`);
   },
 
+  // Organization Join Requests
+  createJoinRequest(orgId, data = {}) {
+    return request(`/orgs/${orgId}/join-request`, {
+      method: 'POST',
+      body: JSON.stringify(data)
+    });
+  },
+
+  cancelJoinRequest(orgId) {
+    return request(`/orgs/${orgId}/join-request`, { method: 'DELETE' });
+  },
+
+  getMyJoinRequest(orgId) {
+    return request(`/orgs/${orgId}/my-join-request`);
+  },
+
+  listJoinRequests(orgId, params = {}) {
+    const qs = new URLSearchParams(params).toString();
+    return request(`/orgs/${orgId}/join-requests${qs ? `?${qs}` : ''}`);
+  },
+
+  reviewJoinRequest(orgId, requestId, data) {
+    return request(`/orgs/${orgId}/join-requests/${requestId}`, {
+      method: 'PUT',
+      body: JSON.stringify(data)
+    });
+  },
+
   // Groups
   listGroups(params = {}) {
     const qs = new URLSearchParams(params).toString();

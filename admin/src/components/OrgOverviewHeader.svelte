@@ -6,6 +6,7 @@
   export let activeSessionCount = 0;
   export let toolCount = 0;
   export let activeTab = 'overview';
+  export let tenantName = null;
 
   export let canEdit = false;
   export let canDelete = false;
@@ -47,7 +48,14 @@
       <p class="text-gray-400 text-xs mt-0.5">Slug: {organization.slug}</p>
     {/if}
     {#if organization.tenant_id}
-      <p class="text-gray-400 text-xs mt-0.5">Tenant: {organization.tenant_id}</p>
+      <p class="text-gray-400 text-xs mt-0.5">
+        <span class="font-semibold">Tenant:</span> 
+        {#if tenantName}
+          <a href="/tenants" class="text-blue-600 hover:text-blue-700">{tenantName}</a>
+        {:else}
+          {organization.tenant_id}
+        {/if}
+      </p>
     {/if}
   </div>
   <div class="px-6 py-5 grid grid-cols-4 gap-4">
