@@ -132,7 +132,8 @@
     "clearAll": "Clear all",
     "apply": "Apply",
     "selectAll": "Select all",
-    "deselectAll": "Deselect all"
+    "deselectAll": "Deselect all",
+    "view": "View"
   },
   "organizations": {
     "title": "Organizations",
@@ -153,7 +154,7 @@
     "view": "View",
     "overview": "Overview",
     "members": "Members",
-    "groups": "Groups",
+    "groups": "Groups ({count})",
     "settings": "Settings",
     "addMembers": "Add Members",
     "removeMember": "Remove Member",
@@ -166,7 +167,6 @@
     "memberRemoved": "Member removed",
     "membersCount": "Organization Members ({count})",
     "noMembers": "No members yet",
-    "inviteMember": "Invite Member",
     "table": {
       "user": "User",
       "email": "Email",
@@ -178,7 +178,6 @@
       "slug": "Slug",
       "description": "Description"
     },
-    "groups": "Groups ({count})",
     "createGroup": "Create Group",
     "loading": "Loading...",
     "noGroups": "No groups yet"
@@ -262,9 +261,8 @@
     "marketplace": "Marketplace",
     "personal": "Personal",
     "listed": "Listed",
-    "pending": "Pending Review",
+    "pending": "Pending",
     "allSkills": "All Skills",
-    "mySkills": "My Skills",
     "newSkill": "New Skill",
     "createSkill": "Create Skill",
     "skillName": "Skill name",
@@ -343,13 +341,11 @@
       "downloads": "Downloads"
     },
     "marketplaceSkills": "Marketplace Skills",
-    "personal": "Personal",
     "noSkillsFound": "No skills found",
     "marketplaceManagement": "Marketplace skill management and personal skills",
     "allSkillsTenants": "All skills across all tenants and organizations",
     "personalSkillSpace": "Your personal skill space",
     "browseManageSkills": "Browse and manage all skills",
-    "newSkill": "New Skill",
     "totalCount": "{total} total",
     "submitReview": "Submit Review",
     "publish": "Publish",
@@ -358,16 +354,12 @@
     "relist": "Relist",
     "listOnMarket": "List on Market",
     "marketReview": "Market Review",
-    "listed": "Listed",
-    "pending": "Pending",
-    "rejected": "Rejected",
     "delisted": "Delisted",
     "personalDot": "Personal · {name}",
     "unknown": "N/A",
     "pagination": "Page {page} of {totalPages} ({total} total)",
     "uploadSkillPackage": "Upload Skill Package",
     "dragDropZip": "Drag & drop a .zip file here, or click to browse",
-    "owner": "Owner",
     "selectOrganization": "-- Select Organization --",
     "files": "Files",
     "content": "Content",
@@ -414,8 +406,7 @@
     "type": "Type",
     "systemRoles": "System Roles",
     "manage": "Manage",
-    "externalIdOptional": "External ID (optional)",
-    "identityDeleted": "Identity deleted"
+    "externalIdOptional": "External ID (optional)"
   },
   "apiKeys": {
     "title": "API Keys",
@@ -692,7 +683,6 @@
     "security": "Security",
     "lastChanged": "Last changed",
     "never": "never",
-    "changePassword": "Change Password",
     "myOrganizations": "My Organizations"
   },
   "orgTools": {
@@ -764,12 +754,6 @@
     "marketplaceReview": "Marketplace Review",
     "delistRequests": "Delist Requests",
     "pendingUpdates": "Pending Updates",
-    "delistRequest": "Delist Request",
-    "contentUpdate": "Content Update",
-    "pendingChanges": "Pending changes",
-    "current": "Current",
-    "updateTo": "Update to",
-    "noSpecificChanges": "No specific changes",
     "view": "View"
   },
   "submissions": {

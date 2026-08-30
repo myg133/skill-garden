@@ -132,7 +132,8 @@
     "clearAll": "清除全部",
     "apply": "应用",
     "selectAll": "全选",
-    "deselectAll": "取消全选"
+    "deselectAll": "取消全选",
+    "view": "查看"
   },
   "organizations": {
     "title": "组织",
@@ -153,7 +154,7 @@
     "view": "查看",
     "overview": "概览",
     "members": "成员",
-    "groups": "分组",
+    "groups": "分组 ({count})",
     "settings": "设置",
     "addMembers": "添加成员",
     "removeMember": "移除成员",
@@ -166,7 +167,6 @@
     "memberRemoved": "成员已移除",
     "membersCount": "组织成员 ({count})",
     "noMembers": "暂无成员",
-    "inviteMember": "邀请成员",
     "table": {
       "user": "用户",
       "email": "邮箱",
@@ -178,7 +178,6 @@
       "slug": "别名",
       "description": "描述"
     },
-    "groups": "分组 ({count})",
     "createGroup": "创建分组",
     "loading": "加载中...",
     "noGroups": "暂无分组"
@@ -264,7 +263,6 @@
     "listed": "已上架",
     "pending": "待审核",
     "allSkills": "全部技能",
-    "mySkills": "我的技能",
     "newSkill": "新建技能",
     "createSkill": "创建技能",
     "skillName": "技能名称",
@@ -343,13 +341,11 @@
       "downloads": "下载次数"
     },
     "marketplaceSkills": "市场技能",
-    "personal": "个人",
     "noSkillsFound": "未找到技能",
     "marketplaceManagement": "市场技能管理和个人技能",
     "allSkillsTenants": "所有租户和组织下的技能",
     "personalSkillSpace": "您的个人技能空间",
     "browseManageSkills": "浏览和管理所有技能",
-    "newSkill": "新建技能",
     "totalCount": "共 {total} 个",
     "submitReview": "提交审核",
     "publish": "发布",
@@ -358,16 +354,12 @@
     "relist": "重新上架",
     "listOnMarket": "上架到市场",
     "marketReview": "市场审核",
-    "listed": "已上架",
-    "pending": "待审核",
-    "rejected": "已拒绝",
     "delisted": "已下架",
     "personalDot": "个人 · {name}",
     "unknown": "未知",
     "pagination": "第 {page} 页，共 {totalPages} 页（共 {total} 条）",
     "uploadSkillPackage": "上传技能包",
     "dragDropZip": "拖放 .zip 文件到此处，或点击浏览",
-    "owner": "所有者",
     "selectOrganization": "-- 选择组织 --",
     "files": "文件",
     "content": "内容",
@@ -414,8 +406,7 @@
     "type": "类型",
     "systemRoles": "系统角色",
     "manage": "管理",
-    "externalIdOptional": "外部 ID（可选）",
-    "identityDeleted": "身份已删除"
+    "externalIdOptional": "外部 ID（可选）"
   },
   "apiKeys": {
     "title": "API 密钥",
@@ -692,7 +683,6 @@
     "security": "安全",
     "lastChanged": "上次修改",
     "never": "从未",
-    "changePassword": "修改密码",
     "myOrganizations": "我的组织"
   },
   "orgTools": {
@@ -766,12 +756,6 @@
     "marketplaceReview": "市场审核",
     "delistRequests": "下架请求",
     "pendingUpdates": "待更新",
-    "delistRequest": "下架请求",
-    "contentUpdate": "内容更新",
-    "pendingChanges": "待审核的更改",
-    "current": "当前",
-    "updateTo": "更新为",
-    "noSpecificChanges": "无具体更改内容",
     "view": "查看"
   },
   "submissions": {
