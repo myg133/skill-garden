@@ -1,0 +1,51 @@
+{
+  "req": "REQ-002",
+  "title": "Tenant-Org-User 加入流程优化",
+  "status": "in_progress",
+  "created": "2024-08-30",
+  "priority": "P1",
+  "worktree": "feature-REQ-002",
+  "branch": "feature/REQ-002",
+  "assigned_to": "anspire-open-developer",
+  "estimate_hours": 24,
+  "technologies": ["Rust", "Axum", "PostgreSQL", "Svelte"],
+  "phases": [
+    {
+      "phase": "1.1",
+      "title": "组员搜索添加",
+      "priority": "P0",
+      "estimate_hours": 4
+    },
+    {
+      "phase": "1.2",
+      "title": "加入申请流程",
+      "priority": "P1",
+      "estimate_hours": 12
+    },
+    {
+      "phase": "1.3",
+      "title": "组织层级可视化",
+      "priority": "P1",
+      "estimate_hours": 8
+    }
+  ],
+  "files_to_create": [
+    "src/db/migrations/041_add_org_join_requests.sql",
+    "src/db/repositories/org_join_request.rs"
+  ],
+  "files_to_modify": [
+    "src/api/handlers/identities.rs",
+    "src/api/handlers/orgs.rs",
+    "src/api/routes.rs",
+    "admin/src/routes/GroupDetail.svelte",
+    "admin/src/routes/OrganizationDetail.svelte",
+    "admin/src/routes/Tenants.svelte",
+    "admin/src/lib/api.js"
+  ],
+  "decisions": {
+    "A_join_policy_default": "approval_required",
+    "B_join_message_required": false,
+    "C_multi_approver": true,
+    "D_group_name_unique": "within_org"
+  }
+}

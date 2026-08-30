@@ -4,13 +4,13 @@
 
 | Agent ID | 技能标签 | 状态 | 当前需求 | Worktree |
 |----------|---------|------|---------|----------|
-| — | — | — | — | — |
+| anspire-open-developer | backend,frontend,db | idle | — | — |
 
 ## QA Agents
 
 | Agent ID | 专长 | 状态 | 当前需求 |
 |----------|------|------|---------|
-| — | — | — | — |
+| anspire-open-qa | api-testing,ui-testing | idle | — |
 
 ## Deploy Agents
 
