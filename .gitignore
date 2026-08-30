@@ -55,6 +55,9 @@ secrets/
 .sisyphus/
 .codebuddy/
 
+# Agent 运行时目录
+.pi/
+
 # Rust
 **/*.rs.bk
 Cargo.lock
