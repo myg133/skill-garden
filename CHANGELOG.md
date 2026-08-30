@@ -32,6 +32,9 @@
 - `admin/src/routes/OrgMembers.svelte` - 组织成员页（新）
 - `admin/src/i18n/en.json` - 新增翻译键
 - `admin/src/i18n/zh.json` - 新增翻译键
+- `admin/src/routes/Stats.svelte` - super_admin 快捷操作卡片
+- `admin/src/routes/TenantDetail.svelte` - tenant_admin 快捷操作卡片
+- `admin/src/routes/OrganizationDetail.svelte` - org_admin 快捷操作卡片
 
 ## [0.3.0] - 2026-04-20
 

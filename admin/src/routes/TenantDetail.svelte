@@ -2,8 +2,10 @@
   import { onMount } from 'svelte';
   import { api } from '../lib/api.js';
   import { addToast } from '../stores/app.js';
-  import { hasPermission } from '../stores/permission.js';
+  import { hasPermission, permissionStore } from '../stores/permission.js';
+  import { getQuickActionsForRole, ROLE_TENANT_ADMIN } from '../config/nav-routes.js';
   import LoadingSpinner from '../components/LoadingSpinner.svelte';
+  import Icon from '../components/Icon.svelte';
   import { _ } from 'svelte-i18n';
 
   export let id = null;
@@ -13,6 +15,10 @@
   let admins = [];
   let loading = true;
   let error = '';
+
+  // Quick actions for tenant_admin
+  $: currentRole = $permissionStore.tenantRoles.some(t => t.role === ROLE_TENANT_ADMIN) ? ROLE_TENANT_ADMIN : null;
+  $: quickActions = currentRole ? getQuickActionsForRole(currentRole) : [];
 
   onMount(async () => {
     if (id) {
@@ -50,6 +56,24 @@
 </script>
 
 <div class="p-8">
+  {#if quickActions.length > 0}
+  <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4 mb-8">
+    {#each quickActions as action (action.key)}
+      <a
+        href={action.href}
+        class="bg-white rounded-xl border border-gray-200 shadow-card p-5 flex items-center gap-4 hover:shadow-md hover:border-blue-200 transition-all group"
+      >
+        <div class="w-10 h-10 rounded-lg bg-amber-50 flex items-center justify-center flex-shrink-0 group-hover:bg-amber-100 transition-colors">
+          <Icon name={action.icon} size="w-5 h-5" className="text-amber-600" />
+        </div>
+        <span class="text-sm font-semibold text-gray-700 group-hover:text-amber-600 transition-colors">
+          {$_(action.labelKey)}
+        </span>
+      </a>
+    {/each}
+  </div>
+  {/if}
+
   {#if loading}
     <LoadingSpinner />
   {:else if error}
