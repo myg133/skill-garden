@@ -1,11 +1,16 @@
-﻿//! 分组权限管理 handlers
+//! 分组权限管理 handlers
 
-use axum::{extract::{Path, Query, State}, http::StatusCode, response::IntoResponse, Json};
+use axum::{
+    extract::{Path, Query, State},
+    http::StatusCode,
+    response::IntoResponse,
+    Json,
+};
 use uuid::Uuid;
 
+use super::helpers::ApiState;
 use crate::api::error::ApiError;
 use crate::api::jwt::AgentContext;
-use super::helpers::ApiState;
 
 // Group permission override handlers
 
@@ -311,4 +316,3 @@ pub async fn delete_user_handler_admin(
 }
 
 // --- Evaluation Query/Delete Handlers (Feature #8) ---
-

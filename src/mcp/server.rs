@@ -250,12 +250,20 @@ impl McpServer {
             if is_api_key_format(&effective_token) {
                 // Mask API key for safe logging (show only prefix + last 4 chars)
                 let masked = if effective_token.len() > 10 {
-                    format!("{}...{}", &effective_token[..6], &effective_token[effective_token.len() - 4..])
+                    format!(
+                        "{}...{}",
+                        &effective_token[..6],
+                        &effective_token[effective_token.len() - 4..]
+                    )
                 } else {
                     "***".to_string()
                 };
-                match Self::resolve_identity_from_api_key(&self.api_key, &self.identity, &effective_token)
-                    .await
+                match Self::resolve_identity_from_api_key(
+                    &self.api_key,
+                    &self.identity,
+                    &effective_token,
+                )
+                .await
                 {
                     Ok((mut ctx, org_id)) => {
                         // Auto-create or reuse session for this identity
@@ -299,7 +307,9 @@ impl McpServer {
                     }
                 }
             } else {
-                let result = verify_token(&effective_token).map(AgentContext::from_claims).ok();
+                let result = verify_token(&effective_token)
+                    .map(AgentContext::from_claims)
+                    .ok();
                 if result.is_none() {
                     tracing::warn!("MCP auth failed: JWT verification failed");
                 }
@@ -484,7 +494,10 @@ impl McpServer {
                         _ => None,
                     }
                 };
-                match self.search.search(&query, tags.as_deref(), limit, scope.as_ref()) {
+                match self
+                    .search
+                    .search(&query, tags.as_deref(), limit, scope.as_ref())
+                {
                     Ok(results) => {
                         Self::json_success(serde_json::to_value(results).unwrap_or_default())
                     }
@@ -508,11 +521,8 @@ impl McpServer {
                     Ok(skills) => {
                         let identity_id = agent_ctx.and_then(|c| c.identity_id);
                         let api_key_org = Self::api_key_org_id(agent_ctx);
-                        let filtered = Self::filter_skills_visible_mcp(
-                            skills,
-                            identity_id,
-                            api_key_org,
-                        );
+                        let filtered =
+                            Self::filter_skills_visible_mcp(skills, identity_id, api_key_org);
                         let total = filtered.len();
                         Self::json_success(serde_json::json!({
                             "skills": filtered,
@@ -529,31 +539,24 @@ impl McpServer {
                 let skill_id = args.get("skill_id").and_then(|v| v.as_str());
 
                 match skill_id {
-                    Some(id) => {
-                        match self.registry.get_skill(id).await {
-                            Ok(skill) => {
-                                let identity_id = agent_ctx.and_then(|c| c.identity_id);
-                                let api_key_org = Self::api_key_org_id(agent_ctx);
-                                let meta: crate::models::skill::SkillMetadata = (&skill).into();
-                                let visible = Self::filter_skills_visible_mcp(
-                                    vec![meta],
-                                    identity_id,
-                                    api_key_org,
-                                );
-                                if !visible.is_empty() {
-                                    Self::json_success(
-                                        serde_json::to_value(skill).unwrap_or_default(),
-                                    )
-                                } else {
-                                    Self::json_error(format!(
-                                        "Skill {} not found or access denied",
-                                        id
-                                    ))
-                                }
+                    Some(id) => match self.registry.get_skill(id).await {
+                        Ok(skill) => {
+                            let identity_id = agent_ctx.and_then(|c| c.identity_id);
+                            let api_key_org = Self::api_key_org_id(agent_ctx);
+                            let meta: crate::models::skill::SkillMetadata = (&skill).into();
+                            let visible = Self::filter_skills_visible_mcp(
+                                vec![meta],
+                                identity_id,
+                                api_key_org,
+                            );
+                            if !visible.is_empty() {
+                                Self::json_success(serde_json::to_value(skill).unwrap_or_default())
+                            } else {
+                                Self::json_error(format!("Skill {} not found or access denied", id))
                             }
-                            Err(e) => Self::json_error(format!("Get skill failed: {}", e)),
                         }
-                    }
+                        Err(e) => Self::json_error(format!("Get skill failed: {}", e)),
+                    },
                     None => Self::json_error("skill_id is required".to_string()),
                 }
             }
@@ -575,11 +578,8 @@ impl McpServer {
                             // 可见性过滤：只返回当前 API key 范围内可见的版本
                             let identity_id = agent_ctx.and_then(|c| c.identity_id);
                             let api_key_org = Self::api_key_org_id(agent_ctx);
-                            let filtered = Self::filter_skills_visible_mcp(
-                                versions,
-                                identity_id,
-                                api_key_org,
-                            );
+                            let filtered =
+                                Self::filter_skills_visible_mcp(versions, identity_id, api_key_org);
                             Self::json_success(serde_json::to_value(filtered).unwrap_or_default())
                         }
                         Err(e) => Self::json_error(format!("List versions failed: {}", e)),
@@ -595,11 +595,8 @@ impl McpServer {
                     Ok(skills) => {
                         let identity_id = agent_ctx.and_then(|c| c.identity_id);
                         let api_key_org = Self::api_key_org_id(agent_ctx);
-                        let filtered = Self::filter_skills_visible_mcp(
-                            skills,
-                            identity_id,
-                            api_key_org,
-                        );
+                        let filtered =
+                            Self::filter_skills_visible_mcp(skills, identity_id, api_key_org);
                         Self::json_success(serde_json::to_value(filtered).unwrap_or_default())
                     }
                     Err(e) => Self::json_error(format!("List popular failed: {}", e)),
@@ -653,13 +650,17 @@ impl McpServer {
                         // 权限校验：个人 API key 不能创建组织 Skill，组织 API key 不能创建个人 Skill
                         if mcp_owner_type == "organization" && caller_org_id.is_none() {
                             return serde_json::to_value(&Self::json_error(
-                                "Cannot create organization skill with a personal API key".to_string(),
-                            )).unwrap_or_default();
+                                "Cannot create organization skill with a personal API key"
+                                    .to_string(),
+                            ))
+                            .unwrap_or_default();
                         }
                         if mcp_owner_type == "user" && caller_org_id.is_some() {
                             return serde_json::to_value(&Self::json_error(
-                                "Cannot create personal skill with an organization API key".to_string(),
-                            )).unwrap_or_default();
+                                "Cannot create personal skill with an organization API key"
+                                    .to_string(),
+                            ))
+                            .unwrap_or_default();
                         }
 
                         let (owner_type, owner_id, default_visibility) =
@@ -790,9 +791,10 @@ impl McpServer {
                                 };
 
                                 if !can_update {
-                                    return serde_json::to_value(&Self::json_error(
-                                        format!("Access denied: you cannot update skill {}", id),
-                                    ))
+                                    return serde_json::to_value(&Self::json_error(format!(
+                                        "Access denied: you cannot update skill {}",
+                                        id
+                                    )))
                                     .unwrap_or_default();
                                 }
 
@@ -1487,11 +1489,7 @@ token = "{token}"
     }
 
     /// 检查 API key 所属身份是否是目标组织的成员
-    async fn check_org_membership(
-        &self,
-        identity_id: Uuid,
-        org_id: Uuid,
-    ) -> Result<(), String> {
+    async fn check_org_membership(&self, identity_id: Uuid, org_id: Uuid) -> Result<(), String> {
         let is_member = self
             .permission
             .is_org_member(identity_id, org_id)

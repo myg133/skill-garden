@@ -1,7 +1,6 @@
-﻿//! 公共辅助函数、类型别名和权限检查
+//! 公共辅助函数、类型别名和权限检查
 
 use std::sync::Arc;
-
 
 use crate::api::error::ApiError;
 use crate::api::http_state::AppRouterState;
@@ -112,14 +111,16 @@ pub(crate) async fn build_tenant_role_infos(
 
     tenant_roles
         .iter()
-        .map(|(tenant_id, role_name)| crate::api::models::TenantRoleInfo {
-            tenant_id: *tenant_id,
-            tenant_name: name_map
-                .get(tenant_id)
-                .cloned()
-                .unwrap_or_else(|| "Unknown".to_string()),
-            role_name: role_name.clone(),
-        })
+        .map(
+            |(tenant_id, role_name)| crate::api::models::TenantRoleInfo {
+                tenant_id: *tenant_id,
+                tenant_name: name_map
+                    .get(tenant_id)
+                    .cloned()
+                    .unwrap_or_else(|| "Unknown".to_string()),
+                role_name: role_name.clone(),
+            },
+        )
         .collect()
 }
 
@@ -191,9 +192,7 @@ pub(crate) async fn require_marketplace_admin_only(
 }
 
 /// 基本身份验证检查（任何已登录用户）
-pub(crate) async fn require_auth(
-    agent_context: &AgentContext,
-) -> Result<uuid::Uuid, ApiError> {
+pub(crate) async fn require_auth(agent_context: &AgentContext) -> Result<uuid::Uuid, ApiError> {
     agent_context.require_identity()
 }
 

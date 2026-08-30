@@ -110,11 +110,7 @@ impl OrgJoinRequestService {
     }
 
     /// Cancel a pending request (by the requester)
-    pub async fn cancel(
-        &self,
-        organization_id: Uuid,
-        identity_id: Uuid,
-    ) -> Result<(), AppError> {
+    pub async fn cancel(&self, organization_id: Uuid, identity_id: Uuid) -> Result<(), AppError> {
         self.repo
             .delete_pending_by_org_and_identity(organization_id, identity_id)
             .await

@@ -1,10 +1,10 @@
-﻿//! 市场审核员管理 handlers
+//! 市场审核员管理 handlers
 
 use axum::{extract::State, http::StatusCode, response::IntoResponse, Json};
 
+use super::helpers::{require_marketplace_admin, require_marketplace_admin_only, ApiState};
 use crate::api::error::ApiError;
 use crate::api::jwt::AgentContext;
-use super::helpers::{require_marketplace_admin, require_marketplace_admin_only, ApiState};
 
 // Marketplace reviewer assignment handlers (marketplace_admin assigns marketplace_reviewer)
 
@@ -18,7 +18,9 @@ pub async fn assign_marketplace_reviewer_handler(
         .map_err(|_| ApiError::BadRequest("Invalid admin subject".to_string()))?;
     // Prevent self-assignment
     if body.identity_id == admin_id {
-        return Err(ApiError::BadRequest("Cannot modify your own role".to_string()));
+        return Err(ApiError::BadRequest(
+            "Cannot modify your own role".to_string(),
+        ));
     }
     let role_name = "marketplace_reviewer";
     let assignment = state
@@ -41,7 +43,9 @@ pub async fn revoke_marketplace_reviewer_handler(
     let admin_id = uuid::Uuid::parse_str(&agent_context.subject)
         .map_err(|_| ApiError::BadRequest("Invalid admin subject".to_string()))?;
     if body.identity_id == admin_id {
-        return Err(ApiError::BadRequest("Cannot modify your own role".to_string()));
+        return Err(ApiError::BadRequest(
+            "Cannot modify your own role".to_string(),
+        ));
     }
     state
         .system_role_assignment
@@ -66,4 +70,3 @@ pub async fn list_marketplace_reviewers_handler(
         Json(serde_json::json!({ "data": assignments })),
     ))
 }
-

@@ -1,10 +1,15 @@
 //! 技能上传与版本管理 handlers
 
-use axum::{extract::{Path, Query, State}, http::StatusCode, response::IntoResponse, Json};
+use axum::{
+    extract::{Path, Query, State},
+    http::StatusCode,
+    response::IntoResponse,
+    Json,
+};
 
+use super::helpers::ApiState;
 use crate::api::error::ApiError;
 use crate::api::jwt::AgentContext;
-use super::helpers::ApiState;
 
 pub async fn upload_skill_handler(
     State(state): State<ApiState>,
@@ -100,7 +105,7 @@ pub async fn upload_skill_handler(
 // --- Skill Upload Preview & Confirm Handlers ---
 
 /// POST /api/v1/skills/upload/preview — 上传 ZIP 仅解压预览，不提交
-    pub async fn upload_skill_preview_handler(
+pub async fn upload_skill_preview_handler(
     State(state): State<ApiState>,
     AgentContext { subject: _, .. }: AgentContext,
     mut multipart: axum::extract::Multipart,
@@ -152,7 +157,7 @@ pub async fn upload_skill_handler(
 }
 
 /// GET /api/v1/skills/upload/preview/:preview_id/files/*path —  获取预览中文件内容
-    pub async fn get_preview_file_handler(
+pub async fn get_preview_file_handler(
     State(state): State<ApiState>,
     AgentContext { subject: _, .. }: AgentContext,
     axum::extract::Path((preview_id,)): axum::extract::Path<(String,)>,
@@ -208,7 +213,7 @@ pub async fn upload_skill_handler(
 }
 
 /// POST /api/v1/skills/upload/preview/:preview_id/confirm - 确认上传，提交 Git + DB
-    pub async fn confirm_skill_upload_handler(
+pub async fn confirm_skill_upload_handler(
     State(state): State<ApiState>,
     AgentContext {
         subject,
@@ -246,7 +251,7 @@ pub async fn upload_skill_handler(
             })?;
 
         // 验证用户属于该组织（admin 跳过组织成员校验）
-    if !is_admin {
+        if !is_admin {
             let is_member = state
                 .permission
                 .is_org_member(_identity_id, org_id)
@@ -367,7 +372,7 @@ pub async fn list_skill_versions_handler(
 }
 
 /// GET /api/v1/skills/:name/versions/diff - diff between two versions
-    pub async fn get_skill_version_diff_handler(
+pub async fn get_skill_version_diff_handler(
     State(state): State<ApiState>,
     AgentContext { subject: _, .. }: AgentContext,
     Path(skill_name): Path<String>,
@@ -388,9 +393,3 @@ pub async fn list_skill_versions_handler(
         })),
     ))
 }
-
-
-
-
-
-

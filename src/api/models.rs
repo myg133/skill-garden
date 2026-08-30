@@ -219,6 +219,9 @@ pub struct UserRegisterBody {
     pub display_name: Option<String>,
     pub email: Option<String>,
     pub password: String,
+    /// 租户名称（SaaS 模式下注册时必填）
+    #[serde(default)]
+    pub tenant_name: Option<String>,
 }
 
 // Password reset models

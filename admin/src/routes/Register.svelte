@@ -8,6 +8,7 @@
   let email = '';
   let password = '';
   let confirmPassword = '';
+  let tenantName = '';
   let error = '';
   let loading = false;
   let showPassword = false;
@@ -25,10 +26,19 @@
       error = 'Password must be at least 6 characters';
       return;
     }
+    // SaaS mode: tenant name is required
+    if (!tenantName || tenantName.trim().length < 2) {
+      error = 'Tenant name is required (at least 2 characters)';
+      return;
+    }
+    if (tenantName.length > 50) {
+      error = 'Tenant name must not exceed 50 characters';
+      return;
+    }
     loading = true;
     error = '';
     try {
-      await api.userRegister(username, password, displayName || undefined, email || undefined);
+      await api.userRegister(username, password, displayName || undefined, email || undefined, tenantName.trim());
       navigate('/login', { replace: true });
     } catch (e) {
       error = e.message || $_('auth.registrationFailed');
@@ -74,6 +84,21 @@
             placeholder={$_('auth.displayNameOptional')}
             class="w-full px-4 py-3 border border-surface-200 rounded-xl text-sm input-focus outline-none font-medium bg-surface-50/80 text-surface-800 placeholder:text-surface-500"
           />
+        </div>
+
+        <!-- SaaS mode: tenant name field -->
+        <div>
+          <label for="reg-tenant-name" class="block text-xs font-semibold text-surface-600 uppercase tracking-wider mb-2">
+            {$_('auth.tenantName') || 'Tenant Name'} <span class="text-rose-500">*</span>
+          </label>
+          <input
+            id="reg-tenant-name"
+            type="text"
+            bind:value={tenantName}
+            placeholder={$_('auth.tenantNamePlaceholder') || 'Your Organization Name'}
+            class="w-full px-4 py-3 border border-surface-200 rounded-xl text-sm input-focus outline-none font-medium bg-surface-50/80 text-surface-800 placeholder:text-surface-500"
+          />
+          <p class="text-xs text-surface-500 mt-1">2-50 characters, will be your workspace name</p>
         </div>
 
         <div>

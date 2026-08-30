@@ -293,6 +293,7 @@ async fn run_http_server(state: AppState, port: u16) -> Result<()> {
         permission: state.permission.clone(),
         login_rate_limiter: login_rate_limiter.clone(),
         group_perm_override_repo: group_perm_override_repo.clone(),
+        tenant_config: state.tenant_config.clone(),
     });
 
     // Spawn background SSE session cleanup task (runs every 60 seconds)

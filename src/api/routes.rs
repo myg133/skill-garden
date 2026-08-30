@@ -38,10 +38,7 @@ pub fn create_api_router(state: ApiState) -> Router<ApiState> {
             "/api/v1/skills/:id/submit-review",
             post(submit_review_skill_handler),
         )
-        .route(
-            "/api/v1/skills/:id/approve",
-            post(approve_skill_handler),
-        )
+        .route("/api/v1/skills/:id/approve", post(approve_skill_handler))
         .route("/api/v1/skills/:id/reject", post(reject_skill_handler))
         .route("/api/v1/skills/:id/publish", post(publish_skill_handler))
         .route(
@@ -129,7 +126,10 @@ pub fn create_api_router(state: ApiState) -> Router<ApiState> {
         .route("/api/v1/api-keys", get(list_my_api_keys_handler))
         .route("/api/v1/api-keys", post(create_my_api_key_handler))
         .route("/api/v1/api-keys/:id", delete(revoke_my_api_key_handler))
-        .route("/api/v1/api-keys/:id", patch(update_my_api_key_status_handler))
+        .route(
+            "/api/v1/api-keys/:id",
+            patch(update_my_api_key_status_handler),
+        )
         // Agent routes (user-facing self-service)
         .route("/api/v1/agents", get(list_my_agents_handler))
         .route("/api/v1/agents/:agent_id", delete(revoke_my_agent_handler))
@@ -522,7 +522,10 @@ pub fn create_api_router(state: ApiState) -> Router<ApiState> {
         .route("/api/v1/admin/api-keys", get(list_api_keys_handler))
         .route("/api/v1/admin/api-keys", post(create_api_key_handler))
         .route("/api/v1/admin/api-keys/:id", delete(delete_api_key_handler))
-        .route("/api/v1/admin/api-keys/:id", patch(update_api_key_status_handler))
+        .route(
+            "/api/v1/admin/api-keys/:id",
+            patch(update_api_key_status_handler),
+        )
         // Audit Log Entries
         .route(
             "/api/v1/admin/audit-entries",

@@ -1,9 +1,13 @@
 //! 下载 handlers (Skill/CLI)
 
-use axum::{extract::{Path, Query, State}, http::StatusCode, response::IntoResponse};
+use axum::{
+    extract::{Path, Query, State},
+    http::StatusCode,
+    response::IntoResponse,
+};
 
-use crate::api::error::ApiError;
 use super::helpers::ApiState;
+use crate::api::error::ApiError;
 
 pub async fn download_skill_handler(
     State(state): State<ApiState>,
@@ -78,7 +82,9 @@ pub async fn download_skill_handler(
         Err(e) => {
             tracing::error!(
                 "Failed to generate release tarball for skill '{}' version {}: {}",
-                name, version, e
+                name,
+                version,
+                e
             );
             return Err(ApiError::InternalError(format!(
                 "Failed to generate release tarball: {}",
@@ -94,7 +100,10 @@ pub async fn download_skill_handler(
             ApiError::InternalError("Failed to read release tarball".to_string())
         })?;
 
-        tracing::info!("Served freshly generated release tarball: {}", release_tarball_path.display());
+        tracing::info!(
+            "Served freshly generated release tarball: {}",
+            release_tarball_path.display()
+        );
 
         let response = axum::response::Response::builder()
             .status(StatusCode::OK)
@@ -229,7 +238,7 @@ pub async fn download_cli_handler(
         let prefix = "skill-garden-cli";
 
         // Helper: add a file from bytes
-    fn add_bytes<W: std::io::Write>(
+        fn add_bytes<W: std::io::Write>(
             tar: &mut tar::Builder<W>,
             path: &str,
             data: &[u8],
@@ -248,13 +257,13 @@ pub async fn download_cli_handler(
         }
 
         // 5a. 添加二进制文件
-    let bin_bytes = std::fs::read(&bin_path)
+        let bin_bytes = std::fs::read(&bin_path)
             .map_err(|e| format!("Failed to read binary {}: {}", bin_path.display(), e))?;
         let bin_tar_path = format!("{}/{}", prefix, binary_name);
         add_bytes(&mut tar_builder, &bin_tar_path, &bin_bytes, 0o755)?;
 
         // 5b. 添加 config.toml
-    let config_tar_path = format!("{}/config.toml", prefix);
+        let config_tar_path = format!("{}/config.toml", prefix);
         add_bytes(
             &mut tar_builder,
             &config_tar_path,
@@ -263,7 +272,7 @@ pub async fn download_cli_handler(
         )?;
 
         // 5c. 添加 install.sh
-    let install_sh =
+        let install_sh =
             include_str!("../../../cli-dist/install.sh").replace("{version}", &version_clone);
         let install_sh_path = format!("{}/install.sh", prefix);
         add_bytes(
@@ -274,7 +283,7 @@ pub async fn download_cli_handler(
         )?;
 
         // 5d. 添加 install.ps1
-    let install_ps1 =
+        let install_ps1 =
             include_str!("../../../cli-dist/install.ps1").replace("{version}", &version_clone);
         let install_ps1_path = format!("{}/install.ps1", prefix);
         add_bytes(
@@ -285,7 +294,7 @@ pub async fn download_cli_handler(
         )?;
 
         // 5e. 添加 skill-garden/SKILL.md（作为独立 Skill 目录，Agent 可直接安装）
-    let skill_md = include_str!("../../../cli-dist/SKILL.md")
+        let skill_md = include_str!("../../../cli-dist/SKILL.md")
             .replace("{server_url}", &server_url)
             .replace("{os}", os_label)
             .replace("{version}", &version_clone)
@@ -298,7 +307,7 @@ pub async fn download_cli_handler(
         )?;
 
         // Finalize tar.gz
-    let encoder = tar_builder
+        let encoder = tar_builder
             .into_inner()
             .map_err(|e| format!("Failed to finalize tar: {}", e))?;
         encoder
@@ -332,8 +341,3 @@ pub async fn download_cli_handler(
 pub struct DownloadSkillQuery {
     pub token: String,
 }
-
-
-
-
-

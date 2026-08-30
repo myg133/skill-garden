@@ -1,11 +1,16 @@
-﻿//! GitLab 杩滅▼鍚屾 handlers
+//! GitLab 杩滅▼鍚屾 handlers
 
-use axum::{extract::{Path, Query, State}, http::StatusCode, response::IntoResponse, Json};
+use axum::{
+    extract::{Path, Query, State},
+    http::StatusCode,
+    response::IntoResponse,
+    Json,
+};
 
-use tracing::{info, warn};
+use super::helpers::ApiState;
 use crate::api::error::ApiError;
 use crate::api::jwt::AgentContext;
-use super::helpers::ApiState;
+use tracing::{info, warn};
 
 /// GET /api/v1/skills/:name/tags - list git tags for a skill
 pub async fn list_skill_git_tags_handler(
@@ -30,7 +35,7 @@ pub async fn list_skill_git_tags_handler(
 // --- GitLab Remote Sync Handlers ---
 
 /// POST /api/v1/skills/:name/sync - sync skill from GitLab repository
-    pub async fn sync_skill_from_gitlab_handler(
+pub async fn sync_skill_from_gitlab_handler(
     State(state): State<ApiState>,
     AgentContext { subject: _, .. }: AgentContext,
     Path(skill_name): Path<String>,
@@ -68,7 +73,7 @@ pub async fn list_skill_git_tags_handler(
 }
 
 /// POST /api/v1/skills/:name/clone - 从 GitLab 克隆 skill 仓库到本地
-    pub async fn clone_skill_from_gitlab_handler(
+pub async fn clone_skill_from_gitlab_handler(
     State(state): State<ApiState>,
     AgentContext { subject: _, .. }: AgentContext,
     Path(skill_name): Path<String>,
@@ -141,7 +146,7 @@ pub async fn sync_all_skills_from_gitlab_handler(
         names
     } else {
         // 获取所有在 skill_versions 中有 git_remote_url 的 skill
-    let pool = state.agent_repo.pool();
+        let pool = state.agent_repo.pool();
         let rows: Vec<(String,)> = sqlx::query_as(
             "SELECT DISTINCT skill_name FROM skill_versions WHERE git_remote_url IS NOT NULL",
         )
@@ -212,7 +217,7 @@ pub async fn gitlab_webhook_handler(
             val.project.and_then(|p| p.name)
         } else {
             // fallback: 解析 JSON Value 兜底
-    if let Ok(val) = serde_json::from_str::<serde_json::Value>(&body) {
+            if let Ok(val) = serde_json::from_str::<serde_json::Value>(&body) {
                 val["project"]["name"].as_str().map(|s| s.to_string())
             } else {
                 None
@@ -244,5 +249,3 @@ pub async fn gitlab_webhook_handler(
         })),
     ))
 }
-
-

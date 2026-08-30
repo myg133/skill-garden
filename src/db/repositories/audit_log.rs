@@ -138,10 +138,7 @@ impl AuditLogRepository {
     /// 给定一组 tenant_id，返回这些租户下所有 organization 内的 identity_id 去重列表。
     /// 路径：tenants -> organizations -> org_memberships -> identities
     /// 用于审计读路径：在写日志尚未补齐 tenant_id 时，按 identity 反查回退。
-    pub async fn list_identity_ids_by_tenants(
-        &self,
-        tenant_ids: &[Uuid],
-    ) -> DbResult<Vec<Uuid>> {
+    pub async fn list_identity_ids_by_tenants(&self, tenant_ids: &[Uuid]) -> DbResult<Vec<Uuid>> {
         if tenant_ids.is_empty() {
             return Ok(vec![]);
         }

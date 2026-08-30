@@ -1,12 +1,16 @@
-﻿//! 技能管理 handlers
+//! 技能管理 handlers
 
-use axum::{extract::{Path, Query, State}, http::StatusCode, response::IntoResponse, Json};
+use axum::{
+    extract::{Path, Query, State},
+    http::StatusCode,
+    response::IntoResponse,
+    Json,
+};
 
-use crate::api::error::ApiError;
-use crate::models::{NewSkill, SkillUpdate};
-use crate::api::jwt::AgentContext;
 use super::helpers::{check_skill_perm, require_marketplace_admin, ApiState};
-
+use crate::api::error::ApiError;
+use crate::api::jwt::AgentContext;
+use crate::models::{NewSkill, SkillUpdate};
 
 pub async fn list_skills_handler(
     State(state): State<ApiState>,
@@ -68,7 +72,10 @@ pub async fn list_skills_handler(
         let is_market_admin = if let Some(id_id) = identity_id {
             state
                 .permission
-                .has_any_system_role(id_id, &["super_admin", "marketplace_admin", "marketplace_reviewer"])
+                .has_any_system_role(
+                    id_id,
+                    &["super_admin", "marketplace_admin", "marketplace_reviewer"],
+                )
                 .await
                 .unwrap_or(false)
         } else {
@@ -254,7 +261,9 @@ pub async fn update_skill_handler(
     agent_context: AgentContext,
     Json(body): Json<crate::api::models::UpdateSkillBody>,
 ) -> Result<impl IntoResponse, ApiError> {
-    let is_market_admin = require_marketplace_admin(&state, &agent_context).await.is_ok();
+    let is_market_admin = require_marketplace_admin(&state, &agent_context)
+        .await
+        .is_ok();
 
     let skill = state
         .registry
@@ -286,13 +295,19 @@ pub async fn update_skill_handler(
         // 鏋勫缓 draft_content
         let mut draft = serde_json::Map::new();
         if let Some(ref desc) = body.description {
-            draft.insert("description".to_string(), serde_json::Value::String(desc.clone()));
+            draft.insert(
+                "description".to_string(),
+                serde_json::Value::String(desc.clone()),
+            );
         }
         if let Some(ref tags) = body.tags {
             draft.insert("tags".to_string(), serde_json::json!(tags));
         }
         if let Some(ref content) = body.content {
-            draft.insert("content".to_string(), serde_json::Value::String(content.clone()));
+            draft.insert(
+                "content".to_string(),
+                serde_json::Value::String(content.clone()),
+            );
         }
 
         skill_repo
@@ -304,7 +319,9 @@ pub async fn update_skill_handler(
             skill_repo
                 .update_marketplace_status(&skill_id, Some("pending_update"))
                 .await
-                .map_err(|e| ApiError::BadRequest(format!("Failed to set pending_update: {}", e)))?;
+                .map_err(|e| {
+                    ApiError::BadRequest(format!("Failed to set pending_update: {}", e))
+                })?;
         }
 
         state
@@ -476,7 +493,13 @@ pub async fn get_skill_file_handler(
 
     // 检测是否为二进制文件（包含 null 字节或大量不可打印字符）
     let is_binary = raw.as_bytes().contains(&0)
-        || raw.as_bytes().iter().take(1024).filter(|b| !b.is_ascii_graphic() && !b.is_ascii_whitespace()).count() > 32;
+        || raw
+            .as_bytes()
+            .iter()
+            .take(1024)
+            .filter(|b| !b.is_ascii_graphic() && !b.is_ascii_whitespace())
+            .count()
+            > 32;
 
     let content = if is_binary {
         let ext = std::path::Path::new(&file_path)
@@ -498,9 +521,3 @@ pub async fn get_skill_file_handler(
         })),
     ))
 }
-
-
-
-
-
-

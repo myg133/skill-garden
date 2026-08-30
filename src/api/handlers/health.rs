@@ -1,8 +1,8 @@
 //! 健康检查
 
-use axum::{extract::State, http::StatusCode, response::IntoResponse, Json};
-use crate::api::error::ApiError;
 use super::helpers::ApiState;
+use crate::api::error::ApiError;
+use axum::{extract::State, http::StatusCode, response::IntoResponse, Json};
 
 pub async fn health_handler(State(state): State<ApiState>) -> Result<impl IntoResponse, ApiError> {
     let skills_count = state

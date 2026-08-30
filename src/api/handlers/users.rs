@@ -1,10 +1,18 @@
 //! 用户认证与个人信息 handlers
 
-use axum::{extract::{Path, Query, State}, http::StatusCode, response::IntoResponse, Json};
+use axum::{
+    extract::{Path, Query, State},
+    http::StatusCode,
+    response::IntoResponse,
+    Json,
+};
 
+use super::helpers::{build_tenant_role_infos, ApiState};
 use crate::api::error::ApiError;
 use crate::api::jwt::AgentContext;
-use super::helpers::{build_tenant_role_infos, ApiState};
+use crate::models::tenant::NewTenant;
+use crate::utils::slugify;
+use crate::TenantMode;
 
 pub async fn user_login_handler(
     State(state): State<ApiState>,
@@ -50,17 +58,15 @@ pub async fn user_login_handler(
         .collect();
 
     // 构建权限上下文，获取 system_roles 和 tenant_roles（必须在 JWT 生成之前，以判断 is_admin）
-    let perm_ctx = state
-        .permission
-        .build_context(user.id)
-        .await
-        .unwrap_or(crate::services::permission::PermissionContext {
+    let perm_ctx = state.permission.build_context(user.id).await.unwrap_or(
+        crate::services::permission::PermissionContext {
             identity_id: user.id,
             system_roles: std::collections::HashSet::new(),
             tenant_roles: Vec::new(),
             org_roles: Vec::new(),
             group_roles: Vec::new(),
-        });
+        },
+    );
 
     let system_roles: Vec<String> = perm_ctx.system_roles.into_iter().collect();
 
@@ -68,7 +74,9 @@ pub async fn user_login_handler(
 
     // is_admin: 同时检查 is_system_admin 列、system_role_assignments 和 tenant_admin
     let is_admin = user.is_system_admin
-        || system_roles.iter().any(|r| r == "super_admin" || r == "marketplace_admin")
+        || system_roles
+            .iter()
+            .any(|r| r == "super_admin" || r == "marketplace_admin")
         || tenant_roles.iter().any(|r| r.role_name == "tenant_admin");
 
     // JWT roles: admin 用户需包含 "admin" 角色以启用 require_admin 快速路径
@@ -80,10 +88,7 @@ pub async fn user_login_handler(
     let token = crate::api::jwt::generate_identity_token(user.id, &jwt_roles, &[])
         .map_err(|e| ApiError::Unauthorized(format!("{:?}", e)))?;
 
-    tracing::info!(
-        "Login success for username: {}",
-        body.username,
-    );
+    tracing::info!("Login success for username: {}", body.username,);
 
     Ok((
         StatusCode::OK,
@@ -125,6 +130,26 @@ pub async fn user_register_handler(
         )));
     }
 
+    // SaaS 模式验证：必须有租户名称
+    let is_saas = state.tenant_config.mode == TenantMode::Sas;
+    if is_saas {
+        let tenant_name = body.tenant_name.as_ref().ok_or_else(|| {
+            ApiError::BadRequest("Tenant name is required in SaaS mode".to_string())
+        })?;
+
+        // 验证租户名称长度：最小 2 字符，最大 50 字符
+        if tenant_name.len() < 2 {
+            return Err(ApiError::BadRequest(
+                "Tenant name must be at least 2 characters".to_string(),
+            ));
+        }
+        if tenant_name.len() > 50 {
+            return Err(ApiError::BadRequest(
+                "Tenant name must not exceed 50 characters".to_string(),
+            ));
+        }
+    }
+
     let password_hash = bcrypt::hash(&body.password, bcrypt::DEFAULT_COST)
         .map_err(|e| ApiError::BadRequest(format!("Failed to hash password: {}", e)))?;
 
@@ -153,6 +178,53 @@ pub async fn user_register_handler(
         .assign(user.id, "skill_user", None)
         .await;
 
+    // SaaS 模式：创建租户并分配 tenant_admin 角色
+    let mut tenant_roles: Vec<crate::api::models::TenantRoleInfo> = vec![];
+    if is_saas {
+        if let Some(tenant_name) = &body.tenant_name {
+            // 生成租户 slug
+            let base_slug = slugify(tenant_name);
+            let slug = format!("{}-{}", base_slug, &user.id.to_string()[..8]);
+
+            let new_tenant = NewTenant {
+                name: tenant_name.clone(),
+                slug: slug.clone(),
+                billing_plan: Some("free".to_string()),
+                sso_config: None,
+                settings: serde_json::json!({}),
+            };
+
+            let tenant = state
+                .tenant
+                .create(new_tenant)
+                .await
+                .map_err(|e| ApiError::BadRequest(format!("Failed to create tenant: {}", e)))?;
+
+            // 分配 tenant_admin 角色
+            state
+                .tenant_role_assignment
+                .assign(user.id, tenant.id, "tenant_admin", Some(user.id))
+                .await
+                .map_err(|e| {
+                    ApiError::BadRequest(format!("Failed to assign tenant admin: {}", e))
+                })?;
+
+            tracing::info!(
+                "Created tenant '{}' (id={}) for user '{}' (id={})",
+                tenant.name,
+                tenant.id,
+                user.username.as_ref().unwrap_or(&user.name),
+                user.id
+            );
+
+            tenant_roles.push(crate::api::models::TenantRoleInfo {
+                tenant_id: tenant.id,
+                tenant_name: tenant.name,
+                role_name: "tenant_admin".to_string(),
+            });
+        }
+    }
+
     let token = crate::api::jwt::generate_identity_token(user.id, &["user"], &[])
         .map_err(|e| ApiError::InternalError(format!("{:?}", e)))?;
 
@@ -169,10 +241,10 @@ pub async fn user_register_handler(
                 email: user.email,
                 avatar_url: user.avatar_url,
                 identity_type: user.identity_type.to_string(),
-                is_admin: false,
+                is_admin: true, // SaaS 模式下注册即管理员
                 organizations: vec![],
                 system_roles: vec![],
-                tenant_roles: vec![],
+                tenant_roles,
                 created_at: user.created_at,
             },
         }),
@@ -180,7 +252,7 @@ pub async fn user_register_handler(
 }
 
 // Password reset handlers
-    pub async fn forgot_password_handler(
+pub async fn forgot_password_handler(
     State(state): State<ApiState>,
     Json(body): Json<crate::api::models::ForgotPasswordBody>,
 ) -> Result<impl IntoResponse, ApiError> {
@@ -247,7 +319,7 @@ pub async fn reset_password_handler(
 }
 
 // Account deletion
-    pub async fn delete_user_me_handler(
+pub async fn delete_user_me_handler(
     State(state): State<ApiState>,
     AgentContext { subject, .. }: AgentContext,
 ) -> Result<impl IntoResponse, ApiError> {
@@ -301,17 +373,15 @@ pub async fn get_user_me_handler(
         .collect();
 
     // 构建权限上下文
-    let perm_ctx = state
-        .permission
-        .build_context(user.id)
-        .await
-        .unwrap_or(crate::services::permission::PermissionContext {
+    let perm_ctx = state.permission.build_context(user.id).await.unwrap_or(
+        crate::services::permission::PermissionContext {
             identity_id: user.id,
             system_roles: std::collections::HashSet::new(),
             tenant_roles: Vec::new(),
             org_roles: Vec::new(),
             group_roles: Vec::new(),
-        });
+        },
+    );
     let system_roles: Vec<String> = perm_ctx.system_roles.into_iter().collect();
     let tenant_roles = build_tenant_role_infos(&state, &perm_ctx.tenant_roles).await;
 
@@ -324,7 +394,9 @@ pub async fn get_user_me_handler(
             email: user.email,
             avatar_url: user.avatar_url,
             identity_type: if user.is_system_admin
-                || system_roles.iter().any(|r| r == "super_admin" || r == "marketplace_admin")
+                || system_roles
+                    .iter()
+                    .any(|r| r == "super_admin" || r == "marketplace_admin")
                 || tenant_roles.iter().any(|r| r.role_name == "tenant_admin")
             {
                 "admin".to_string()
@@ -332,7 +404,9 @@ pub async fn get_user_me_handler(
                 user.identity_type.to_string()
             },
             is_admin: user.is_system_admin
-                || system_roles.iter().any(|r| r == "super_admin" || r == "marketplace_admin")
+                || system_roles
+                    .iter()
+                    .any(|r| r == "super_admin" || r == "marketplace_admin")
                 || tenant_roles.iter().any(|r| r.role_name == "tenant_admin"),
             organizations,
             system_roles,
@@ -344,7 +418,7 @@ pub async fn get_user_me_handler(
 
 /// GET /users/me/permissions - 权限刷新端点
 /// 返回当前用户在各级别的角色及所有可用权限码
-    pub async fn get_my_permissions_handler(
+pub async fn get_my_permissions_handler(
     State(state): State<ApiState>,
     AgentContext { subject, .. }: AgentContext,
 ) -> Result<impl IntoResponse, ApiError> {
@@ -451,17 +525,15 @@ pub async fn update_user_me_handler(
         .collect();
 
     // 构建权限上下文
-    let perm_ctx = state
-        .permission
-        .build_context(user.id)
-        .await
-        .unwrap_or(crate::services::permission::PermissionContext {
+    let perm_ctx = state.permission.build_context(user.id).await.unwrap_or(
+        crate::services::permission::PermissionContext {
             identity_id: user.id,
             system_roles: std::collections::HashSet::new(),
             tenant_roles: Vec::new(),
             org_roles: Vec::new(),
             group_roles: Vec::new(),
-        });
+        },
+    );
     let system_roles: Vec<String> = perm_ctx.system_roles.into_iter().collect();
     let tenant_roles = build_tenant_role_infos(&state, &perm_ctx.tenant_roles).await;
 
@@ -475,7 +547,9 @@ pub async fn update_user_me_handler(
             avatar_url: user.avatar_url,
             identity_type: user.identity_type.to_string(),
             is_admin: user.is_system_admin
-                || system_roles.iter().any(|r| r == "super_admin" || r == "marketplace_admin")
+                || system_roles
+                    .iter()
+                    .any(|r| r == "super_admin" || r == "marketplace_admin")
                 || tenant_roles.iter().any(|r| r.role_name == "tenant_admin"),
             organizations,
             system_roles,
@@ -487,12 +561,10 @@ pub async fn update_user_me_handler(
 
 pub async fn get_user_orgs_handler(
     State(state): State<ApiState>,
-    AgentContext {
-        identity_id, ..
-    }: AgentContext,
+    AgentContext { identity_id, .. }: AgentContext,
 ) -> Result<impl IntoResponse, ApiError> {
-    let uuid_id = identity_id
-        .ok_or_else(|| ApiError::Unauthorized("Identity required".to_string()))?;
+    let uuid_id =
+        identity_id.ok_or_else(|| ApiError::Unauthorized("Identity required".to_string()))?;
 
     // Build permission context for RBAC-based org visibility
     let perm_ctx = state
@@ -514,7 +586,8 @@ pub async fn get_user_orgs_handler(
         .map(|(tid, _)| *tid)
         .collect();
 
-    let mut result_set: std::collections::HashMap<uuid::Uuid, crate::api::models::UserOrgResponse> = std::collections::HashMap::new();
+    let mut result_set: std::collections::HashMap<uuid::Uuid, crate::api::models::UserOrgResponse> =
+        std::collections::HashMap::new();
 
     // Add personal org memberships（所有用户，包括 super_admin，只看自己加入的组织）
     {
@@ -524,31 +597,34 @@ pub async fn get_user_orgs_handler(
             .await
             .map_err(|e| ApiError::BadRequest(format!("Failed to list user orgs: {}", e)))?;
         for o in user_orgs {
-            result_set.entry(o.id).or_insert(crate::api::models::UserOrgResponse {
-                id: o.id,
-                name: o.name,
-                slug: o.slug,
-                role: o.role,
-            });
+            result_set
+                .entry(o.id)
+                .or_insert(crate::api::models::UserOrgResponse {
+                    id: o.id,
+                    name: o.name,
+                    slug: o.slug,
+                    role: o.role,
+                });
         }
 
         // If tenant_admin, also add all orgs under the user's tenants
-    for tenant_id in tenant_admin_ids {
+        for tenant_id in tenant_admin_ids {
             let tenant_orgs = state
                 .organization
                 .list_orgs_by_tenant(tenant_id, 1000, 0)
                 .await
                 .map_err(|e| ApiError::BadRequest(format!("Failed to list tenant orgs: {}", e)))?;
             for o in tenant_orgs {
-                result_set.entry(o.id).or_insert(crate::api::models::UserOrgResponse {
-                    id: o.id,
-                    name: o.name,
-                    slug: o.slug,
-                    role: "admin".to_string(),
-                });
+                result_set
+                    .entry(o.id)
+                    .or_insert(crate::api::models::UserOrgResponse {
+                        id: o.id,
+                        name: o.name,
+                        slug: o.slug,
+                        role: "admin".to_string(),
+                    });
             }
         }
-
     }
 
     let mut result: Vec<crate::api::models::UserOrgResponse> = result_set.into_values().collect();
@@ -606,17 +682,15 @@ pub async fn get_user_by_username_handler(
         .collect();
 
     // Load system_roles for accurate is_admin determination
-    let perm_ctx = state
-        .permission
-        .build_context(user.id)
-        .await
-        .unwrap_or(crate::services::permission::PermissionContext {
+    let perm_ctx = state.permission.build_context(user.id).await.unwrap_or(
+        crate::services::permission::PermissionContext {
             identity_id: user.id,
             system_roles: std::collections::HashSet::new(),
             tenant_roles: Vec::new(),
             org_roles: Vec::new(),
             group_roles: Vec::new(),
-        });
+        },
+    );
     let system_roles: Vec<String> = perm_ctx.system_roles.into_iter().collect();
     let tenant_roles = build_tenant_role_infos(&state, &perm_ctx.tenant_roles).await;
 
@@ -630,7 +704,9 @@ pub async fn get_user_by_username_handler(
             avatar_url: user.avatar_url,
             identity_type: user.identity_type.to_string(),
             is_admin: user.is_system_admin
-                || system_roles.iter().any(|r| r == "super_admin" || r == "marketplace_admin")
+                || system_roles
+                    .iter()
+                    .any(|r| r == "super_admin" || r == "marketplace_admin")
                 || tenant_roles.iter().any(|r| r.role_name == "tenant_admin"),
             organizations,
             system_roles,
@@ -639,8 +715,3 @@ pub async fn get_user_by_username_handler(
         }),
     ))
 }
-
-
-
-
-

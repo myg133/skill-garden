@@ -2,6 +2,36 @@
 
 所有重要的项目变更都将记录在此文件中。
 
+## [Unreleased]
+
+### 新增功能
+
+#### REQ-003 Phase 2 Stage 1: SaaS 自动创建租户
+
+- **运营模式开关**: 通过环境变量 `AION_HIVE_TENANT_MODE` 配置平台运营模式
+  - `saas`: SaaS 多租户模式
+  - `private_enterprise`: 企业私有化部署
+  - `internal_delivery`: 内部交付
+- **注册时自动创建租户**: SaaS 模式下用户注册时填写租户名称，自动创建租户
+- **自动分配 tenant_admin**: 注册用户自动成为该租户的 tenant_admin
+- **SaaS 模式配置选项**:
+  - `AION_HIVE_SELF_SERVICE_TENANT`: 是否允许用户自助创建租户
+  - `AION_HIVE_MAX_TENANTS_PER_USER`: 每用户允许创建的租户数量上限
+  - `AION_HIVE_TENANT_APPROVAL_REQUIRED`: 是否需要审批
+
+### 改动文件
+
+- `src/lib.rs`: 新增 `TenantMode` 枚举和 `TenantConfig` 配置结构
+- `src/api/models.rs`: `UserRegisterBody` 新增 `tenant_name` 字段
+- `src/api/handlers/users.rs`: 注册逻辑扩展，自动创建租户
+- `src/api/http_state.rs`: 状态中添加 `tenant_config`
+- `src/utils/mod.rs`: 新增 `slugify` 工具函数
+- `admin/src/routes/Register.svelte`: 注册表单增加租户名称字段
+- `admin/src/lib/api.js`: `userRegister` 支持 `tenant_name` 参数
+- `.env.example`: 新增配置项文档
+
+---
+
 ## [0.3.0] - 2026-04-20
 
 ### 重大更新

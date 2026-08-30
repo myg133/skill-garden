@@ -133,7 +133,10 @@ impl PermissionService {
     }
 
     /// 获取身份作为 tenant_admin 管理的所有租户 ID
-    pub async fn get_tenant_admin_tenant_ids(&self, identity_id: Uuid) -> Result<Vec<Uuid>, AppError> {
+    pub async fn get_tenant_admin_tenant_ids(
+        &self,
+        identity_id: Uuid,
+    ) -> Result<Vec<Uuid>, AppError> {
         let assignments = self
             .tenant_role_repo
             .find_by_identity(identity_id)

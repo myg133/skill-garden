@@ -71,9 +71,8 @@ pub fn decrypt_api_key(token: &str, key: &[u8; 32]) -> Result<Option<String>, St
 /// 从环境变量加载加密密钥（32 字节 hex）
 /// 环境变量：AION_HIVE_CLI_ENCRYPTION_KEY
 pub fn load_encryption_key() -> Result<[u8; 32], String> {
-    let hex_str = std::env::var("AION_HIVE_CLI_ENCRYPTION_KEY").map_err(|_| {
-        "AION_HIVE_CLI_ENCRYPTION_KEY environment variable not set".to_string()
-    })?;
+    let hex_str = std::env::var("AION_HIVE_CLI_ENCRYPTION_KEY")
+        .map_err(|_| "AION_HIVE_CLI_ENCRYPTION_KEY environment variable not set".to_string())?;
 
     let bytes = hex::decode(&hex_str).map_err(|e| format!("invalid hex key: {}", e))?;
 

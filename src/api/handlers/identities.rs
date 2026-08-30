@@ -1,11 +1,16 @@
 //! 身份管理 handlers
 
-use axum::{extract::{Path, Query, State}, http::StatusCode, response::IntoResponse, Json};
+use axum::{
+    extract::{Path, Query, State},
+    http::StatusCode,
+    response::IntoResponse,
+    Json,
+};
 use uuid::Uuid;
 
+use super::helpers::{require_admin, require_auth, ApiState};
 use crate::api::error::ApiError;
 use crate::api::jwt::AgentContext;
-use super::helpers::{require_admin, require_auth, ApiState};
 
 pub async fn list_identities_handler(
     State(state): State<ApiState>,
@@ -101,21 +106,24 @@ pub async fn search_identities_handler(
     Query(query): Query<SearchIdentitiesQuery>,
 ) -> Result<impl IntoResponse, ApiError> {
     // Require authentication - any logged in user can search
-    let _identity_id = require_auth(&agent_context).await
+    let _identity_id = require_auth(&agent_context)
+        .await
         .map_err(|e| ApiError::Unauthorized(e.to_string()))?;
-    
+
     let query_str = query.q.trim();
     if query_str.is_empty() {
-        return Err(ApiError::BadRequest("Query parameter 'q' is required".to_string()));
+        return Err(ApiError::BadRequest(
+            "Query parameter 'q' is required".to_string(),
+        ));
     }
-    
+
     let limit = query.limit.unwrap_or(10).min(50);
     let identities = state
         .identity
         .search(query_str, limit)
         .await
         .map_err(|e| ApiError::InternalError(e.to_string()))?;
-    
+
     // Convert to search result format (without sensitive fields)
     let results: Vec<serde_json::Value> = identities
         .into_iter()
@@ -131,7 +139,7 @@ pub async fn search_identities_handler(
             })
         })
         .collect();
-    
+
     Ok((StatusCode::OK, Json(serde_json::json!({"data": results}))))
 }
 

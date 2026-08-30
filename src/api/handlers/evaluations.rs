@@ -1,20 +1,28 @@
 //! 评价管理 handlers
 
-use axum::{extract::{Path, Query, State}, http::StatusCode, response::IntoResponse, Json};
 use axum::Json as JsonExt;
+use axum::{
+    extract::{Path, Query, State},
+    http::StatusCode,
+    response::IntoResponse,
+    Json,
+};
 
+use super::helpers::{require_admin, ApiState};
 use crate::api::error::ApiError;
 use crate::api::jwt::AgentContext;
 use crate::models::error::AppError;
 use crate::models::evaluation::{ErrorType as EvalErrorType, EvalTag};
-use super::helpers::{require_admin, ApiState};
 
 pub async fn create_evaluation_handler(
     State(state): State<ApiState>,
     AgentContext { subject, .. }: AgentContext,
     JsonExt(body): JsonExt<crate::api::models::CreateEvaluationBody>,
 ) -> Result<
-    (StatusCode, Json<crate::api::models::EvaluationCreatedResponse>),
+    (
+        StatusCode,
+        Json<crate::api::models::EvaluationCreatedResponse>,
+    ),
     ApiError,
 > {
     let error_type = body.error_type.as_ref().and_then(|e| match e.as_str() {
@@ -182,6 +190,3 @@ pub async fn delete_evaluation_handler(
 }
 
 // --- Webhook Management Handlers (Feature #11) ---
-
-
-

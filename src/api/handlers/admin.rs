@@ -1,10 +1,10 @@
-﻿//! 管理员 handlers
+//! 管理员 handlers
 
 use axum::{extract::State, http::StatusCode, response::IntoResponse, Json};
 
+use super::helpers::{require_admin, ApiState};
 use crate::api::error::ApiError;
 use crate::api::jwt::AgentContext;
-use super::helpers::{require_admin, ApiState};
 
 pub async fn get_admin_stats_handler(
     State(state): State<ApiState>,
@@ -105,4 +105,3 @@ pub async fn get_admin_status_handler(
 
     Ok((StatusCode::OK, Json(response)))
 }
-

@@ -1,11 +1,16 @@
 //! Agent 注册和管理 handlers
 
-use axum::{extract::{Path, State}, http::StatusCode, response::IntoResponse, Json};
+use axum::{
+    extract::{Path, State},
+    http::StatusCode,
+    response::IntoResponse,
+    Json,
+};
 use tracing::info;
 
+use super::helpers::ApiState;
 use crate::api::error::ApiError;
 use crate::api::jwt::AgentContext;
-use super::helpers::ApiState;
 
 pub async fn register_agent_handler(
     State(state): State<ApiState>,

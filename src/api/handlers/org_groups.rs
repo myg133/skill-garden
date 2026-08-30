@@ -1,11 +1,16 @@
-﻿//! 组织分组管理 handlers
+//! 组织分组管理 handlers
 
-use axum::{extract::{Path, State}, http::StatusCode, response::IntoResponse, Json};
+use axum::{
+    extract::{Path, State},
+    http::StatusCode,
+    response::IntoResponse,
+    Json,
+};
 use uuid::Uuid;
 
+use super::helpers::{require_org_member, resolve_org_id, ApiState};
 use crate::api::error::ApiError;
 use crate::api::jwt::AgentContext;
-use super::helpers::{require_org_member, resolve_org_id, ApiState};
 
 // Org slug-based Group management (6.6)
 
@@ -366,5 +371,3 @@ pub async fn remove_org_group_skill_handler(
         })),
     ))
 }
-
-

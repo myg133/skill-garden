@@ -1,11 +1,16 @@
 //! 租户管理 handlers
 
-use axum::{extract::{Path, Query, State}, http::StatusCode, response::IntoResponse, Json};
+use axum::{
+    extract::{Path, Query, State},
+    http::StatusCode,
+    response::IntoResponse,
+    Json,
+};
 use uuid::Uuid;
 
+use super::helpers::{require_admin, ApiState};
 use crate::api::error::ApiError;
 use crate::api::jwt::AgentContext;
-use super::helpers::{require_admin, ApiState};
 
 pub async fn list_tenants_handler(
     State(state): State<ApiState>,
@@ -62,7 +67,9 @@ pub async fn create_tenant_handler(
         .await
         .map_err(|e| ApiError::InternalError(e.to_string()))?;
     if !is_super {
-        return Err(ApiError::Forbidden("Super admin access required".to_string()));
+        return Err(ApiError::Forbidden(
+            "Super admin access required".to_string(),
+        ));
     }
     let tenant = state
         .tenant
@@ -147,7 +154,9 @@ pub async fn delete_tenant_handler(
         .await
         .map_err(|e| ApiError::InternalError(e.to_string()))?;
     if !is_super {
-        return Err(ApiError::Forbidden("Super admin access required".to_string()));
+        return Err(ApiError::Forbidden(
+            "Super admin access required".to_string(),
+        ));
     }
     state
         .tenant

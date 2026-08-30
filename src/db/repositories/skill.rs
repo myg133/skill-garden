@@ -350,10 +350,12 @@ impl SkillRepository {
     }
 
     pub async fn count(&self) -> DbResult<i64> {
-        let row: (i64,) = sqlx::query_as("SELECT COUNT(*) FROM skills WHERE status != 'rejected' AND is_current = true")
-            .fetch_one(&self.pool)
-            .await
-            .map_err(|e| DbError::QueryError(e.to_string()))?;
+        let row: (i64,) = sqlx::query_as(
+            "SELECT COUNT(*) FROM skills WHERE status != 'rejected' AND is_current = true",
+        )
+        .fetch_one(&self.pool)
+        .await
+        .map_err(|e| DbError::QueryError(e.to_string()))?;
         Ok(row.0)
     }
 
@@ -520,33 +522,33 @@ impl SkillRepository {
             Some(row) => {
                 let tags = self.get_tags(&row.id).await?;
                 Ok(Some(Skill {
-                id: row.id,
-                name: row.name,
-                description: row.description,
-                version: row.version,
-                author_agent_id: row.author_agent_id,
-                author_identity_id: row.author_identity_id,
-                owner_type: row.owner_type,
-                owner_id: row.owner_id,
-                compatibility: row.compatibility,
-                content: row.content,
-                install_count: row.install_count,
-                tags,
-                dependencies: vec![],
-                status: row.status,
-                git_url: row.git_url,
-                visibility: row.visibility,
-                tools: row.tools,
-                reviewed_by: row.reviewed_by,
-                reviewed_at: row.reviewed_at,
-                review_comment: row.review_comment,
-                admin_unpublished: row.admin_unpublished,
-                marketplace_status: row.marketplace_status,
-                pre_marketplace_visibility: row.pre_marketplace_visibility,
-                draft_content: row.draft_content,
-                created_at: row.created_at,
-                updated_at: row.updated_at,
-            }))
+                    id: row.id,
+                    name: row.name,
+                    description: row.description,
+                    version: row.version,
+                    author_agent_id: row.author_agent_id,
+                    author_identity_id: row.author_identity_id,
+                    owner_type: row.owner_type,
+                    owner_id: row.owner_id,
+                    compatibility: row.compatibility,
+                    content: row.content,
+                    install_count: row.install_count,
+                    tags,
+                    dependencies: vec![],
+                    status: row.status,
+                    git_url: row.git_url,
+                    visibility: row.visibility,
+                    tools: row.tools,
+                    reviewed_by: row.reviewed_by,
+                    reviewed_at: row.reviewed_at,
+                    review_comment: row.review_comment,
+                    admin_unpublished: row.admin_unpublished,
+                    marketplace_status: row.marketplace_status,
+                    pre_marketplace_visibility: row.pre_marketplace_visibility,
+                    draft_content: row.draft_content,
+                    created_at: row.created_at,
+                    updated_at: row.updated_at,
+                }))
             }
             None => Ok(None),
         }
@@ -630,7 +632,11 @@ impl SkillRepository {
     }
 
     /// 更新市场状态
-    pub async fn update_marketplace_status(&self, skill_id: &str, marketplace_status: Option<&str>) -> DbResult<()> {
+    pub async fn update_marketplace_status(
+        &self,
+        skill_id: &str,
+        marketplace_status: Option<&str>,
+    ) -> DbResult<()> {
         let result = sqlx::query(
             "UPDATE skills SET marketplace_status = $1, updated_at = NOW() WHERE id = $2",
         )
@@ -647,7 +653,11 @@ impl SkillRepository {
     }
 
     /// 保存提交市场前的原始可见性
-    pub async fn set_pre_marketplace_visibility(&self, skill_id: &str, visibility: Option<&str>) -> DbResult<()> {
+    pub async fn set_pre_marketplace_visibility(
+        &self,
+        skill_id: &str,
+        visibility: Option<&str>,
+    ) -> DbResult<()> {
         let result = sqlx::query(
             "UPDATE skills SET pre_marketplace_visibility = $1, updated_at = NOW() WHERE id = $2",
         )
@@ -664,15 +674,18 @@ impl SkillRepository {
     }
 
     /// 保存更新草稿（用于 pending_update 流程）
-    pub async fn save_draft_content(&self, skill_id: &str, draft: &serde_json::Value) -> DbResult<()> {
-        let result = sqlx::query(
-            "UPDATE skills SET draft_content = $1, updated_at = NOW() WHERE id = $2",
-        )
-        .bind(draft)
-        .bind(skill_id)
-        .execute(&self.pool)
-        .await
-        .map_err(|e| DbError::QueryError(e.to_string()))?;
+    pub async fn save_draft_content(
+        &self,
+        skill_id: &str,
+        draft: &serde_json::Value,
+    ) -> DbResult<()> {
+        let result =
+            sqlx::query("UPDATE skills SET draft_content = $1, updated_at = NOW() WHERE id = $2")
+                .bind(draft)
+                .bind(skill_id)
+                .execute(&self.pool)
+                .await
+                .map_err(|e| DbError::QueryError(e.to_string()))?;
 
         if result.rows_affected() == 0 {
             return Err(DbError::NotFound(format!("Skill {} not found", skill_id)));
@@ -682,13 +695,12 @@ impl SkillRepository {
 
     /// 清空更新草稿
     pub async fn clear_draft_content(&self, skill_id: &str) -> DbResult<()> {
-        let result = sqlx::query(
-            "UPDATE skills SET draft_content = NULL, updated_at = NOW() WHERE id = $1",
-        )
-        .bind(skill_id)
-        .execute(&self.pool)
-        .await
-        .map_err(|e| DbError::QueryError(e.to_string()))?;
+        let result =
+            sqlx::query("UPDATE skills SET draft_content = NULL, updated_at = NOW() WHERE id = $1")
+                .bind(skill_id)
+                .execute(&self.pool)
+                .await
+                .map_err(|e| DbError::QueryError(e.to_string()))?;
 
         if result.rows_affected() == 0 {
             return Err(DbError::NotFound(format!("Skill {} not found", skill_id)));
@@ -697,7 +709,11 @@ impl SkillRepository {
     }
 
     /// 应用 draft_content 到主字段（审核通过时调用）
-    pub async fn apply_draft_content(&self, skill_id: &str, draft: &serde_json::Value) -> DbResult<()> {
+    pub async fn apply_draft_content(
+        &self,
+        skill_id: &str,
+        draft: &serde_json::Value,
+    ) -> DbResult<()> {
         if let Some(desc) = draft.get("description").and_then(|v| v.as_str()) {
             sqlx::query("UPDATE skills SET description = $1, updated_at = NOW() WHERE id = $2")
                 .bind(desc)
@@ -970,7 +986,11 @@ impl SkillRepository {
         if ids.is_empty() {
             return Ok(vec![]);
         }
-        let placeholders: Vec<String> = ids.iter().enumerate().map(|(i, _)| format!("${}", i + 1)).collect();
+        let placeholders: Vec<String> = ids
+            .iter()
+            .enumerate()
+            .map(|(i, _)| format!("${}", i + 1))
+            .collect();
         let sql = format!(
             r#"SELECT s.id, s.name, s.description, s.version, s.author_agent_id, s.author_identity_id,
                       i.display_name AS author_name, s.owner_type, s.owner_id, s.install_count,
@@ -987,7 +1007,10 @@ impl SkillRepository {
         for id in ids {
             query = query.bind(*id);
         }
-        query.fetch_all(&self.pool).await.map_err(|e| DbError::QueryError(e.to_string()))
+        query
+            .fetch_all(&self.pool)
+            .await
+            .map_err(|e| DbError::QueryError(e.to_string()))
     }
 }
 

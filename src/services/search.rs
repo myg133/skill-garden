@@ -87,7 +87,11 @@ impl SearchService {
 
         info!("Search service initialized at {:?}", index_path);
 
-        Ok(Self { index, reader, schema })
+        Ok(Self {
+            index,
+            reader,
+            schema,
+        })
     }
 
     fn writer(&self) -> Result<IndexWriter, AppError> {
@@ -125,7 +129,10 @@ impl SearchService {
             doc.add_text(self.field("description"), &skill.description);
             doc.add_text(self.field("tags"), &skill.tags.join(" "));
             doc.add_text(self.field("content"), &skill.content);
-            doc.add_text(self.field("install_count"), &skill.install_count.to_string());
+            doc.add_text(
+                self.field("install_count"),
+                &skill.install_count.to_string(),
+            );
             doc.add_text(self.field("visibility"), vis_str);
             doc.add_text(self.field("owner_type"), &skill.owner_type);
             doc.add_text(self.field("owner_id"), &owner_id_str);
@@ -161,7 +168,10 @@ impl SearchService {
         doc.add_text(self.field("description"), &skill.description);
         doc.add_text(self.field("tags"), &skill.tags.join(" "));
         doc.add_text(self.field("content"), &skill.content);
-        doc.add_text(self.field("install_count"), &skill.install_count.to_string());
+        doc.add_text(
+            self.field("install_count"),
+            &skill.install_count.to_string(),
+        );
         doc.add_text(self.field("visibility"), vis_str);
         doc.add_text(self.field("owner_type"), &skill.owner_type);
         doc.add_text(self.field("owner_id"), &owner_id_str);
@@ -282,10 +292,13 @@ impl SearchService {
             for tag in tag_list {
                 if !tag.is_empty() {
                     let term = tantivy::Term::from_field_text(self.field("tags"), tag);
-                    subqueries.push((Occur::Must, Box::new(TermQuery::new(
-                        term,
-                        tantivy::schema::IndexRecordOption::Basic,
-                    ))));
+                    subqueries.push((
+                        Occur::Must,
+                        Box::new(TermQuery::new(
+                            term,
+                            tantivy::schema::IndexRecordOption::Basic,
+                        )),
+                    ));
                 }
             }
         }

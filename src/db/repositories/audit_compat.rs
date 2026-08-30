@@ -136,10 +136,7 @@ impl AuditRepositoryCompat {
 
     /// 给定 tenant_ids 列表，返回这些租户下所有 organization 内的 identity_id（去重）。
     /// 走 AuditLogRepository.list_identity_ids_by_tenants 实现。
-    pub async fn list_identity_ids_by_tenants(
-        &self,
-        tenant_ids: &[Uuid],
-    ) -> DbResult<Vec<Uuid>> {
+    pub async fn list_identity_ids_by_tenants(&self, tenant_ids: &[Uuid]) -> DbResult<Vec<Uuid>> {
         self.new_repo.list_identity_ids_by_tenants(tenant_ids).await
     }
 

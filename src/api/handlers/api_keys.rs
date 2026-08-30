@@ -1,11 +1,16 @@
 //! API Key 管理 handlers
 
-use axum::{extract::{Path, State}, http::StatusCode, response::IntoResponse, Json};
+use axum::{
+    extract::{Path, State},
+    http::StatusCode,
+    response::IntoResponse,
+    Json,
+};
 use uuid::Uuid;
 
+use super::helpers::{require_admin, ApiState};
 use crate::api::error::ApiError;
 use crate::api::jwt::AgentContext;
-use super::helpers::{require_admin, ApiState};
 
 pub async fn list_api_keys_handler(
     State(state): State<ApiState>,
@@ -42,14 +47,15 @@ pub async fn create_api_key_handler(
 ) -> Result<impl IntoResponse, ApiError> {
     require_admin(&state, &agent_context).await?;
     let expires_at = body.effective_expires_at();
-    let request: crate::models::api_key::CreateApiKeyRequest = crate::models::api_key::CreateApiKeyRequest {
-        identity_id: body.identity_id,
-        organization_id: body.organization_id,
-        name: body.name,
-        scopes: body.scopes.unwrap_or_default(),
-        rate_limit: body.rate_limit.unwrap_or(1000),
-        expires_at,
-    };
+    let request: crate::models::api_key::CreateApiKeyRequest =
+        crate::models::api_key::CreateApiKeyRequest {
+            identity_id: body.identity_id,
+            organization_id: body.organization_id,
+            name: body.name,
+            scopes: body.scopes.unwrap_or_default(),
+            rate_limit: body.rate_limit.unwrap_or(1000),
+            expires_at,
+        };
     let key = state
         .api_key
         .create(request)
@@ -104,7 +110,10 @@ pub async fn update_api_key_status_handler(
             ));
         }
     }
-    Ok((StatusCode::OK, Json(serde_json::json!({"status": body.status}))))
+    Ok((
+        StatusCode::OK,
+        Json(serde_json::json!({"status": body.status})),
+    ))
 }
 
 // User-facing self-service API Key handlers
@@ -237,5 +246,8 @@ pub async fn update_my_api_key_status_handler(
             ));
         }
     }
-    Ok((StatusCode::OK, Json(serde_json::json!({"status": body.status}))))
+    Ok((
+        StatusCode::OK,
+        Json(serde_json::json!({"status": body.status})),
+    ))
 }

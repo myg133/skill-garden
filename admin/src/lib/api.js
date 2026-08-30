@@ -208,14 +208,15 @@ export const api = {
     });
   },
 
-  userRegister(username, password, displayName, email) {
+  userRegister(username, password, displayName, email, tenantName) {
     return requestNoAuth('/auth/register', {
       method: 'POST',
       body: JSON.stringify({ 
         username, 
         password, 
         display_name: displayName || undefined, 
-        email: email || undefined 
+        email: email || undefined,
+        tenant_name: tenantName || undefined
       })
     });
   },
