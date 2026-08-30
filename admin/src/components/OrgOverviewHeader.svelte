@@ -1,4 +1,5 @@
 ﻿<script>
+  import { _ } from 'svelte-i18n';
   export let organization = null;
   export let editing = false;
   export let editName = '';
@@ -49,7 +50,7 @@
     {/if}
     {#if organization.tenant_id}
       <p class="text-gray-400 text-xs mt-0.5">
-        <span class="font-semibold">Tenant:</span> 
+        <span class="font-semibold">{$_('common.tenant')}:</span> 
         {#if tenantName}
           <a href="/tenants" class="text-blue-600 hover:text-blue-700">{tenantName}</a>
         {:else}

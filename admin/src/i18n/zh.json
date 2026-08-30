@@ -133,7 +133,8 @@
     "apply": "应用",
     "selectAll": "全选",
     "deselectAll": "取消全选",
-    "view": "查看"
+    "view": "查看",
+    "tenant": "租户"
   },
   "organizations": {
     "title": "组织",
