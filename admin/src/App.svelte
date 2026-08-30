@@ -1,4 +1,4 @@
-﻿<script>
+<script>
   import { onMount } from 'svelte';
   import { writable } from 'svelte/store';
   import { Router, Route } from 'svelte-routing';
