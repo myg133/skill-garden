@@ -1,6 +1,7 @@
 ﻿<script>
   import { onMount } from 'svelte';
   import { Link } from 'svelte-routing';
+  import { _ } from 'svelte-i18n';
   import { api } from '../lib/api.js';
   import { addToast } from '../stores/app.js';
   import { hasPermission, hasSystemRole, permissionStore } from '../stores/permission.js';
@@ -83,7 +84,7 @@
       newOrgName = '';
       newOrgTenantId = '';
       showCreateModal = false;
-      addToast('Organization created', 'success');
+      addToast($_('organizations.organizationCreated'), 'success');
       await loadOrganizations();
     } catch (e) {
       addToast(e.message, 'error');
@@ -93,10 +94,10 @@
   }
 
   async function handleDelete(id) {
-    if (!confirm('Delete this organization?')) return;
+    if (!confirm($_('organizations.deleteOrganization'))) return;
     try {
       await api.deleteOrganization(id);
-      addToast('Organization deleted', 'success');
+      addToast($_('organizations.organizationDeleted'), 'success');
       await loadOrganizations();
     } catch (e) {
       addToast(e.message, 'error');
@@ -108,14 +109,14 @@
   <div class="page-header">
     <div class="flex items-center justify-between">
       <div>
-        <h1 class="text-[28px] font-extrabold text-gray-800 tracking-tight">Organizations</h1>
+        <h1 class="text-[28px] font-extrabold text-gray-800 tracking-tight">{$_('organizations.title')}</h1>
         <p class="text-gray-500 text-sm mt-1.5 font-medium">
           {#if isSystemAdmin}
-            Manage all organizations across tenants
+            {$_('organizations.manageAll')}
           {:else if isTenantAdmin}
-            Manage organizations in your tenant
+            {$_('organizations.manageTenant')}
           {:else}
-            Your organizations
+            {$_('organizations.yourOrgs')}
           {/if}
         </p>
       </div>
@@ -127,7 +128,7 @@
           aria-label="Filter by tenant"
           class="px-4 py-2.5 bg-white border border-gray-200 rounded-xl text-sm text-gray-700 focus:outline-none focus:ring-2 focus:ring-brand-500/30 cursor-pointer"
         >
-          <option value="">All tenants</option>
+          <option value="">{$_('common.allTenants')}</option>
           {#each tenants as tenant}
             <option value={tenant.id}>{tenant.name}</option>
           {/each}
@@ -137,7 +138,7 @@
             on:click={handleClearFilter}
             class="px-3 py-2.5 text-gray-500 hover:text-gray-700 text-sm font-medium transition-colors"
           >
-            Clear filter
+            {$_('common.clearFilter')}
           </button>
         {/if}
         {/if}
@@ -147,7 +148,7 @@
           class="btn-primary px-5 py-2.5 rounded-xl font-semibold text-sm flex items-center gap-2"
         >
           <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 4v16m8-8H4"/></svg>
-          New Organization
+          {$_('organizations.newOrganization')}
         </button>
         {/if}
       </div>
@@ -160,13 +161,13 @@
     <div class="bg-rose-50 border border-rose-100 text-rose-600 px-5 py-4 rounded-2xl text-sm font-medium">{error}</div>
   {:else if organizations.length === 0}
     <div class="bg-white rounded-xl border border-gray-200 shadow-card">
-      <EmptyState message="No organizations yet">
+      <EmptyState message={$_('organizations.noOrganizations')}>
         {#if hasPermission(ACT.create)}
         <button
           on:click={() => showCreateModal = true}
           class="mt-4 btn-primary px-5 py-2.5 rounded-lg font-semibold text-sm"
         >
-          Create your first organization
+          {$_('organizations.createFirst')}
         </button>
         {/if}
       </EmptyState>
@@ -211,27 +212,27 @@
 {#if showCreateModal}
 <div class="fixed inset-0 bg-black/40 flex items-center justify-center z-50 modal-overlay">
   <div class="bg-white rounded-xl p-6 w-full max-w-md shadow-elevated-lg border border-gray-200 modal-content">
-    <h2 class="text-lg font-bold text-gray-900 mb-5">Create Organization</h2>
+    <h2 class="text-lg font-bold text-gray-900 mb-5">{$_('organizations.createOrganization')}</h2>
     <div class="space-y-4">
       <div>
-        <label for="org-name" class="block text-xs font-semibold text-gray-500 uppercase tracking-wider mb-2">Name</label>
+        <label for="org-name" class="block text-xs font-semibold text-gray-500 uppercase tracking-wider mb-2">{$_('common.name')}</label>
         <input
           id="org-name"
           type="text"
           bind:value={newOrgName}
-          placeholder="Organization name"
+          placeholder={$_('organizations.organizationName')}
           class="w-full px-4 py-3 border border-gray-200 rounded-xl text-sm input-focus outline-none font-medium bg-white text-gray-900"
         />
       </div>
       {#if canManageTenants}
       <div>
-        <label for="org-tenant" class="block text-xs font-semibold text-gray-500 uppercase tracking-wider mb-2">Tenant</label>
+        <label for="org-tenant" class="block text-xs font-semibold text-gray-500 uppercase tracking-wider mb-2">{$_('organizations.tenant')}</label>
         <select
           id="org-tenant"
           bind:value={newOrgTenantId}
           class="w-full px-4 py-3 border border-gray-200 rounded-xl text-sm input-focus outline-none font-medium bg-white text-gray-900"
         >
-          <option value="">No tenant</option>
+          <option value="">{$_('common.noTenant')}</option>
           {#each tenants as tenant}
             <option value={tenant.id}>{tenant.name}</option>
           {/each}
@@ -243,14 +244,14 @@
           on:click={() => { showCreateModal = false; newOrgName = ''; }}
           class="px-4 py-2.5 text-gray-500 hover:text-gray-800 font-semibold text-sm transition-all rounded-lg hover:bg-gray-50"
         >
-          Cancel
+          {$_('common.cancel')}
         </button>
         <button
           on:click={handleCreate}
           disabled={creating || !newOrgName.trim()}
           class="btn-primary px-5 py-2.5 rounded-xl font-semibold text-sm disabled:opacity-50 disabled:cursor-not-allowed"
         >
-          {creating ? 'Creating...' : 'Create'}
+          {creating ? $_('common.loading') : $_('common.create')}
         </button>
       </div>
     </div>

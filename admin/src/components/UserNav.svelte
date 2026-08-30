@@ -1,5 +1,6 @@
 <script>
   import { useLocation, navigate } from 'svelte-routing';
+  import { _ } from 'svelte-i18n';
   import { auth, selectedNav } from '../stores/auth.js';
   import { permissionStore } from '../stores/permission.js';
   import Icon from './Icon.svelte';
@@ -24,16 +25,16 @@
   $: hasOrgAccess = ($permissionStore.orgRoles || []).length > 0;
 
   const userNavItems = [
-    { href: '/user', label: 'Home', icon: 'dashboard' },
-    { href: '/user/marketplace', label: 'Marketplace', icon: 'marketplace' },
-    { href: '/user/skills', label: 'My Skills', icon: 'skills' },
-    { href: '/user/submissions', label: 'Submissions', icon: 'review' },
-    { href: '/profile', label: 'Profile', icon: 'profile' },
-    { href: '/my-api-keys', label: 'API Keys', icon: 'my-api-keys' },
+    { href: '/user', labelKey: 'nav.dashboard', icon: 'dashboard' },
+    { href: '/user/marketplace', labelKey: 'nav.marketplace', icon: 'marketplace' },
+    { href: '/user/skills', labelKey: 'nav.mySkills', icon: 'skills' },
+    { href: '/user/submissions', labelKey: 'nav.submissions', icon: 'review' },
+    { href: '/profile', labelKey: 'nav.myProfile', icon: 'profile' },
+    { href: '/my-api-keys', labelKey: 'nav.myApiKeys', icon: 'my-api-keys' },
   ];
 
   const orgNavItems = [
-    { href: '/organizations', label: 'Organizations', icon: 'organizations' },
+    { href: '/organizations', labelKey: 'nav.organizations', icon: 'organizations' },
   ];
 
   // 用 $: 预计算高亮 map，模板直接查表，避免函数内 store 订阅失效
@@ -64,7 +65,7 @@
   <!-- Header -->
   <div class="h-16 flex items-center gap-3 px-5 border-b border-gray-200">
     <img src="/images/logo.png" alt="AionHive" class="w-9 h-9 rounded-lg flex-shrink-0" />
-    <p class="text-base font-bold tracking-tight text-gray-900">AionHive</p>
+    <p class="text-base font-bold tracking-tight text-gray-900">{$_('app.name')}</p>
   </div>
 
   <!-- Navigation -->
@@ -75,12 +76,12 @@
         class="w-full flex items-center gap-3 px-3 py-2.5 mb-0.5 rounded-lg text-[13px] font-medium transition-all duration-200 {activeMap[item.href] ? 'bg-blue-50 text-blue-700' : 'text-gray-500 hover:text-gray-700 hover:bg-gray-50'}"
       >
         <Icon name={item.icon} size="w-[17px] h-[17px]" className={activeMap[item.href] ? 'text-blue-600' : 'text-gray-400'} />
-        {item.label}
+        {$_(item.labelKey)}
       </button>
     {/each}
 
     {#if hasOrgAccess}
-      <div class="mt-4 mb-1 px-3 text-[10px] font-semibold text-gray-400 uppercase tracking-wider">Organizations</div>
+      <div class="mt-4 mb-1 px-3 text-[10px] font-semibold text-gray-400 uppercase tracking-wider">{$_('nav.organizations')}</div>
       {#each orgNavItems as item}
         <button
           on:click={() => handleNavigate(item.href)}
@@ -103,7 +104,7 @@
       <button
         on:click={handleLogout}
         class="p-1.5 rounded-lg text-gray-400 hover:text-red-500 hover:bg-red-50 transition-all duration-200"
-        title="Sign Out"
+        title={$_('auth.signOut')}
       >
         <Icon name="logout" size="w-[16px] h-[16px]" />
       </button>

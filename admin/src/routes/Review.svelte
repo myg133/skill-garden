@@ -1,5 +1,6 @@
 ﻿<script>
   import { onMount } from 'svelte';
+  import { _ } from 'svelte-i18n';
   import { api } from '../lib/api.js';
   import { hasPermission } from '../stores/permission.js';
   import { selectedOrg, isPersonalSpace } from '../stores/org.js';

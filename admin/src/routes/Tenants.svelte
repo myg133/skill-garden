@@ -1,5 +1,6 @@
 ﻿<script>
   import { onMount } from 'svelte';
+  import { _ } from 'svelte-i18n';
   import { api } from '../lib/api.js';
   import { addToast } from '../stores/app.js';
   import { hasPermission } from '../stores/permission.js';
@@ -39,7 +40,7 @@
       await api.createTenant(newTenant);
       newTenant = { name: '', slug: '' };
       showCreateModal = false;
-      addToast('Tenant created', 'success');
+      addToast($_('tenants.tenantCreated'), 'success');
       await loadTenants();
     } catch (e) {
       addToast(e.message, 'error');

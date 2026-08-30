@@ -1,5 +1,6 @@
 ﻿<script>
   import { onMount } from 'svelte';
+  import { _ } from 'svelte-i18n';
   import { api } from '../lib/api.js';
   import { addToast } from '../stores/app.js';
   import { hasPermission, hasSystemRole } from '../stores/permission.js';
@@ -65,7 +66,7 @@
       await api.createIdentity(newIdentity);
       newIdentity = { identity_type: 'user', name: '', email: '', external_id: '' };
       showCreateModal = false;
-      addToast('Identity created', 'success');
+      addToast($_('identities.identityCreated'), 'success');
       await loadAll();
     } catch (e) {
       addToast(e.message, 'error');
@@ -75,7 +76,7 @@
   }
 
   async function handleDelete(id) {
-    if (!confirm('Delete this identity?')) return;
+    if (!confirm($_('identities.deleteIdentity'))) return;
     try {
       await api.deleteIdentity(id);
       addToast('Identity deleted', 'success');

@@ -1,5 +1,6 @@
 ﻿<script>
   import { useLocation, navigate } from 'svelte-routing';
+  import { _ } from 'svelte-i18n';
   import { auth, selectedNav } from '../stores/auth.js';
   import { adminNavRoutes } from '../config/nav-routes.js';
   import Icon from './Icon.svelte';
@@ -152,7 +153,7 @@
     <img src="/images/logo.png" alt="AionHive" class="w-10 h-10 rounded-lg flex-shrink-0" />
     {#if !sidebarCollapsed}
       <div class="overflow-hidden">
-        <p class="text-base font-bold tracking-tight leading-tight text-gray-900 whitespace-nowrap">AionHive</p>
+        <p class="text-base font-bold tracking-tight leading-tight text-gray-900 whitespace-nowrap">{$_('app.name')}</p>
       </div>
     {/if}
   </div>
@@ -162,7 +163,7 @@
     on:click={toggleSidebar}
     class="absolute top-3 -right-3 w-6 h-6 rounded-full bg-white border border-gray-200 shadow-sm flex items-center justify-center text-indigo-400 hover:text-indigo-600 hover:border-gray-300 transition-all z-10"
     style="transform: translateX(50%);"
-    title={sidebarCollapsed ? 'Expand sidebar' : 'Collapse sidebar'}
+    title={sidebarCollapsed ? $_('nav.expandSidebar') : $_('nav.collapseSidebar')}
   >
     <svg class="w-3 h-3 transition-transform duration-300 {sidebarCollapsed ? 'rotate-180' : ''}" fill="none" stroke="currentColor" viewBox="0 0 24 24">
       <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 19l-7-7 7-7"/>
@@ -198,7 +199,7 @@
             <button
               on:click={() => toggleGroup(group.key)}
               class="w-full flex items-center justify-center py-2.5 rounded-lg transition-all duration-200 {groupActive ? 'text-blue-600 bg-blue-50' : 'text-gray-500 hover:text-gray-700 hover:bg-gray-50'}"
-              title="{group.label}{expanded ? '' : ' (click to expand)'}">
+              title="{$_(group.labelKey)}{expanded ? '' : ' (click to expand)'}">
               <Icon name={group.icon} size="w-[18px] h-[18px]" className={groupActive ? 'text-blue-600' : 'text-gray-400'} />
             </button>
           {:else}
@@ -207,7 +208,7 @@
               class="w-full flex items-center gap-3 px-3 py-2.5 rounded-lg text-[13px] font-semibold transition-all duration-200 group {groupActive && !expanded ? 'text-blue-600 bg-blue-50' : 'text-gray-500 hover:text-gray-700 hover:bg-gray-50'}"
             >
               <Icon name={group.icon} size="w-[18px] h-[18px]" className={groupActive ? 'text-blue-600' : 'text-gray-400'} />
-              <span class="flex-1 text-left">{group.label}</span>
+              <span class="flex-1 text-left">{$_(group.labelKey)}</span>
               <Icon name="chevron-down" size="w-[14px] h-[14px]" className={"text-gray-400 transition-transform duration-200" + (expanded ? ' rotate-180' : '')} />
             </button>
           {/if}
@@ -221,7 +222,7 @@
                   class="w-full relative flex items-center gap-3 pl-5 pr-3 py-2 rounded-r-lg text-[13px] font-medium transition-all duration-200 group {active ? 'nav-item-active' : 'text-gray-500 hover:text-gray-700 hover:bg-gray-50'}"
                 >
                   <Icon name={child.icon} size="w-[16px] h-[16px]" className={active ? 'text-blue-600' : 'text-gray-400 group-hover:text-gray-600'} />
-                  <span>{child.label}</span>
+                  <span>{$_(child.labelKey)}</span>
                 </button>
               {/each}
             </div>
@@ -241,7 +242,7 @@
         <button
           on:click={handleLogout}
           class="p-1.5 rounded-lg text-gray-400 hover:text-red-500 hover:bg-red-50 transition-all duration-200"
-          title="Sign Out"
+          title={$_('auth.signOut')}
         >
           <Icon name="logout" size="w-[18px] h-[18px]" />
         </button>
@@ -255,7 +256,7 @@
         <button
           on:click={handleLogout}
           class="ml-auto mr-1 p-1.5 rounded-lg text-gray-400 hover:text-red-500 hover:bg-red-50 transition-all duration-200"
-          title="Sign Out"
+          title={$_('auth.signOut')}
         >
           <Icon name="logout" size="w-[18px] h-[18px]" />
         </button>

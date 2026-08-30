@@ -1,6 +1,7 @@
 ﻿<script>
   import { onMount } from 'svelte';
   import { Link } from 'svelte-routing';
+  import { _ } from 'svelte-i18n';
   import { api } from '../lib/api.js';
   import { addToast } from '../stores/app.js';
   import { hasPermission } from '../stores/permission.js';
@@ -32,17 +33,17 @@
   const groupRoles = ['lead', 'member'];
 
   const permissionLabels = {
-    'skill.read': 'Read Skills',
-    'skill.write': 'Write Skills',
-    'skill.delete': 'Delete Skills',
-    'member.read': 'Read Members',
-    'member.invite': 'Invite Members',
-    'member.manage': 'Manage Members',
-    'group.read': 'Read Group',
-    'group.write': 'Update Group',
-    'group.delete': 'Delete Group',
-    'settings.read': 'Read Settings',
-    'settings.write': 'Update Settings',
+    'skill.read': $_('groups.permissionSkillRead'),
+    'skill.write': $_('groups.permissionSkillWrite'),
+    'skill.delete': $_('groups.permissionSkillDelete'),
+    'member.read': $_('groups.permissionMemberRead'),
+    'member.invite': $_('groups.permissionMemberInvite'),
+    'member.manage': $_('groups.permissionMemberManage'),
+    'group.read': $_('groups.permissionGroupRead'),
+    'group.write': $_('groups.permissionGroupWrite'),
+    'group.delete': $_('groups.permissionGroupDelete'),
+    'settings.read': $_('groups.permissionSettingsRead'),
+    'settings.write': $_('groups.permissionSettingsWrite'),
   };
 
   onMount(() => {
@@ -84,17 +85,17 @@
       await api.updateGroup(id, data);
       group = await api.getGroup(id);
       editing = false;
-      addToast('Group updated', 'success');
+      addToast($_('groups.groupUpdated'), 'success');
     } catch (e) {
       addToast(e.message, 'error');
     }
   }
 
   async function handleDelete() {
-    if (!confirm('Delete this group? This action cannot be undone.')) return;
+    if (!confirm($_('groups.deleteThisGroup'))) return;
     try {
       await api.deleteGroup(id);
-      addToast('Group deleted', 'success');
+      addToast($_('groups.groupDeletedMsg'), 'success');
       window.history.back();
     } catch (e) {
       addToast(e.message, 'error');
@@ -108,7 +109,7 @@
       await api.addGroupMember(id, { agent_id: addMemberForm.agent_id, role: addMemberForm.role });
       addMemberForm = { agent_id: '', role: 'member' };
       showAddMemberModal = false;
-      addToast('Member added', 'success');
+      addToast($_('groups.memberAdded'), 'success');
       await loadMembers();
     } catch (e) {
       addToast(e.message, 'error');
@@ -123,7 +124,7 @@
       await api.updateGroupMember(id, member.agent_id, { role: editMemberRole });
       editingMember = null;
       editMemberRole = '';
-      addToast('Role updated', 'success');
+      addToast($_('groups.roleUpdated'), 'success');
       await loadMembers();
     } catch (e) {
       addToast(e.message, 'error');
@@ -131,10 +132,10 @@
   }
 
   async function handleRemoveMember(member) {
-    if (!confirm(`Remove ${member.agent_id} from this group?`)) return;
+    if (!confirm($_('groups.removeMemberConfirm', { values: { name: member.agent_id } }))) return;
     try {
       await api.removeGroupMember(id, member.agent_id);
-      addToast('Member removed', 'success');
+      addToast($_('groups.memberRemoved'), 'success');
       await loadMembers();
     } catch (e) {
       addToast(e.message, 'error');
@@ -156,7 +157,7 @@
         permission_code: permCode,
         granted: !currentGranted,
       });
-      addToast(`Permission ${!currentGranted ? 'granted' : 'revoked'}`, 'success');
+      addToast(!currentGranted ? $_('groups.permissionGranted') : $_('groups.permissionRevoked'), 'success');
       await loadPermissions();
     } catch (e) {
       addToast(e.message, 'error');
@@ -204,7 +205,7 @@
     <div class="mb-6">
       <Link to="/groups" class="text-blue-600 hover:text-blue-700 text-sm inline-flex items-center gap-1 font-semibold transition-colors">
         <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 19l-7-7 7-7"/></svg>
-        Back to Groups
+        {$_('groups.backToGroups')}
       </Link>
     </div>
 
@@ -213,33 +214,33 @@
         <div class="flex items-center justify-between">
           {#if editing}
             <div class="flex gap-3 items-center flex-wrap">
-              <label for="group-name-input" class="sr-only">Group name</label>
+              <label for="group-name-input" class="sr-only">{$_('groups.groupName')}</label>
               <input
                 id="group-name-input"
                 type="text"
                 bind:value={editForm.name}
-                placeholder="Group name"
+                placeholder={$_('groups.groupName')}
                 class="text-xl font-bold text-gray-800 px-3 py-1.5 border border-gray-200 rounded-xl input-focus outline-none transition-all bg-white"
               />
-              <label for="group-slug-input" class="sr-only">Group slug</label>
+              <label for="group-slug-input" class="sr-only">{$_('groups.groupSlug')}</label>
               <input
                 id="group-slug-input"
                 type="text"
                 bind:value={editForm.slug}
-                placeholder="slug"
+                placeholder={$_('groups.groupSlug')}
                 class="text-sm text-gray-600 px-3 py-1.5 border border-gray-200 rounded-xl input-focus outline-none transition-all bg-white"
               />
               <button
                 on:click={handleUpdate}
                 class="btn-primary px-3 py-1.5 rounded-lg text-sm font-semibold"
               >
-                Save
+                {$_('common.save')}
               </button>
               <button
                 on:click={() => editing = false}
                 class="btn-secondary px-3 py-1.5 rounded-lg text-sm font-semibold"
               >
-                Cancel
+                {$_('common.cancel')}
               </button>
             </div>
           {:else}
@@ -263,7 +264,7 @@
                   on:click={startEdit}
                   class="btn-secondary px-4 py-2 rounded-xl text-sm font-semibold"
                 >
-                  Edit
+                  {$_('common.edit')}
                 </button>
               {/if}
               {#if hasPermission(ACT_GRP.delete)}
@@ -271,7 +272,7 @@
                   on:click={handleDelete}
                   class="px-4 py-2 rounded-xl text-sm font-semibold text-rose-600 hover:bg-rose-50 transition-colors"
                 >
-                  Delete
+                  {$_('common.delete')}
                 </button>
               {/if}
             </div>
@@ -291,15 +292,15 @@
 
       <div class="px-6 py-5 grid grid-cols-3 gap-4">
         <div class="bg-gray-50 rounded-xl p-4 border border-gray-200">
-          <p class="text-gray-400 text-[11px] uppercase tracking-wider font-semibold mb-1.5">Members</p>
+          <p class="text-gray-400 text-[11px] uppercase tracking-wider font-semibold mb-1.5">{$_('groups.members')}</p>
           <p class="text-gray-800 font-extrabold text-2xl">{members.length}</p>
         </div>
         <div class="bg-gray-50 rounded-xl p-4 border border-gray-200">
-          <p class="text-gray-400 text-[11px] uppercase tracking-wider font-semibold mb-1.5">Type</p>
+          <p class="text-gray-400 text-[11px] uppercase tracking-wider font-semibold mb-1.5">{$_('common.type')}</p>
           <p class="text-gray-800 font-semibold text-sm capitalize">{group.group_type}</p>
         </div>
         <div class="bg-gray-50 rounded-xl p-4 border border-gray-200">
-          <p class="text-gray-400 text-[11px] uppercase tracking-wider font-semibold mb-1.5">Created</p>
+          <p class="text-gray-400 text-[11px] uppercase tracking-wider font-semibold mb-1.5">{$_('common.created')}</p>
           <p class="text-gray-800 font-semibold text-sm">{new Date(group.created_at).toLocaleDateString()}</p>
         </div>
       </div>
@@ -307,31 +308,31 @@
 
     <div class="bg-white rounded-2xl border border-gray-200 shadow-card">
       <div class="px-6 py-4 border-b border-gray-100 flex items-center justify-between">
-        <h2 class="font-semibold text-gray-800 text-sm">Group Members ({members.length})</h2>
+        <h2 class="font-semibold text-gray-800 text-sm">{$_('groups.members')} ({members.length})</h2>
         {#if hasPermission(ACT.addMember)}
           <button
             on:click={() => { showAddMemberModal = true; addMemberForm = { agent_id: '', role: 'member' }; }}
             class="btn-primary px-4 py-2 rounded-xl font-semibold text-sm flex items-center gap-2"
           >
             <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 4v16m8-8H4"/></svg>
-            Add Member
+            {$_('groups.addMember')}
           </button>
         {/if}
       </div>
       <div class="overflow-x-auto">
         {#if members.length === 0}
           <div class="px-6 py-16 text-center text-gray-400 text-sm font-medium">
-            No members in this group yet. Add members and assign them roles.
+            {$_('groups.noMembersYet')}
           </div>
         {:else}
           <table class="w-full">
             <thead class="bg-gray-50 border-b border-gray-100">
               <tr>
-                <th class="px-6 py-3 text-left text-xs font-semibold text-gray-500 uppercase tracking-wider">Identity</th>
-                <th class="px-6 py-3 text-left text-xs font-semibold text-gray-500 uppercase tracking-wider">Email</th>
-                <th class="px-6 py-3 text-left text-xs font-semibold text-gray-500 uppercase tracking-wider">Role</th>
-                <th class="px-6 py-3 text-left text-xs font-semibold text-gray-500 uppercase tracking-wider">Joined</th>
-                <th class="px-6 py-3 text-right text-xs font-semibold text-gray-500 uppercase tracking-wider">Actions</th>
+                <th class="px-6 py-3 text-left text-xs font-semibold text-gray-500 uppercase tracking-wider">{$_('groups.identity')}</th>
+                <th class="px-6 py-3 text-left text-xs font-semibold text-gray-500 uppercase tracking-wider">{$_('groups.email')}</th>
+                <th class="px-6 py-3 text-left text-xs font-semibold text-gray-500 uppercase tracking-wider">{$_('groups.role')}</th>
+                <th class="px-6 py-3 text-left text-xs font-semibold text-gray-500 uppercase tracking-wider">{$_('groups.joined')}</th>
+                <th class="px-6 py-3 text-right text-xs font-semibold text-gray-500 uppercase tracking-wider">{$_('groups.actions')}</th>
               </tr>
             </thead>
             <tbody class="divide-y divide-gray-100">
@@ -371,13 +372,13 @@
                           on:click={() => handleUpdateMemberRole(member)}
                           class="text-emerald-600 hover:text-emerald-700 text-xs font-semibold"
                         >
-                          Save
+                          {$_('common.save')}
                         </button>
                         <button
                           on:click={() => { editingMember = null; editMemberRole = ''; }}
                           class="text-gray-400 hover:text-gray-600 text-xs"
                         >
-                          Cancel
+                          {$_('common.cancel')}
                         </button>
                       </div>
                     {:else}
@@ -395,7 +396,7 @@
                         <button
                           on:click={() => { editingMember = member.agent_id; editMemberRole = member.role; }}
                           class="p-2 rounded-lg text-gray-400 hover:text-blue-500 hover:bg-blue-50 transition-all"
-                          title="Edit role"
+                          title={$_('groups.editRole')}
                         >
                           <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15.232 5.232l3.536 3.536m-2.036-5.036a2.5 2.5 0 113.536 3.536L6.5 21.036H3v-3.572L16.732 3.732z"/></svg>
                         </button>
@@ -404,7 +405,7 @@
                         <button
                           on:click={() => handleRemoveMember(member)}
                           class="p-2 rounded-lg text-gray-400 hover:text-red-500 hover:bg-red-50 transition-all"
-                          title="Remove"
+                          title={$_('groups.remove')}
                         >
                           <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16"/></svg>
                         </button>
@@ -421,8 +422,8 @@
 
     <div class="bg-white rounded-2xl border border-gray-200 shadow-card mt-6">
       <div class="px-6 py-4 border-b border-purple-100/60">
-        <h2 class="font-semibold text-gray-800 text-sm">Group Permissions</h2>
-        <p class="text-gray-400 text-xs mt-1">Toggle permissions for each role. Overrides are highlighted.</p>
+        <h2 class="font-semibold text-gray-800 text-sm">{$_('groups.groupPermissions')}</h2>
+        <p class="text-gray-400 text-xs mt-1">{$_('groups.togglePermissionsDesc')}</p>
       </div>
       {#if permissions}
         <div class="grid grid-cols-2 gap-0">
@@ -473,7 +474,7 @@
         </div>
       {:else}
         <div class="px-6 py-16 text-center text-gray-400 text-sm font-medium">
-          Loading permissions...
+          {$_('groups.loadingPermissions')}
         </div>
       {/if}
     </div>
@@ -483,28 +484,28 @@
 {#if showAddMemberModal}
 <div class="fixed inset-0 bg-black/40 flex items-center justify-center z-50 modal-overlay">
   <div class="bg-white rounded-2xl p-6 w-full max-w-md shadow-elevated-lg border border-gray-200 modal-content">
-    <h2 class="text-lg font-bold text-gray-800 mb-5">Add Member to Group</h2>
+    <h2 class="text-lg font-bold text-gray-800 mb-5">{$_('groups.addMemberToGroup')}</h2>
     <div class="space-y-4">
       <div>
-        <label for="add-member-id" class="block text-xs font-semibold text-gray-500 uppercase tracking-wider mb-2">Identity ID</label>
+        <label for="add-member-id" class="block text-xs font-semibold text-gray-500 uppercase tracking-wider mb-2">{$_('groups.identityId')}</label>
         <input
           id="add-member-id"
           type="text"
           bind:value={addMemberForm.agent_id}
-          placeholder="UUID of the identity"
+          placeholder={$_('groups.placeholderIdentityUuid')}
           class="w-full px-4 py-3 border border-gray-200 rounded-xl text-sm input-focus outline-none font-medium font-mono bg-white text-gray-900"
         />
-        <p class="text-gray-400 text-xs mt-1">Enter the identity UUID to add to this group.</p>
+        <p class="text-gray-400 text-xs mt-1">{$_('groups.enterIdentityUuid')}</p>
       </div>
       <div>
-        <label for="add-member-role" class="block text-xs font-semibold text-gray-500 uppercase tracking-wider mb-2">Role</label>
+        <label for="add-member-role" class="block text-xs font-semibold text-gray-500 uppercase tracking-wider mb-2">{$_('common.role')}</label>
         <select
           id="add-member-role"
           bind:value={addMemberForm.role}
           class="w-full px-4 py-3 border border-gray-200 rounded-xl text-sm input-focus outline-none font-medium bg-white text-gray-900"
         >
-          <option value="lead">lead — Full group management</option>
-          <option value="member">member — Read & basic operations</option>
+          <option value="lead">{$_('groups.roleLead')}</option>
+          <option value="member">{$_('groups.roleMember')}</option>
         </select>
       </div>
       <div class="flex gap-3 justify-end pt-1">
@@ -512,14 +513,14 @@
           on:click={() => { showAddMemberModal = false; addMemberForm = { agent_id: '', role: 'member' }; }}
           class="px-4 py-2.5 text-gray-500 hover:text-gray-800 font-semibold text-sm transition-all rounded-lg hover:bg-gray-50"
         >
-          Cancel
+          {$_('common.cancel')}
         </button>
         <button
           on:click={handleAddMember}
           disabled={addingMember || !addMemberForm.agent_id.trim()}
           class="btn-primary px-5 py-2.5 rounded-xl font-semibold text-sm disabled:opacity-50 disabled:cursor-not-allowed"
         >
-          {addingMember ? 'Adding...' : 'Add'}
+          {addingMember ? $_('common.loading') : $_('common.add')}
         </button>
       </div>
     </div>

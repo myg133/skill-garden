@@ -1,5 +1,6 @@
 <script>
   import { onMount } from 'svelte';
+  import { _ } from 'svelte-i18n';
   import { api } from '../lib/api.js';
   import { auth } from '../stores/auth.js';
   import LoadingSpinner from '../components/LoadingSpinner.svelte';

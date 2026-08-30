@@ -1,5 +1,6 @@
 ﻿<script>
   import { onMount } from 'svelte';
+  import { _ } from 'svelte-i18n';
   import { api } from '../lib/api.js';
 
   let status = null;
@@ -19,8 +20,8 @@
 
 <div class="p-6 max-w-4xl mx-auto fade-in">
   <div class="page-header">
-    <h1 class="text-[28px] font-extrabold text-gray-800 tracking-tight">Settings</h1>
-    <p class="text-gray-500 text-sm mt-1.5 font-medium">Configure system and view runtime status</p>
+    <h1 class="text-[28px] font-extrabold text-gray-800 tracking-tight">{$_('settings.title')}</h1>
+    <p class="text-gray-500 text-sm mt-1.5 font-medium">{$_('settings.general')}</p>
   </div>
 
   {#if loading}
