@@ -6,6 +6,38 @@
 
 ### 新增功能
 
+#### REQ-003 Phase 2 Stage 3: SaaS 自助申请 + 审批流程
+
+- **申请创建租户 API**: 当 `TENANT_MODE=saas` 且 `SELF_SERVICE_TENANT=true` 且 `TENANT_APPROVAL_REQUIRED=true` 时启用
+- **申请接口**: `POST /admin/tenants/requests` - 用户提交创建租户申请
+- **申请列表**: `GET /admin/tenants/requests` - super_admin 查看所有申请
+- **审批接口**: `PUT /admin/tenants/requests/:id` - 审批（approve/reject）
+- **自动创建**: 审批通过时自动创建租户并分配 tenant_admin 角色
+- **配额检查**: 支持 `MAX_TENANTS_PER_USER` 限制
+- **前端申请表单**: SaaS 模式下显示"申请创建租户"按钮和表单
+- **前端审批列表**: super_admin 可查看和审批所有申请
+
+### 数据库改动
+
+- 新增 `tenant_creation_requests` 表 - 存储租户创建申请记录
+
+### 后端改动
+
+- `src/models/tenant.rs`: 新增 `TenantCreationRequest`、`RequestStatus` 模型
+- `src/db/repositories/tenant.rs`: 新增请求仓储方法
+- `src/services/admin/tenant.rs`: 新增请求业务逻辑
+- `src/api/models.rs`: 新增 API 请求/响应模型
+- `src/api/handlers/tenants.rs`: 新增申请/审批 API handler
+- `src/api/routes.rs`: 注册新路由
+
+### 前端改动
+
+- `admin/src/lib/api.js`: 新增申请 API 方法
+- `admin/src/routes/Tenants.svelte`: 申请按钮、表单、审批列表
+- `admin/src/i18n/zh.json` & `admin/src/i18n/en.json`: 新增国际化文本
+
+---
+
 #### REQ-003 Phase 2 Stage 2: 企业模式手动创建租户 + 指定管理员
 
 - **企业模式租户创建**: `private_enterprise` / `internal_delivery` 模式下创建租户必须指定首个管理员

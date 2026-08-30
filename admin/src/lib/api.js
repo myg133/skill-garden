@@ -303,6 +303,30 @@ export const api = {
     return request(`/admin/tenants/${id}`, { method: 'DELETE' });
   },
 
+  // Tenant Creation Requests (self-service workflow)
+  createTenantRequest(data) {
+    return request('/admin/tenants/requests', {
+      method: 'POST',
+      body: JSON.stringify(data)
+    });
+  },
+
+  listTenantRequests(params = {}) {
+    const qs = new URLSearchParams(params).toString();
+    return request(`/admin/tenants/requests${qs ? `?${qs}` : ''}`);
+  },
+
+  getTenantRequest(id) {
+    return request(`/admin/tenants/requests/${id}`);
+  },
+
+  reviewTenantRequest(id, data) {
+    return request(`/admin/tenants/requests/${id}`, {
+      method: 'PUT',
+      body: JSON.stringify(data)
+    });
+  },
+
   // Identities
   listIdentities(params = {}) {
     const qs = new URLSearchParams(params).toString();
