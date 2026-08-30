@@ -122,6 +122,82 @@ impl OrgMembershipRepository {
         Ok(members.into_iter().map(|m| m.into()).collect())
     }
 
+    /// 获取组织所有成员（包括直接加入和通过 Group 加入的）
+    pub async fn list_all_members(&self, organization_id: Uuid) -> DbResult<Vec<OrgMemberInfo>> {
+        // 查询所有成员（包括直接加入和通过 Group 加入的）
+        let members = sqlx::query_as::<_, OrgAllMemberRow>(
+            r#"
+            SELECT DISTINCT ON (i.id)
+                i.id as identity_id,
+                i.username,
+                i.email,
+                i.display_name,
+                i.name,
+                i.identity_type,
+                COALESCE(om.role, gm.default_role) as role,
+                LEAST(om.joined_at, COALESCE(gm.created_at, NOW())) as joined_at
+            FROM identities i
+            LEFT JOIN org_memberships om ON i.id = om.identity_id AND om.organization_id = $1
+            LEFT JOIN memberships gm ON i.id = gm.identity_id
+            LEFT JOIN "groups" g ON gm.group_id = g.id AND g.organization_id = $1
+            WHERE om.identity_id IS NOT NULL OR g.id IS NOT NULL
+            ORDER BY i.id, om.joined_at DESC
+            "#,
+        )
+        .bind(organization_id)
+        .fetch_all(&self.pool)
+        .await
+        .map_err(|e| DbError::QueryError(e.to_string()))?;
+
+        // 为每个成员查询其所属的分组
+        let mut result = Vec::new();
+        for member in members {
+            // 查询该成员所属的分组
+            let groups = sqlx::query_as::<_, GroupInfoRow>(
+                r#"
+                SELECT g.id, g.name, gm.role
+                FROM memberships gm
+                JOIN "groups" g ON gm.group_id = g.id
+                WHERE gm.identity_id = $1 AND g.organization_id = $2
+                "#,
+            )
+            .bind(member.identity_id)
+            .bind(organization_id)
+            .fetch_all(&self.pool)
+            .await
+            .unwrap_or_default();
+
+            let groups_info: Option<Vec<crate::models::org_membership::GroupInfo>> = if groups.is_empty() {
+                None
+            } else {
+                Some(
+                    groups
+                        .into_iter()
+                        .map(|g| crate::models::org_membership::GroupInfo {
+                            id: g.id,
+                            name: g.name,
+                            role: g.role,
+                        })
+                        .collect(),
+                )
+            };
+
+            result.push(OrgMemberInfo {
+                identity_id: member.identity_id,
+                username: member.username,
+                email: member.email,
+                display_name: member.display_name,
+                name: member.name,
+                identity_type: member.identity_type,
+                role: member.role,
+                joined_at: member.joined_at,
+                groups: groups_info,
+            });
+        }
+
+        Ok(result)
+    }
+
     pub async fn list_user_organizations(
         &self,
         identity_id: Uuid,
@@ -260,8 +336,28 @@ impl From<OrgMemberInfoRow> for OrgMemberInfo {
             identity_type: row.identity_type,
             role: row.role,
             joined_at: row.joined_at,
+            groups: None,
         }
     }
+}
+
+#[derive(sqlx::FromRow)]
+struct OrgAllMemberRow {
+    identity_id: Uuid,
+    username: Option<String>,
+    email: Option<String>,
+    display_name: Option<String>,
+    name: String,
+    identity_type: String,
+    role: String,
+    joined_at: chrono::DateTime<chrono::Utc>,
+}
+
+#[derive(sqlx::FromRow)]
+struct GroupInfoRow {
+    id: Uuid,
+    name: String,
+    role: String,
 }
 
 #[derive(sqlx::FromRow)]

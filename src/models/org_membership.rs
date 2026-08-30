@@ -104,4 +104,13 @@ pub struct OrgMemberInfo {
     pub identity_type: String,
     pub role: String,
     pub joined_at: DateTime<Utc>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub groups: Option<Vec<GroupInfo>>,
+}
+
+#[derive(Debug, Clone, Serialize)]
+pub struct GroupInfo {
+    pub id: Uuid,
+    pub name: String,
+    pub role: String,
 }
