@@ -1,26 +1,21 @@
-# 追溯性矩阵 - REQ-003 Phase 2 Stage 1
+# 追溯性矩阵 - REQ-003 Phase 2 Stage 2
 
 ## 验收标准追踪
 
 | 验收项 | 状态 | 代码位置 | 测试位置 |
 |--------|------|---------|----------|
-| AC-201: 用户注册时自动创建个人租户 | PASS | `src/api/handlers/users.rs:140-175` | 集成测试需 DB |
-| AC-202: 注册用户自动成为该租户的 tenant_admin | PASS | `src/api/handlers/users.rs:169-172` | 集成测试需 DB |
-| AC-220: 租户管理员只能看到自己租户的数据 | 待后续 | `src/services/permission.rs` (现有逻辑) | - |
-| AC-222: 不同 TENANT_MODE 配置下，UI 展示正确的创建入口 | 待后续 | 配置已实现，UI 展示待 Phase 2 Stage 2 | - |
+| AC-211: private_enterprise 模式下，仅 super_admin 可创建租户 | PASS | `src/api/handlers/tenants.rs:61-65` | 集成测试需 DB |
+| AC-212: 创建租户时必须指定首个 tenant_admin | PASS | `src/api/handlers/tenants.rs:77-97` | 集成测试需 DB |
+| AC-213: 被指定的用户成为 tenant_admin 后可正常登录管理 | PASS | `src/api/handlers/tenants.rs:103-107` | 集成测试需 DB |
 
 ## 功能点追踪
 
 | 功能点 | 实现位置 | 说明 |
 |--------|---------|------|
-| TenantMode 枚举 | `src/lib.rs:73-95` | saas/private_enterprise/internal_delivery |
-| TenantConfig 结构 | `src/lib.rs:99-118` | 租户配置环境变量读取 |
-| tenant_name 字段 | `src/api/models.rs:221-225` | UserRegisterBody |
-| 注册创建租户 | `src/api/handlers/users.rs:117-186` | SaaS 模式自动创建 |
-| slugify 工具 | `src/utils/mod.rs:17-30` | 租户 slug 生成 |
-| 前端表单 | `admin/src/routes/Register.svelte:17-35` | tenant_name 输入框 |
-| API 支持 | `admin/src/lib/api.js:96-105` | tenant_name 参数 |
-| 环境变量 | `.env.example:31-48` | 配置项文档 |
+| admin_email 字段 | `src/api/models.rs:469-471` | CreateTenantBody 新增字段 |
+| 企业模式租户创建 | `src/api/handlers/tenants.rs:66-120` | 验证 admin_email 并分配角色 |
+| 前端创建租户表单 | `admin/src/routes/Tenants.svelte` | 管理员邮箱输入和搜索 |
+| 租户详情管理员管理 | `admin/src/routes/TenantDetail.svelte` | 添加/移除管理员功能 |
 
 ## 质量检查
 

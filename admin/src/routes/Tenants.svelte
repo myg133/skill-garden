@@ -14,8 +14,15 @@
   let loading = true;
   let error = '';
   let showCreateModal = false;
-  let newTenant = { name: '', slug: '' };
+  let newTenant = { name: '', slug: '', admin_email: '' };
   let creating = false;
+
+  // 企业模式检测（通过检查 URL 参数或 API）
+  let isEnterpriseMode = false;
+  // 搜索用户时的临时变量
+  let userSearchQuery = '';
+  let searchResults = [];
+  let searching = false;
 
   // Detail view state
   let selectedTenant = null;
@@ -68,10 +75,17 @@
 
   async function handleCreate() {
     if (!newTenant.name.trim() || !newTenant.slug.trim()) return;
+    // 企业模式需要 admin_email
+    if (isEnterpriseMode && !newTenant.admin_email.trim()) return;
     creating = true;
     try {
-      await api.createTenant(newTenant);
-      newTenant = { name: '', slug: '' };
+      const payload = {
+        name: newTenant.name,
+        slug: newTenant.slug,
+        ...(isEnterpriseMode && newTenant.admin_email && { admin_email: newTenant.admin_email })
+      };
+      await api.createTenant(payload);
+      newTenant = { name: '', slug: '', admin_email: '' };
       showCreateModal = false;
       addToast($_('tenants.tenantCreated'), 'success');
       await loadTenants();
@@ -80,6 +94,40 @@
     } finally {
       creating = false;
     }
+  }
+
+  // 搜索用户（通过邮箱）
+  async function searchUsers(query) {
+    if (!query.trim()) {
+      searchResults = [];
+      return;
+    }
+    searching = true;
+    try {
+      // 使用 identity search API
+      const results = await api.searchIdentities(query, 5);
+      searchResults = results || [];
+    } catch (e) {
+      searchResults = [];
+    } finally {
+      searching = false;
+    }
+  }
+
+  function selectUser(user) {
+    newTenant.admin_email = user.email || user.username || '';
+    userSearchQuery = '';
+    searchResults = [];
+  }
+
+  function handleUserSearchInput(e) {
+    userSearchQuery = e.target.value;
+    newTenant.admin_email = userSearchQuery;
+    // 防抖搜索
+    clearTimeout(window._userSearchTimer);
+    window._userSearchTimer = setTimeout(() => {
+      searchUsers(userSearchQuery);
+    }, 300);
   }
 
   async function handleDelete(id) {
@@ -283,16 +331,49 @@
           class="w-full px-4 py-3 border border-gray-200 rounded-xl text-sm input-focus outline-none font-medium bg-white text-gray-900"
         />
       </div>
+      <!-- 企业模式：管理员邮箱 -->
+      <div>
+        <label for="admin-email" class="block text-xs font-semibold text-gray-500 uppercase tracking-wider mb-2">
+          {$_('tenants.adminEmail') || 'Administrator Email'}
+          <span class="text-rose-500">*</span>
+        </label>
+        <input
+          id="admin-email"
+          type="email"
+          value={newTenant.admin_email}
+          on:input={handleUserSearchInput}
+          placeholder="admin@example.com"
+          class="w-full px-4 py-3 border border-gray-200 rounded-xl text-sm input-focus outline-none font-medium bg-white text-gray-900"
+        />
+        <!-- 搜索结果下拉 -->
+        {#if searchResults.length > 0}
+          <div class="mt-1 bg-white border border-gray-200 rounded-xl shadow-lg overflow-hidden">
+            {#each searchResults as user (user.id)}
+              <button
+                type="button"
+                class="w-full text-left px-4 py-2.5 hover:bg-blue-50 transition-colors border-b border-gray-100 last:border-b-0"
+                on:click={() => selectUser(user)}
+              >
+                <p class="text-sm font-medium text-gray-800">{user.name || user.username || 'Unknown'}</p>
+                <p class="text-xs text-gray-400">{user.email || user.username || ''}</p>
+              </button>
+            {/each}
+          </div>
+        {/if}
+        {#if searching}
+          <p class="mt-1 text-xs text-gray-400">{$_('common.loading') || 'Searching...'}</p>
+        {/if}
+      </div>
       <div class="flex gap-3 justify-end pt-1">
         <button
-          on:click={() => { showCreateModal = false; newTenant = { name: '', slug: '' }; }}
+          on:click={() => { showCreateModal = false; newTenant = { name: '', slug: '', admin_email: '' }; userSearchQuery = ''; searchResults = []; }}
           class="px-4 py-2.5 text-gray-500 hover:text-gray-800 font-semibold text-sm transition-all rounded-lg hover:bg-gray-50"
         >
           {$_('common.cancel')}
         </button>
         <button
           on:click={handleCreate}
-          disabled={creating || !newTenant.name.trim() || !newTenant.slug.trim()}
+          disabled={creating || !newTenant.name.trim() || !newTenant.slug.trim() || (isEnterpriseMode && !newTenant.admin_email.trim())}
           class="btn-primary px-5 py-2.5 rounded-xl font-semibold text-sm disabled:opacity-50 disabled:cursor-not-allowed"
         >
           {creating ? $_('common.loading') : $_('common.create')}

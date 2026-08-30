@@ -6,6 +6,26 @@
 
 ### 新增功能
 
+#### REQ-003 Phase 2 Stage 2: 企业模式手动创建租户 + 指定管理员
+
+- **企业模式租户创建**: `private_enterprise` / `internal_delivery` 模式下创建租户必须指定首个管理员
+- **admin_email 必填**: 企业模式下 `POST /admin/tenants` 请求体必须包含 `admin_email`
+- **自动分配 tenant_admin**: 创建租户时自动将被指定用户设为该租户的 tenant_admin
+- **用户验证**: 如果指定的 admin_email 用户不存在，返回友好错误信息
+- **租户详情管理员管理**: 在租户详情页可查看、添加、移除租户管理员
+
+### 前端改动
+
+- **Tenants.svelte**: 创建租户弹窗增加管理员邮箱字段和用户搜索功能
+- **TenantDetail.svelte**: 租户详情页增加管理员管理功能（添加/移除管理员）
+
+### 后端改动
+
+- **src/api/models.rs**: `CreateTenantBody` 新增 `admin_email` 字段
+- **src/api/handlers/tenants.rs**: 创建租户逻辑支持企业模式，自动创建 tenant_role_assignment
+
+---
+
 #### REQ-003 Phase 2 Stage 1: SaaS 自动创建租户
 
 - **运营模式开关**: 通过环境变量 `AION_HIVE_TENANT_MODE` 配置平台运营模式
