@@ -1,45 +1,52 @@
-# REQ-002 追溯性矩阵
+# REQ-003 Phase 1 追溯性矩阵
 
-## Phase 1.1: 组员搜索添加
+## 验收标准追溯
 
-| 验收项 | 状态 | 代码位置 | 测试位置 |
-|--------|------|---------|----------|
-| AC-001: 用户搜索功能 | ✅ PASS | src/api/handlers/identities.rs:L96-140 | tests/integration.rs |
-| AC-002: 添加成员成功 | ✅ PASS | src/api/handlers/group_members.rs | tests/integration.rs |
-| AC-003: 保留 UUID 输入方式 | ✅ PASS | admin/src/routes/GroupDetail.svelte:L460-480 | - |
+| 验收项 | 状态 | 代码位置 | 说明 |
+|--------|------|---------|------|
+| AC-001: super_admin 登录后看到完整菜单 | ✅ PASS | `admin/src/config/nav-routes.js` - allowedRoles: [ROLE_SUPER_ADMIN] | 概览/租户/用户/组织/内容/系统/基础设施 |
+| AC-002: tenant_admin 登录后只看到租户相关菜单 | ✅ PASS | `admin/src/config/nav-routes.js` - allowedRoles: [ROLE_TENANT_ADMIN] | 概览/租户/组织/内容 |
+| AC-003: org_admin 登录后只看到组织相关菜单 | ✅ PASS | `admin/src/config/nav-routes.js` - allowedRoles: [ROLE_ORG_ADMIN] | 概览/组织/成员/工具 |
+| AC-004: 普通用户登录后跳转到 /user | ✅ PASS | `admin/src/stores/permission.js` - getDefaultRoute() | 默认路由为 /user |
+| AC-005: super_admin 默认进入 /stats | ✅ PASS | `admin/src/stores/permission.js` - getDefaultRoute() | 系统角色检查后返回 /stats |
+| AC-006: tenant_admin 默认进入租户详情页 | ✅ PASS | `admin/src/stores/permission.js` - getDefaultRoute() | 返回 /tenants/{id} |
+| AC-007: org_admin 默认进入组织详情页 | ✅ PASS | `admin/src/stores/permission.js` - getDefaultRoute() | 返回 /organizations/{id} |
+| AC-008: 各角色概览页面显示相关的快捷操作 | ✅ PASS | `admin/src/config/nav-routes.js` - quickActionCards | tenant_admin/org_admin/super_admin 快捷操作 |
 
-## Phase 1.2: 加入申请流程
+## 核心实现追溯
 
-| 验收项 | 状态 | 代码位置 | 测试位置 |
-|--------|------|---------|----------|
-| AC-004: 用户提交加入申请 | ✅ PASS | src/api/handlers/orgs.rs:L761-810 | - |
-| AC-005: 管理员查看待审批申请 | ✅ PASS | src/api/handlers/orgs.rs:L857-890 | - |
-| AC-006: 管理员批准申请 | ✅ PASS | src/api/handlers/orgs.rs:L892-960 | - |
-| AC-007: 管理员拒绝申请 | ✅ PASS | src/api/handlers/orgs.rs:L892-960 | - |
-| AC-008: 重复申请校验 | ✅ PASS | src/api/handlers/orgs.rs:L776-780 | - |
-| AC-009: 已加入组织用户不显示申请入口 | ✅ PASS | src/api/handlers/orgs.rs:L782-785 | - |
-| AC-010: 非管理员不能审批 | ✅ PASS | src/api/handlers/orgs.rs:L860-865 | - |
+### permission.js 新增函数
+| 函数 | 位置 | 说明 |
+|------|------|------|
+| `isSuperAdmin()` | permission.js:L95-98 | 判断是否为超级管理员 |
+| `isTenantAdmin()` | permission.js:L100-103 | 判断是否为租户管理员 |
+| `isOrgAdmin()` | permission.js:L105-108 | 判断是否为组织管理员 |
+| `getDefaultRoute()` | permission.js:L110-133 | 获取角色专属默认路由 |
+| `getFirstTenantId()` | permission.js:L141-145 | 获取第一个租户 ID |
+| `getFirstOrgId()` | permission.js:L147-151 | 获取第一个组织 ID |
 
-## Phase 1.3: 组织层级可视化
-
-| 验收项 | 状态 | 代码位置 | 测试位置 |
-|--------|------|---------|----------|
-| AC-011: 租户详情页显示关联组织 | ✅ PASS | admin/src/routes/Tenants.svelte:L60-90 | - |
-| AC-012: 租户详情页显示管理员列表 | ✅ PASS | admin/src/routes/Tenants.svelte:L90-120 | - |
-| AC-013: 组织详情页显示所属租户 | ✅ PASS | admin/src/components/OrgOverviewHeader.svelte:L48-58 | - |
-
-## 边界条件测试
-
-| 验收项 | 状态 | 代码位置 |
-|--------|------|---------|
-| BC-001: 搜索无结果 | ✅ PASS | admin/src/routes/GroupDetail.svelte:L170-175 |
-| BC-002: 用户被禁用后不能申请 | ✅ PASS | src/api/handlers/orgs.rs (已有权限校验) |
-| BC-003: 组织删除后申请自动失效 | ✅ PASS | src/db/migrations/041_add_org_join_requests.sql (CASCADE) |
-| BC-004: 审批人不能是自己 | ✅ PASS | src/api/handlers/orgs.rs:L940-942 |
-
-## 性能测试
-
-| 验收项 | 状态 | 说明 |
+### nav-routes.js 新增配置
+| 配置项 | 位置 | 说明 |
 |--------|------|------|
-| PT-001: 搜索性能 | ✅ PASS | 使用 ILIKE 模糊匹配，响应快 |
-| PT-002: 申请列表加载性能 | ✅ PASS | 支持分页参数 (limit, offset) |
+| `allowedRoles` | nav-routes.js | 每个菜单组允许的角色 |
+| `filterNavRoutesByRole()` | nav-routes.js:L108-121 | 按角色过滤菜单组 |
+| `quickActionCards` | nav-routes.js:L136-158 | 角色快捷操作卡片配置 |
+
+### App.svelte 改动
+| 功能 | 位置 | 说明 |
+|------|------|------|
+| 角色判断 | App.svelte:L48-50 | isSA/isTA/isOA reactive variables |
+| 默认路由重定向 | App.svelte:L52-69 | 登录后根据角色重定向 |
+| 新增路由 | App.svelte | /tenants/:id, /org-members |
+
+### Nav.svelte 改动
+| 功能 | 位置 | 说明 |
+|------|------|------|
+| getUserRole() | Nav.svelte:L63-70 | 获取当前用户角色 |
+| 角色过滤 | Nav.svelte:L77-87 | filterNavRoutesByRole(userRole) |
+
+### 新增组件
+| 组件 | 说明 |
+|------|------|
+| TenantDetail.svelte | 租户详情页，用于 tenant_admin 默认着陆 |
+| OrgMembers.svelte | 组织成员管理页，用于 org_admin 快捷访问 |
