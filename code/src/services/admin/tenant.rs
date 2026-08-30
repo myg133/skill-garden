@@ -72,4 +72,12 @@ impl TenantService {
             .await
             .map_err(|e| AppError::InternalError(e.to_string()))
     }
+
+    /// Count total number of active tenants
+    pub async fn count(&self) -> Result<i64, AppError> {
+        self.repo
+            .count()
+            .await
+            .map_err(|e| AppError::InternalError(e.to_string()))
+    }
 }
