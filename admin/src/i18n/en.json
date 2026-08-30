@@ -133,7 +133,8 @@
     "apply": "Apply",
     "selectAll": "Select all",
     "deselectAll": "Deselect all",
-    "view": "View"
+    "view": "View",
+    "tenant": "Tenant"
   },
   "organizations": {
     "title": "Organizations",
