@@ -349,7 +349,9 @@
     "apiKeyEnabled": "API 密钥已启用",
     "unnamed": "未命名",
     "namePlaceholder": "我的 API 密钥",
-    "revoked": "API 密钥已撤销"
+    "revoked": "API 密钥已撤销",
+    "identityListLoadFailed": "身份列表加载失败",
+    "organizationListLoadFailed": "组织列表加载失败"
   },
   "auditLogs": {
     "title": "审计日志",

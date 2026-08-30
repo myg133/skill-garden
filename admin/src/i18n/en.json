@@ -349,7 +349,9 @@
     "apiKeyEnabled": "API Key enabled",
     "unnamed": "Unnamed",
     "namePlaceholder": "My API Key",
-    "revoked": "API Key revoked"
+    "revoked": "API Key revoked",
+    "identityListLoadFailed": "Failed to load identity list",
+    "organizationListLoadFailed": "Failed to load organization list"
   },
   "auditLogs": {
     "title": "Audit Logs",

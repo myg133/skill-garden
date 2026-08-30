@@ -43,7 +43,7 @@
       const res = await api.listIdentities({ limit: 100 });
       identities = res.data || [];
     } catch (e) {
-      addToast('身份列表加载失败', 'warning');
+      addToast($_('apiKeys.identityListLoadFailed'), 'warning');
     }
   }
 
@@ -52,7 +52,7 @@
       const res = await api.listOrganizations({ limit: 100 });
       organizations = res.data || [];
     } catch (e) {
-      addToast('组织列表加载失败', 'warning');
+      addToast($_('apiKeys.organizationListLoadFailed'), 'warning');
     }
   }
 
