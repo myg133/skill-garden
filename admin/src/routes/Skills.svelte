@@ -728,7 +728,7 @@
       <div class="bg-red-50 border border-red-100 text-red-600 px-5 py-4 rounded-xl text-sm font-medium">{error}</div>
     {:else if skills.length === 0}
       <div class="bg-white rounded-xl border border-gray-200 shadow-card">
-        <EmptyState message="No skills found" />
+        <EmptyState message={$_('skills.noSkillsFound')} />
       </div>
     {:else}
       <div class="bg-white rounded-xl border border-gray-200 overflow-hidden shadow-card">
