@@ -37,6 +37,18 @@ pub async fn list_skills_handler(
         false
     };
 
+    // 获取用户所属的 groups（用于 group_visible 过滤）
+    let user_group_ids: Vec<uuid::Uuid> = if let Some(_id_id) = identity_id {
+        sqlx::query_scalar::<_, uuid::Uuid>(
+            "SELECT group_id FROM memberships WHERE identity_id = $1",
+        )
+        .fetch_all(state.agent_repo.pool())
+        .await
+        .unwrap_or_default()
+    } else {
+        vec![]
+    };
+
     // Apply scope filters (Phase 6: role-based views)
     let mut filtered: Vec<_> = if let Some(org_id) = query.org_id {
         // Org member view: only skills owned by this org
@@ -82,22 +94,91 @@ pub async fn list_skills_handler(
             false
         };
 
+        // 获取用户的 org_id（用于 org_visible 和 tenant_visible 过滤）
+        let user_org_id = if let Some(id_id) = identity_id {
+            state.permission.get_user_org_id(id_id).await.ok().flatten()
+        } else {
+            None
+        };
+
+        // 获取用户的租户 ID（用于 tenant_visible 过滤）
+        let user_tenant_id = if let Some(id_id) = identity_id {
+            state.permission.get_user_tenant_id(id_id).await.ok().flatten()
+        } else {
+            None
+        };
+
+        // 检查用户是否是租户管理员
+        let is_tenant_admin = if let Some(id_id) = identity_id {
+            state
+                .permission
+                .has_any_tenant_role(id_id, &["tenant_admin", "tenant_reviewer"])
+                .await
+                .unwrap_or(false)
+        } else {
+            false
+        };
+
+        // 获取用户所属的所有组织 ID（用于快速判断）
+        let user_org_ids = if let Some(id_id) = identity_id {
+            state.permission.get_user_org_ids(id_id).await.unwrap_or_default()
+        } else {
+            vec![]
+        };
+
         skills
             .into_iter()
             .filter(|s| {
+                // 作者能看到自己任何状态的技能（包括 approved 待发布的）
+                let is_author = s.author_identity_id == identity_id;
+
+                // 租户管理员可以看到组织内待发布的技能
+                // 或者用户是其所属组织内的成员
+                let is_org_member = s.owner_type == "organization"
+                    && s.owner_id.is_some()
+                    && user_org_ids.contains(&s.owner_id.unwrap());
+
+                let is_own = is_author || is_tenant_admin || is_org_member;
+
+                // 非作者/管理员：必须已发布
+                if !is_own && s.status != "published" {
+                    return false;
+                }
+
                 // Published marketplace skills visible to all
-                let is_marketplace_published = s.status == "published"
-                    && matches!(
-                        s.visibility,
-                        crate::models::skill_policy::Visibility::Marketplace
-                    );
-                // User's own skills
-                let is_own = s.owner_type == "user"
-                    && identity_id.is_some()
-                    && (s.owner_id == identity_id || s.author_identity_id == identity_id);
+                let is_marketplace_published = matches!(
+                    s.visibility,
+                    crate::models::skill_policy::Visibility::Marketplace
+                );
+
+                // 根据 visibility scope 过滤
+                let in_visible_scope = match &s.visibility {
+                    crate::models::skill_policy::Visibility::GroupVisible => {
+                        // group_visible: 需要用户在对应的 group 内
+                        // 技能需要关联到 group，这需要从 skill_groups 表查询
+                        // 暂时先检查用户是否属于任何 group（后续完善 group 关联）
+                        !user_group_ids.is_empty()
+                    }
+                    crate::models::skill_policy::Visibility::OrgVisible => {
+                        // org_visible: 需要用户在对应的组织内
+                        user_org_id.is_some() && s.owner_id == user_org_id
+                    }
+                    crate::models::skill_policy::Visibility::TenantVisible => {
+                        // tenant_visible: 需要用户在对应的租户内
+                        user_tenant_id.is_some() && s.owner_id == user_tenant_id
+                    }
+                    crate::models::skill_policy::Visibility::Private => {
+                        // private: 只有作者能看到
+                        s.author_identity_id == identity_id
+                    }
+                    crate::models::skill_policy::Visibility::Marketplace
+                    | crate::models::skill_policy::Visibility::Shared => true,
+                };
+
                 // 市场管理员可以看到所有已提交市场的 Skill（任何 marketplace_status）
                 let is_market_admin_visible = is_market_admin && s.marketplace_status.is_some();
-                is_marketplace_published || is_own || is_market_admin_visible
+
+                is_marketplace_published || is_own || is_market_admin_visible || in_visible_scope
             })
             .collect()
     };
@@ -222,7 +303,9 @@ pub async fn create_skill_handler(
     // 用户显式指定的 visibility 优先，否则使用按 owner_type 的默认值
     let visibility = match body.visibility.as_deref() {
         Some("private") => crate::models::skill_policy::Visibility::Private,
+        Some("group_visible") => crate::models::skill_policy::Visibility::GroupVisible,
         Some("org_visible") => crate::models::skill_policy::Visibility::OrgVisible,
+        Some("tenant_visible") => crate::models::skill_policy::Visibility::TenantVisible,
         Some("marketplace") => crate::models::skill_policy::Visibility::Marketplace,
         Some("shared") => crate::models::skill_policy::Visibility::Shared,
         _ => default_visibility,
@@ -352,7 +435,9 @@ pub async fn update_skill_handler(
     // 非市场 Skill：直接更新
     let visibility = body.visibility.as_ref().map(|v| match v.as_str() {
         "private" => crate::models::skill_policy::Visibility::Private,
+        "group_visible" => crate::models::skill_policy::Visibility::GroupVisible,
         "org_visible" => crate::models::skill_policy::Visibility::OrgVisible,
+        "tenant_visible" => crate::models::skill_policy::Visibility::TenantVisible,
         "marketplace" => crate::models::skill_policy::Visibility::Marketplace,
         "shared" => crate::models::skill_policy::Visibility::Shared,
         _ => crate::models::skill_policy::Visibility::OrgVisible,
@@ -414,6 +499,25 @@ pub async fn delete_skill_handler(
         .delete_skill(&skill_id, &state.search)
         .await
         .map_err(|e| ApiError::BadRequest(format!("Failed to delete skill: {}", e)))?;
+
+    // 同时删除 Git 仓库目录
+    let repo_dir = state.skill_git.repo_path(&skill.name);
+    if repo_dir.exists() {
+        if let Err(e) = std::fs::remove_dir_all(&repo_dir) {
+            tracing::warn!("Failed to delete git repo {}: {}", repo_dir.display(), e);
+        } else {
+            tracing::info!("Deleted git repo for skill {}", skill.name);
+        }
+    }
+
+    // 同时删除 release tarball
+    let release_path = state
+        .skill_git
+        .releases_dir()
+        .join(&skill.name);
+    if release_path.exists() {
+        let _ = std::fs::remove_dir_all(&release_path);
+    }
 
     let response = crate::api::models::MessageResponse {
         message: "Skill deleted successfully".to_string(),

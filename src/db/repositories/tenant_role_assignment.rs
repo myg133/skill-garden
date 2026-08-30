@@ -184,4 +184,21 @@ impl TenantRoleAssignmentRepository {
 
         Ok(rows.into_iter().map(|r| r.into()).collect())
     }
+
+    /// 获取用户所属的所有租户，返回 (tenant_id, role_name) 列表
+    pub async fn list_user_tenants(
+        &self,
+        identity_id: Uuid,
+    ) -> DbResult<Vec<(Uuid, String)>> {
+        let rows = sqlx::query_as::<_, TenantRoleAssignmentRow>(
+            r#"SELECT id, identity_id, tenant_id, role_name, assigned_by, assigned_at
+               FROM tenant_role_assignments WHERE identity_id = $1"#,
+        )
+        .bind(identity_id)
+        .fetch_all(&self.pool)
+        .await
+        .map_err(|e| DbError::QueryError(e.to_string()))?;
+
+        Ok(rows.into_iter().map(|r| (r.tenant_id, r.role_name)).collect())
+    }
 }

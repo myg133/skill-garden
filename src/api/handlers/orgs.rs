@@ -303,7 +303,9 @@ pub async fn create_org_skill_handler(
 
     let visibility = body.visibility.as_ref().map(|v| match v.as_str() {
         "private" => crate::models::skill_policy::Visibility::Private,
+        "group_visible" => crate::models::skill_policy::Visibility::GroupVisible,
         "org_visible" => crate::models::skill_policy::Visibility::OrgVisible,
+        "tenant_visible" => crate::models::skill_policy::Visibility::TenantVisible,
         "marketplace" => crate::models::skill_policy::Visibility::Marketplace,
         _ => crate::models::skill_policy::Visibility::OrgVisible,
     });

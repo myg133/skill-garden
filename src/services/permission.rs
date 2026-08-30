@@ -132,6 +132,28 @@ impl PermissionService {
         Ok(assignments.iter().any(|a| a.role_name == "tenant_admin"))
     }
 
+    /// 检查身份是否拥有任一指定的租户角色
+    pub async fn has_any_tenant_role(
+        &self,
+        identity_id: Uuid,
+        role_names: &[&str],
+    ) -> Result<bool, AppError> {
+        let assignments = self
+            .tenant_role_repo
+            .find_by_identity(identity_id)
+            .await
+            .map_err(|e| AppError::InternalError(e.to_string()))?;
+        Ok(assignments
+            .iter()
+            .any(|a| role_names.contains(&a.role_name.as_str())))
+    }
+
+    /// 检查身份是否为指定组织的管理员
+    pub async fn is_org_admin(&self, identity_id: Uuid, org_id: Uuid) -> Result<bool, AppError> {
+        let role = self.get_org_role(identity_id, org_id).await?;
+        Ok(role.is_some())
+    }
+
     /// 获取身份作为 tenant_admin 管理的所有租户 ID
     pub async fn get_tenant_admin_tenant_ids(
         &self,
@@ -172,6 +194,23 @@ impl PermissionService {
             .await
             .map(|orgs| orgs.into_iter().map(|(id, _)| id).collect())
             .map_err(|e| AppError::InternalError(e.to_string()))
+    }
+
+    /// 获取用户所属的主要组织 ID（第一个）
+    pub async fn get_user_org_id(&self, identity_id: Uuid) -> Result<Option<Uuid>, AppError> {
+        let org_ids = self.get_user_org_ids(identity_id).await?;
+        Ok(org_ids.into_iter().next())
+    }
+
+    /// 获取用户所属的租户 ID（从 tenant_role_assignments 表）
+    pub async fn get_user_tenant_id(&self, identity_id: Uuid) -> Result<Option<Uuid>, AppError> {
+        // 从 tenant_role_assignments 获取用户所属的租户
+        let tenants = self
+            .tenant_role_repo
+            .list_user_tenants(identity_id)
+            .await
+            .map_err(|e| AppError::InternalError(e.to_string()))?;
+        Ok(tenants.into_iter().map(|(id, _)| id).next())
     }
 
     /// 获取用户在组织中的角色

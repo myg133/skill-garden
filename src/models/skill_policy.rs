@@ -17,8 +17,10 @@ pub struct SkillPolicy {
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub enum Visibility {
     Private,
-    OrgVisible,
-    Marketplace,
+    GroupVisible,      // 分组内可见
+    OrgVisible,        // 组织内可见
+    TenantVisible,     // 租户内可见
+    Marketplace,       // 市场可见（所有人）
     Shared,
 }
 
@@ -32,7 +34,9 @@ impl From<&str> for Visibility {
     fn from(s: &str) -> Self {
         match s.to_lowercase().as_str() {
             "private" => Visibility::Private,
+            "group_visible" | "groupvisible" => Visibility::GroupVisible,
             "org_visible" | "orgvisible" => Visibility::OrgVisible,
+            "tenant_visible" | "tenantvisible" => Visibility::TenantVisible,
             "marketplace" => Visibility::Marketplace,
             "shared" => Visibility::Shared,
             _ => Visibility::OrgVisible,

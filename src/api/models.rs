@@ -192,6 +192,13 @@ pub struct SkillReviewResponse {
     pub skill_id: String,
 }
 
+/// 发布技能时的请求体
+/// scope: 发布范围 - group(分组) / organization(组织) / tenant(租户)
+#[derive(Debug, Deserialize)]
+pub struct PublishSkillBody {
+    pub scope: String,  // "group" | "organization" | "tenant"
+}
+
 #[derive(Debug, Deserialize)]
 pub struct AddSkillToGroupBody {
     pub group_id: Uuid,

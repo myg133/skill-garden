@@ -75,6 +75,7 @@ pub async fn publish_skill_handler(
         identity_id,
         ..
     }: AgentContext,
+    Json(body): Json<crate::api::models::PublishSkillBody>,
 ) -> Result<impl IntoResponse, ApiError> {
     use crate::db::repositories::skill::SkillRepository;
     let pool = state.agent_repo.pool().clone();
@@ -101,8 +102,23 @@ pub async fn publish_skill_handler(
         ));
     }
 
-    // 内部发布：仅设置 status 为 published，不操作 visibility
-    // visibility 由创建时决定，提交市场由 skill:publish_to_marketplace 单独控制
+    // 根据 scope 设置 visibility
+    let visibility = match body.scope.as_str() {
+        "private" => "private",
+        "group" => "group_visible",
+        "organization" => "org_visible",
+        "tenant" => "tenant_visible",
+        _ => return Err(ApiError::BadRequest(
+            "Invalid scope. Must be 'private', 'group', 'organization', or 'tenant'".to_string(),
+        )),
+    };
+
+    // 设置 status=published 并根据 scope 设置 visibility
+    skill_repo
+        .update(&skill_id, None, None, None, Some(visibility))
+        .await
+        .map_err(|e| ApiError::BadRequest(format!("Failed to update visibility: {}", e)))?;
+
     skill_repo
         .update_status(&skill_id, "published", None, None)
         .await
@@ -136,7 +152,10 @@ pub async fn publish_skill_handler(
             action: "skill_published".to_string(),
             resource_type: "skill".to_string(),
             resource_id: Some(skill_id.clone()),
-            details: serde_json::json!({"visibility": skill.visibility}),
+            details: serde_json::json!({
+                "scope": body.scope,
+                "visibility": visibility
+            }),
         })
         .await
         .map_err(|e| ApiError::InternalError(e.to_string()))?;

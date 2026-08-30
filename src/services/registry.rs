@@ -114,7 +114,9 @@ impl RegistryService {
             git_url: new_skill.git_url.clone(),
             visibility: new_skill.visibility.clone().map(|v| match v {
                 crate::models::skill_policy::Visibility::Private => "private".to_string(),
+                crate::models::skill_policy::Visibility::GroupVisible => "group_visible".to_string(),
                 crate::models::skill_policy::Visibility::OrgVisible => "org_visible".to_string(),
+                crate::models::skill_policy::Visibility::TenantVisible => "tenant_visible".to_string(),
                 crate::models::skill_policy::Visibility::Marketplace => "marketplace".to_string(),
                 crate::models::skill_policy::Visibility::Shared => "shared".to_string(),
             }),
@@ -326,7 +328,9 @@ impl RegistryService {
         // 通过 DB repo 更新字段
         let visibility_str = update.visibility.as_ref().map(|v| match v {
             crate::models::skill_policy::Visibility::Private => "private",
+            crate::models::skill_policy::Visibility::GroupVisible => "group_visible",
             crate::models::skill_policy::Visibility::OrgVisible => "org_visible",
+            crate::models::skill_policy::Visibility::TenantVisible => "tenant_visible",
             crate::models::skill_policy::Visibility::Marketplace => "marketplace",
             crate::models::skill_policy::Visibility::Shared => "shared",
         });

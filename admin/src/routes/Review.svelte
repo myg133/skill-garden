@@ -20,7 +20,9 @@
   $: canReviewMarketplace = hasPermission('marketplace:review_approve') || hasPermission('marketplace:review_reject');
   $: currentOrgId = $selectedOrg?.id || null;
 
-  onMount(async () => {
+  async function loadData() {
+    loading = true;
+    error = '';
     try {
       const params = { page_size: 200 };
       // 如果选中了组织，只加载该组织的 skill
@@ -39,7 +41,9 @@
     } finally {
       loading = false;
     }
-  });
+  }
+
+  onMount(loadData);
 
   async function handleMarketplaceApprove(skillId, skillName) {
     try {
@@ -201,7 +205,7 @@
                   {/if}
                 </div>
                 <div class="flex items-center gap-2 flex-shrink-0">
-                  <ReviewActions {skill} />
+                  <ReviewActions {skill} on:action-complete={loadData} />
                 </div>
               </div>
             </div>

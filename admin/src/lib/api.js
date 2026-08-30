@@ -553,8 +553,19 @@ export const api = {
   },
 
   // Publish approved skill
-  publishSkill(id) {
-    return request(`/skills/${id}/publish`, { method: 'POST' });
+  publishSkill(id, scope = 'organization') {
+    return request(`/skills/${id}/publish`, {
+      method: 'POST',
+      body: JSON.stringify({ scope })
+    });
+  },
+
+  // Update skill visibility
+  updateSkillVisibility(id, visibility) {
+    return request(`/skills/${id}`, {
+      method: 'PUT',
+      body: JSON.stringify({ visibility })
+    });
   },
 
   // Admin: unpublish a published skill (下架)

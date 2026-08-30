@@ -47,6 +47,30 @@
   let sortKey = '';
   let sortDir = 'asc';
 
+  // Publish scope selection
+  let showScopeModal = false;
+  let selectedSkillForPublish = null;
+  let selectedScope = 'organization';
+
+  // Change visibility modal
+  let showVisibilityModal = false;
+  let selectedSkillForVisibility = null;
+  let selectedVisibility = 'org_visible';
+
+  const visibilityOptions = [
+    { value: 'private', label: 'Private - Only you can see this' },
+    { value: 'group_visible', label: 'Group - Visible to group members only' },
+    { value: 'org_visible', label: 'Organization - Visible to all org members' },
+    { value: 'tenant_visible', label: 'Tenant - Visible to all tenant members' },
+  ];
+
+  const scopeOptions = [
+    { value: 'private', label: 'Private - Only you can see this' },
+    { value: 'group', label: 'Group - Visible to group members only' },
+    { value: 'organization', label: 'Organization - Visible to all org members' },
+    { value: 'tenant', label: 'Tenant - Visible to all tenant members' },
+  ];
+
   // Marketplace stats
   let marketStats = { listed: 0, pending: 0, newThisMonth: 0, downloads: 0 };
 
@@ -110,9 +134,8 @@
   let selectedFileContent = '';
   let selectedFileLoading = false;
   let fileFetchCache = {};
-  // Owner selection
+  // Organization selection for upload
   let userOrgs = [];
-  let ownerType = 'user';       // 'user' | 'organization'
   let selectedOrgId = '';
 
   onMount(() => {
@@ -211,11 +234,12 @@
   }
 
   async function handleUnpublishSkill(skill) {
+    const skillId = skill.id;
+    const skillName = skill.name;
     try {
-      await api.adminUnpublishSkill(skill.id);
-      addToast(`${skill.name} delisted`, 'success');
-      skill.status = 'approved';
-      skill.visibility = 'private';
+      await api.adminUnpublishSkill(skillId);
+      addToast(`${skillName} delisted`, 'success');
+      skills = skills.map(s => s.id === skillId ? { ...s, status: 'approved', visibility: 'private' } : s);
     } catch (e) {
       addToast(e.message, 'error');
     }
@@ -227,10 +251,12 @@
       if (skill.marketplace_status === 'listed') {
         const reason = prompt(`"${skill.name}" is listed on marketplace. Request delist first.\nEnter delist reason (optional):`);
         if (reason === null) return;
+        const skillId = skill.id;
+        const skillName = skill.name;
         try {
-          await api.requestMarketplaceDelist(skill.id, reason || undefined);
-          addToast(`${skill.name} delist request submitted, can delete after approval`, 'success');
-          skill.marketplace_status = 'pending_delist';
+          await api.requestMarketplaceDelist(skillId, reason || undefined);
+          addToast(`${skillName} delist request submitted, can delete after approval`, 'success');
+          skills = skills.map(s => s.id === skillId ? { ...s, marketplace_status: 'pending_delist' } : s);
         } catch (e) {
           addToast(`Delist request failed: ${e.message}`, 'error');
         }
@@ -260,31 +286,69 @@
   }
 
   async function handleAdminPublishSkill(skill) {
+    const skillId = skill.id;
+    const skillName = skill.name;
     try {
-      await api.adminPublishSkill(skill.id);
-      addToast(`${skill.name} listed`, 'success');
-      skill.status = 'published';
-      skill.visibility = 'marketplace';
+      await api.adminPublishSkill(skillId);
+      addToast(`${skillName} listed`, 'success');
+      skills = skills.map(s => s.id === skillId ? { ...s, status: 'published', visibility: 'marketplace' } : s);
     } catch (e) {
       addToast(e.message, 'error');
     }
   }
 
   async function handleSubmitReview(skill) {
+    const skillId = skill.id;
+    const skillName = skill.name;
     try {
-      await api.submitSkillForReview(skill.id);
-      addToast(`${skill.name} submitted for review`, 'success');
-      skill.status = 'pending_review';
+      await api.submitSkillForReview(skillId);
+      addToast(`${skillName} submitted for review`, 'success');
+      skills = skills.map(s => s.id === skillId ? { ...s, status: 'pending_review' } : s);
     } catch (e) {
       addToast(e.message, 'error');
     }
   }
 
   async function handlePublishSkill(skill) {
+    // Open scope selection modal
+    selectedSkillForPublish = skill;
+    selectedScope = 'organization';
+    showScopeModal = true;
+  }
+
+  async function confirmPublishSkill() {
+    if (!selectedSkillForPublish) return;
+    const skillId = selectedSkillForPublish.id;
+    const skillName = selectedSkillForPublish.name;
+    showScopeModal = false;
+    selectedSkillForPublish = null;
     try {
-      await api.publishSkill(skill.id);
-      addToast(`${skill.name} published`, 'success');
-      skill.status = 'published';
+      await api.publishSkill(skillId, selectedScope);
+      addToast(`${skillName} published`, 'success');
+      // 更新 skills 数组中的状态
+      skills = skills.map(s => s.id === skillId ? { ...s, status: 'published' } : s);
+    } catch (e) {
+      addToast(e.message, 'error');
+    }
+  }
+
+  // --- Change Visibility ---
+  function handleChangeVisibility(skill) {
+    selectedSkillForVisibility = skill;
+    selectedVisibility = skill.visibility || 'org_visible';
+    showVisibilityModal = true;
+  }
+
+  async function confirmChangeVisibility() {
+    if (!selectedSkillForVisibility) return;
+    const skillId = selectedSkillForVisibility.id;
+    const skillName = selectedSkillForVisibility.name;
+    showVisibilityModal = false;
+    selectedSkillForVisibility = null;
+    try {
+      await api.updateSkillVisibility(skillId, selectedVisibility);
+      addToast(`${skillName} visibility changed`, 'success');
+      skills = skills.map(s => s.id === skillId ? { ...s, visibility: selectedVisibility } : s);
     } catch (e) {
       addToast(e.message, 'error');
     }
@@ -293,10 +357,12 @@
   // --- Marketplace dual-track operations ---
   async function handleSubmitToMarketplace(skill) {
     if (!confirm(`Submit "${skill.name}" for marketplace review?`)) return;
+    const skillId = skill.id;
+    const skillName = skill.name;
     try {
-      await api.submitToMarketplace(skill.id);
-      addToast(`${skill.name} submitted for marketplace review`, 'success');
-      skill.marketplace_status = 'pending_review';
+      await api.submitToMarketplace(skillId);
+      addToast(`${skillName} submitted for marketplace review`, 'success');
+      skills = skills.map(s => s.id === skillId ? { ...s, marketplace_status: 'pending_review' } : s);
     } catch (e) {
       addToast(e.message, 'error');
     }
@@ -307,8 +373,7 @@
     try {
       await api.marketplaceReviewApprove(skill.id);
       addToast(`${skill.name} approved and listed on marketplace`, 'success');
-      skill.marketplace_status = 'listed';
-      await loadSkills();
+      skills = skills.map(s => s.id === skill.id ? { ...s, marketplace_status: 'listed' } : s);
     } catch (e) {
       addToast(e.message, 'error');
     }
@@ -319,8 +384,7 @@
     try {
       await api.marketplaceReviewReject(skill.id);
       addToast(`${skill.name} rejected from marketplace`, 'success');
-      skill.marketplace_status = 'rejected';
-      await loadSkills();
+      skills = skills.map(s => s.id === skill.id ? { ...s, marketplace_status: 'rejected' } : s);
     } catch (e) {
       addToast(e.message, 'error');
     }
@@ -328,10 +392,12 @@
 
   async function handleMarketplaceDelist(skill) {
     if (!confirm(`Delist "${skill.name}" from marketplace? The skill will not be deleted.`)) return;
+    const skillId = skill.id;
+    const skillName = skill.name;
     try {
-      await api.marketplaceDelist(skill.id);
-      addToast(`${skill.name} delisted from marketplace`, 'success');
-      skill.marketplace_status = 'delisted';
+      await api.marketplaceDelist(skillId);
+      addToast(`${skillName} delisted from marketplace`, 'success');
+      skills = skills.map(s => s.id === skillId ? { ...s, marketplace_status: 'delisted' } : s);
     } catch (e) {
       addToast(e.message, 'error');
     }
@@ -339,10 +405,12 @@
 
   async function handleMarketplaceRelist(skill) {
     if (!confirm(`Relist "${skill.name}" on marketplace?`)) return;
+    const skillId = skill.id;
+    const skillName = skill.name;
     try {
-      await api.marketplaceRelist(skill.id);
-      addToast(`${skill.name} relisted`, 'success');
-      skill.marketplace_status = 'listed';
+      await api.marketplaceRelist(skillId);
+      addToast(`${skillName} relisted`, 'success');
+      skills = skills.map(s => s.id === skillId ? { ...s, marketplace_status: 'listed' } : s);
     } catch (e) {
       addToast(e.message, 'error');
     }
@@ -370,17 +438,14 @@
     selectedFilePath = '';
     selectedFileContent = '';
     fileFetchCache = {};
-    ownerType = 'user';
     selectedOrgId = '';
     showCreateModal = true;
 
-    // Load user's organizations
+    // Load user's organizations and default to first one
     try {
       const res = await api.getUserOrgs();
       userOrgs = res.data || res || [];
-      // If user belongs to exactly one org, default to org mode
-      if (userOrgs.length === 1) {
-        ownerType = 'organization';
+      if (userOrgs.length > 0) {
         selectedOrgId = userOrgs[0].id;
       }
     } catch {
@@ -524,10 +589,14 @@
   async function handleConfirmUpload() {
     confirming = true;
     try {
-      const data = {};
-      if (ownerType === 'organization' && selectedOrgId) {
-        data.owner_type = 'organization';
+      // 默认使用 organization 类型，使用当前选中的组织
+      const data = {
+        owner_type: 'organization',
+      };
+      if (selectedOrgId) {
         data.organization_id = selectedOrgId;
+      } else if (userOrgs.length > 0) {
+        data.organization_id = userOrgs[0].id;
       }
       const res = await api.confirmSkillUpload(previewId, data);
       addToast(res.message || 'Skill uploaded successfully', 'success');
@@ -892,6 +961,14 @@
                         class="px-2.5 py-1 text-[11px] font-semibold bg-red-50 text-red-600 border border-red-200 rounded-lg hover:bg-red-100 transition-colors"
                       >Delete</button>
                       {/if}
+
+                      <!-- Change Visibility (for published skills) -->
+                      {#if skill.status === 'published'}
+                      <button
+                        on:click={() => handleChangeVisibility(skill)}
+                        class="px-2.5 py-1 text-[11px] font-semibold bg-blue-50 text-blue-700 border border-blue-200 rounded-lg hover:bg-blue-100 transition-colors"
+                      >Visibility</button>
+                      {/if}
                     </div>
                   </td>
               </tr>
@@ -1047,30 +1124,17 @@
     </div>
     {/if}
 
-    <!-- Owner type selector -->
+    <!-- Organization selector for upload -->
     {#if userOrgs.length > 0}
     <div class="flex-shrink-0 px-6 py-3 border-b border-gray-100 bg-white flex items-center gap-4">
-      <span class="text-xs font-semibold text-gray-500 uppercase tracking-wider">{$_('skills.owner')}</span>
-      <div class="flex items-center gap-3">
-        <label class="flex items-center gap-1.5 cursor-pointer">
-          <input type="radio" bind:group={ownerType} value="user" class="w-3.5 h-3.5 text-blue-600" />
-          <span class="text-sm text-gray-700">{$_('skills.personal')}</span>
-        </label>
-        <label class="flex items-center gap-1.5 cursor-pointer">
-          <input type="radio" bind:group={ownerType} value="organization" class="w-3.5 h-3.5 text-blue-600" />
-          <span class="text-sm text-gray-700">{$_('organizations.title')}</span>
-        </label>
-      </div>
-      {#if ownerType === 'organization'}
-        <select bind:value={selectedOrgId} class="ml-2 px-3 py-1.5 border border-gray-200 rounded-lg text-sm text-gray-700 bg-white focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500">
-          <option value="">{$_('skills.selectOrganization')}</option>
-          {#each userOrgs as org (org.id)}
-            <option value={org.id}>
-              {org.name}{org.slug ? ` (@${org.slug})` : ''}{org.role ? ` · ${org.role}` : ''}
-            </option>
-          {/each}
-        </select>
-      {/if}
+      <span class="text-xs font-semibold text-gray-500 uppercase tracking-wider">{$_('skills.uploadTo') || 'Upload to'}</span>
+      <select bind:value={selectedOrgId} class="px-3 py-1.5 border border-gray-200 rounded-lg text-sm text-gray-700 bg-white focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500">
+        {#each userOrgs as org (org.id)}
+          <option value={org.id}>
+            {org.name}{org.slug ? ` (@${org.slug})` : ''}{org.role ? ` · ${org.role}` : ''}
+          </option>
+        {/each}
+      </select>
     </div>
     {/if}
 
@@ -1130,4 +1194,94 @@
   </div>
   {/if}
 </div>
+{/if}
+
+<!-- Publish Scope Selection Modal -->
+{#if showScopeModal}
+  <div class="fixed inset-0 bg-black/50 flex items-center justify-center z-[9999]" on:click={() => showScopeModal = false}>
+    <div class="bg-white rounded-2xl shadow-xl max-w-md w-full mx-4 overflow-hidden" on:click|stopPropagation>
+      <div class="px-6 py-4 border-b border-gray-100">
+        <h3 class="text-lg font-semibold text-gray-900">Select Publish Scope</h3>
+        <p class="text-sm text-gray-500 mt-1">Choose who can see this skill</p>
+      </div>
+      <div class="p-6">
+        <div class="space-y-3">
+          {#each scopeOptions as option}
+            <label class="flex items-start gap-3 p-3 rounded-xl border cursor-pointer transition-all duration-200 hover:border-indigo-300 hover:bg-indigo-50/50 {selectedScope === option.value ? 'border-indigo-400 bg-indigo-50' : 'border-gray-200'}">
+              <input
+                type="radio"
+                name="scope"
+                value={option.value}
+                bind:group={selectedScope}
+                class="mt-0.5 w-4 h-4 text-indigo-600 border-gray-300 focus:ring-indigo-500"
+              />
+              <div class="flex-1">
+                <span class="text-sm font-medium text-gray-900 capitalize">{option.value}</span>
+                <p class="text-xs text-gray-500 mt-0.5">{option.label}</p>
+              </div>
+            </label>
+          {/each}
+        </div>
+      </div>
+      <div class="px-6 py-4 border-t border-gray-100 flex justify-end gap-3">
+        <button
+          on:click={() => showScopeModal = false}
+          class="px-4 py-2 text-sm font-medium text-gray-600 hover:text-gray-800 transition-colors"
+        >
+          Cancel
+        </button>
+        <button
+          on:click={confirmPublishSkill}
+          class="px-4 py-2 text-sm font-medium bg-indigo-600 text-white rounded-lg hover:bg-indigo-700 transition-colors"
+        >
+          Publish
+        </button>
+      </div>
+    </div>
+  </div>
+{/if}
+
+<!-- Change Visibility Modal -->
+{#if showVisibilityModal}
+  <div class="fixed inset-0 bg-black/50 flex items-center justify-center z-[9999]" on:click={() => showVisibilityModal = false}>
+    <div class="bg-white rounded-2xl shadow-xl max-w-md w-full mx-4 overflow-hidden" on:click|stopPropagation>
+      <div class="px-6 py-4 border-b border-gray-100">
+        <h3 class="text-lg font-semibold text-gray-900">Change Visibility</h3>
+        <p class="text-sm text-gray-500 mt-1">Choose who can see this skill</p>
+      </div>
+      <div class="p-6">
+        <div class="space-y-3">
+          {#each visibilityOptions as option}
+            <label class="flex items-start gap-3 p-3 rounded-xl border cursor-pointer transition-all duration-200 hover:border-indigo-300 hover:bg-indigo-50/50 {selectedVisibility === option.value ? 'border-indigo-400 bg-indigo-50' : 'border-gray-200'}">
+              <input
+                type="radio"
+                name="visibility"
+                value={option.value}
+                bind:group={selectedVisibility}
+                class="mt-0.5 w-4 h-4 text-indigo-600 border-gray-300 focus:ring-indigo-500"
+              />
+              <div class="flex-1">
+                <span class="text-sm font-medium text-gray-900 capitalize">{option.value.replace('_', ' ')}</span>
+                <p class="text-xs text-gray-500 mt-0.5">{option.label}</p>
+              </div>
+            </label>
+          {/each}
+        </div>
+      </div>
+      <div class="px-6 py-4 border-t border-gray-100 flex justify-end gap-3">
+        <button
+          on:click={() => showVisibilityModal = false}
+          class="px-4 py-2 text-sm font-medium text-gray-600 hover:text-gray-800 transition-colors"
+        >
+          Cancel
+        </button>
+        <button
+          on:click={confirmChangeVisibility}
+          class="px-4 py-2 text-sm font-medium bg-indigo-600 text-white rounded-lg hover:bg-indigo-700 transition-colors"
+        >
+          Save
+        </button>
+      </div>
+    </div>
+  </div>
 {/if}

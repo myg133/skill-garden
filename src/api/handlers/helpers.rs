@@ -17,7 +17,9 @@ pub(crate) async fn check_skill_perm(
 ) -> Result<(), ApiError> {
     let vis_str = match &skill.visibility {
         crate::models::skill_policy::Visibility::Private => "private",
+        crate::models::skill_policy::Visibility::GroupVisible => "group_visible",
         crate::models::skill_policy::Visibility::OrgVisible => "org_visible",
+        crate::models::skill_policy::Visibility::TenantVisible => "tenant_visible",
         crate::models::skill_policy::Visibility::Marketplace => "marketplace",
         crate::models::skill_policy::Visibility::Shared => "shared",
     };

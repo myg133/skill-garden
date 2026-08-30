@@ -1,4 +1,5 @@
 <script>
+  import { createEventDispatcher } from 'svelte';
   import { api } from "../lib/api.js";
   import { addToast } from "../stores/app.js";
   import { navigate } from "svelte-routing";
@@ -7,6 +8,7 @@
   import { canApproveReject } from "../lib/skillPerms.js";
   import RejectModal from "./RejectModal.svelte";
 
+  const dispatch = createEventDispatcher();
   const ACT = ACTIONS.Review;
 
   export let skill;
@@ -26,7 +28,7 @@
     try {
       await api.approveSkill(skill.id);
       addToast(`${skill.name} approved`, "success");
-      navigate("/review", { replace: true });
+      dispatch('action-complete', { action: 'approve' });
     } catch (e) {
       addToast(e.message, 'error');
     } finally {
@@ -40,7 +42,7 @@
     try {
       await api.rejectSkill(skill.id, reason);
       addToast(`${skill.name} rejected`, "success");
-      navigate("/review", { replace: true });
+      dispatch('action-complete', { action: 'reject' });
     } catch (e) {
       addToast(e.message, 'error');
     } finally {

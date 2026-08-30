@@ -12,6 +12,17 @@
   let filter = 'all'; // all | draft | pending | published | rejected
   let actionLoading = {};
 
+  // Publish scope selection
+  let showScopeModal = false;
+  let selectedSkillForPublish = null;
+  let selectedScope = 'organization';
+
+  const scopeOptions = [
+    { value: 'group', label: 'Group - Visible to group members only' },
+    { value: 'organization', label: 'Organization - Visible to all org members' },
+    { value: 'tenant', label: 'Tenant - Visible to all tenant members' },
+  ];
+
   $: filteredSkills = skills.filter(s => {
     if (filter === 'all') return true;
     if (filter === 'pending') return s.status === 'pending_review';
@@ -55,17 +66,27 @@
   }
 
   async function handlePublish(skillId) {
-    actionLoading[skillId] = 'publish';
+    // Open scope selection modal
+    selectedSkillForPublish = skillId;
+    selectedScope = 'organization';
+    showScopeModal = true;
+  }
+
+  async function confirmPublish() {
+    if (!selectedSkillForPublish) return;
+    actionLoading[selectedSkillForPublish] = 'publish';
     actionLoading = actionLoading;
+    showScopeModal = false;
     try {
-      await api.publishSkill(skillId);
-      addToast('Skill published', 'success');
+      await api.publishSkill(selectedSkillForPublish, selectedScope);
+      addToast('Skill published successfully', 'success');
       await loadData();
     } catch (e) {
       addToast(e.message || 'Failed to publish', 'error');
     } finally {
-      actionLoading[skillId] = null;
+      actionLoading[selectedSkillForPublish] = null;
       actionLoading = actionLoading;
+      selectedSkillForPublish = null;
     }
   }
 
@@ -228,5 +249,50 @@
         {/if}
       </div>
     {/if}
+  {/if}
+
+  <!-- Publish Scope Selection Modal -->
+  {#if showScopeModal}
+    <div class="fixed inset-0 bg-black/50 flex items-center justify-center z-[9999]" on:click={() => showScopeModal = false}>
+      <div class="bg-white rounded-2xl shadow-xl max-w-md w-full mx-4 overflow-hidden" on:click|stopPropagation>
+        <div class="px-6 py-4 border-b border-gray-100">
+          <h3 class="text-lg font-semibold text-gray-900">Select Publish Scope</h3>
+          <p class="text-sm text-gray-500 mt-1">Choose who can see this skill</p>
+        </div>
+        <div class="p-6">
+          <div class="space-y-3">
+            {#each scopeOptions as option}
+              <label class="flex items-start gap-3 p-3 rounded-xl border cursor-pointer transition-all duration-200 hover:border-indigo-300 hover:bg-indigo-50/50 {selectedScope === option.value ? 'border-indigo-400 bg-indigo-50' : 'border-gray-200'}">
+                <input
+                  type="radio"
+                  name="scope"
+                  value={option.value}
+                  bind:group={selectedScope}
+                  class="mt-0.5 w-4 h-4 text-indigo-600 border-gray-300 focus:ring-indigo-500"
+                />
+                <div class="flex-1">
+                  <span class="text-sm font-medium text-gray-900 capitalize">{option.value}</span>
+                  <p class="text-xs text-gray-500 mt-0.5">{option.label}</p>
+                </div>
+              </label>
+            {/each}
+          </div>
+        </div>
+        <div class="px-6 py-4 border-t border-gray-100 flex justify-end gap-3">
+          <button
+            on:click={() => showScopeModal = false}
+            class="px-4 py-2 text-sm font-medium text-gray-600 hover:text-gray-800 transition-colors"
+          >
+            Cancel
+          </button>
+          <button
+            on:click={confirmPublish}
+            class="px-4 py-2 text-sm font-medium bg-indigo-600 text-white rounded-lg hover:bg-indigo-700 transition-colors"
+          >
+            Publish
+          </button>
+        </div>
+      </div>
+    </div>
   {/if}
 </div>
