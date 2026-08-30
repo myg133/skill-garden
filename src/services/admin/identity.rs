@@ -134,4 +134,12 @@ impl IdentityService {
             None => Ok(None),
         }
     }
+
+    /// 搜索身份（按名字/邮箱/username 模糊匹配）
+    pub async fn search(&self, query: &str, limit: i64) -> Result<Vec<Identity>, AppError> {
+        self.repo
+            .search(query, limit)
+            .await
+            .map_err(|e| AppError::InternalError(e.to_string()))
+    }
 }

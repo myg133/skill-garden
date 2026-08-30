@@ -245,7 +245,12 @@
     "descriptionOptional": "描述（可选）",
     "configureDefaultPermissions": "配置默认权限",
     "lead": "负责人",
-    "member": "成员"
+    "member": "成员",
+    "searchIdentity": "搜索用户",
+    "searchPlaceholder": "按姓名、用户名或邮箱搜索...",
+    "noSearchResults": "未找到匹配的用户",
+    "orEnterUuid": "或输入身份 ID",
+    "clear": "清除"
   },
   "skills": {
     "title": "技能",

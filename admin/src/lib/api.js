@@ -337,6 +337,12 @@ export const api = {
     return request(`/admin/identities/${id}`, { method: 'DELETE' });
   },
 
+  // Identity search (for adding group members)
+  searchIdentities(query, limit = 10) {
+    const params = new URLSearchParams({ q: query, limit });
+    return request(`/identities/search?${params.toString()}`);
+  },
+
   // System Role Assignments
   assignSystemRole(identity_id, role_name) {
     return request('/admin/system-role-assignments', {

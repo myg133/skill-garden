@@ -5,7 +5,7 @@ use uuid::Uuid;
 
 use crate::api::error::ApiError;
 use crate::api::jwt::AgentContext;
-use super::helpers::{require_admin, ApiState};
+use super::helpers::{require_admin, require_auth, ApiState};
 
 pub async fn list_identities_handler(
     State(state): State<ApiState>,
@@ -91,4 +91,53 @@ pub async fn delete_identity_handler(
         .await
         .map_err(|e| ApiError::BadRequest(e.to_string()))?;
     Ok((StatusCode::OK, Json(serde_json::json!({"deleted": id}))))
+}
+
+/// Search identities by name/email/username
+/// GET /identities/search?q={query}&limit={limit}
+pub async fn search_identities_handler(
+    State(state): State<ApiState>,
+    agent_context: AgentContext,
+    Query(query): Query<SearchIdentitiesQuery>,
+) -> Result<impl IntoResponse, ApiError> {
+    // Require authentication - any logged in user can search
+    let _identity_id = require_auth(&agent_context).await
+        .map_err(|e| ApiError::Unauthorized(e.to_string()))?;
+    
+    let query_str = query.q.trim();
+    if query_str.is_empty() {
+        return Err(ApiError::BadRequest("Query parameter 'q' is required".to_string()));
+    }
+    
+    let limit = query.limit.unwrap_or(10).min(50);
+    let identities = state
+        .identity
+        .search(query_str, limit)
+        .await
+        .map_err(|e| ApiError::InternalError(e.to_string()))?;
+    
+    // Convert to search result format (without sensitive fields)
+    let results: Vec<serde_json::Value> = identities
+        .into_iter()
+        .map(|i| {
+            serde_json::json!({
+                "id": i.id,
+                "name": i.name,
+                "username": i.username,
+                "display_name": i.display_name,
+                "email": i.email,
+                "avatar_url": i.avatar_url,
+                "identity_type": i.identity_type.to_string(),
+            })
+        })
+        .collect();
+    
+    Ok((StatusCode::OK, Json(serde_json::json!({"data": results}))))
+}
+
+#[derive(serde::Deserialize)]
+pub struct SearchIdentitiesQuery {
+    pub q: String,
+    #[serde(default)]
+    pub limit: Option<i64>,
 }

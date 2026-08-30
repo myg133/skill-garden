@@ -226,6 +226,37 @@ impl IdentityRepository {
                 .unwrap_or(false);
         Ok(result)
     }
+
+    /// 搜索身份（按名字/邮箱/username 模糊匹配）
+    pub async fn search(
+        &self,
+        query: &str,
+        limit: i64,
+    ) -> DbResult<Vec<Identity>> {
+        let search_pattern = format!("%{}%", query.to_lowercase());
+        let identities = sqlx::query_as::<_, IdentityRow>(
+            r#"
+            SELECT id, identity_type, username, display_name, external_id, name, email, avatar_url, password_hash, is_system_admin, status, metadata, created_at, updated_at
+            FROM identities
+            WHERE status = 'active'
+              AND (
+                  LOWER(name) LIKE $1
+                  OR LOWER(username) LIKE $1
+                  OR LOWER(email) LIKE $1
+                  OR LOWER(display_name) LIKE $1
+              )
+            ORDER BY name ASC
+            LIMIT $2
+            "#,
+        )
+        .bind(&search_pattern)
+        .bind(limit)
+        .fetch_all(&self.pool)
+        .await
+        .map_err(|e| DbError::QueryError(e.to_string()))?;
+
+        Ok(identities.into_iter().map(|i| i.into()).collect())
+    }
 }
 
 #[derive(sqlx::FromRow)]

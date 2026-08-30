@@ -190,6 +190,13 @@ pub(crate) async fn require_marketplace_admin_only(
     ))
 }
 
+/// 基本身份验证检查（任何已登录用户）
+pub(crate) async fn require_auth(
+    agent_context: &AgentContext,
+) -> Result<uuid::Uuid, ApiError> {
+    agent_context.require_identity()
+}
+
 /// 验证当前用户是指定组织的成员
 pub(crate) async fn require_org_member(
     state: &ApiState,

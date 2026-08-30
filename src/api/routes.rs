@@ -401,6 +401,8 @@ pub fn create_api_router(state: ApiState) -> Router<ApiState> {
             "/api/v1/admin/identities/:id",
             delete(delete_identity_handler),
         )
+        // Identity search (authenticated users)
+        .route("/api/v1/identities/search", get(search_identities_handler))
         // Group routes
         .route("/api/v1/admin/groups", get(list_groups_handler))
         .route("/api/v1/admin/groups", post(create_group_handler))

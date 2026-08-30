@@ -22,13 +22,20 @@
   let editForm = {};
 
   let showAddMemberModal = false;
-  let addMemberForm = { agent_id: '', role: 'member' };
+  let addMemberForm = { agent_id: '', role: 'member', selected_identity: null };
   let addingMember = false;
 
   let editingMember = null;
   let editMemberRole = '';
 
   let permissions = null;
+
+  // Identity search state
+  let searchQuery = '';
+  let searchResults = [];
+  let searching = false;
+  let searchTimeout = null;
+  let showSearchDropdown = false;
 
   const groupRoles = ['lead', 'member'];
 
@@ -62,6 +69,49 @@
     } finally {
       loading = false;
     }
+  }
+
+  // Identity search with debounce
+  async function handleSearchInput() {
+    if (searchTimeout) {
+      clearTimeout(searchTimeout);
+    }
+    
+    if (!searchQuery.trim()) {
+      searchResults = [];
+      showSearchDropdown = false;
+      return;
+    }
+    
+    searchTimeout = setTimeout(async () => {
+      searching = true;
+      try {
+        const res = await api.searchIdentities(searchQuery, 10);
+        // Filter out existing members
+        const memberIds = new Set(members.map(m => m.agent_id));
+        searchResults = (res.data || []).filter(i => !memberIds.has(i.id));
+        showSearchDropdown = searchResults.length > 0;
+      } catch (e) {
+        console.error('Search failed:', e);
+        searchResults = [];
+      } finally {
+        searching = false;
+      }
+    }, 300);
+  }
+
+  function selectSearchResult(identity) {
+    addMemberForm.agent_id = identity.id;
+    addMemberForm.selected_identity = identity;
+    searchQuery = identity.name || identity.username || '';
+    showSearchDropdown = false;
+  }
+
+  function clearSearchSelection() {
+    addMemberForm.agent_id = '';
+    addMemberForm.selected_identity = null;
+    searchQuery = '';
+    searchResults = [];
   }
 
   async function loadMembers() {
@@ -107,7 +157,10 @@
     addingMember = true;
     try {
       await api.addGroupMember(id, { agent_id: addMemberForm.agent_id, role: addMemberForm.role });
-      addMemberForm = { agent_id: '', role: 'member' };
+      addMemberForm = { agent_id: '', role: 'member', selected_identity: null };
+      searchQuery = '';
+      searchResults = [];
+      showSearchDropdown = false;
       showAddMemberModal = false;
       addToast($_('groups.memberAdded'), 'success');
       await loadMembers();
@@ -116,6 +169,14 @@
     } finally {
       addingMember = false;
     }
+  }
+
+  function closeModal() {
+    showAddMemberModal = false;
+    addMemberForm = { agent_id: '', role: 'member', selected_identity: null };
+    searchQuery = '';
+    searchResults = [];
+    showSearchDropdown = false;
   }
 
   async function handleUpdateMemberRole(member) {
@@ -482,21 +543,109 @@
 </div>
 
 {#if showAddMemberModal}
-<div class="fixed inset-0 bg-black/40 flex items-center justify-center z-50 modal-overlay">
-  <div class="bg-white rounded-2xl p-6 w-full max-w-md shadow-elevated-lg border border-gray-200 modal-content">
-    <h2 class="text-lg font-bold text-gray-800 mb-5">{$_('groups.addMemberToGroup')}</h2>
+<div class="fixed inset-0 bg-black/40 flex items-center justify-center z-50 modal-overlay" on:click={closeModal} on:keydown={(e) => e.key === 'Escape' && closeModal()} role="dialog" aria-modal="true">
+  <div class="bg-white rounded-2xl p-6 w-full max-w-md shadow-elevated-lg border border-gray-200 modal-content" on:click|stopPropagation role="document">
+    <div class="flex items-center justify-between mb-5">
+      <h2 class="text-lg font-bold text-gray-800">{$_('groups.addMemberToGroup')}</h2>
+      <button on:click={closeModal} class="p-1 rounded-lg text-gray-400 hover:text-gray-600 hover:bg-gray-100 transition-all">
+        <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"/></svg>
+      </button>
+    </div>
     <div class="space-y-4">
+      <!-- Search Section -->
       <div>
-        <label for="add-member-id" class="block text-xs font-semibold text-gray-500 uppercase tracking-wider mb-2">{$_('groups.identityId')}</label>
-        <input
-          id="add-member-id"
-          type="text"
-          bind:value={addMemberForm.agent_id}
-          placeholder={$_('groups.placeholderIdentityUuid')}
-          class="w-full px-4 py-3 border border-gray-200 rounded-xl text-sm input-focus outline-none font-medium font-mono bg-white text-gray-900"
-        />
-        <p class="text-gray-400 text-xs mt-1">{$_('groups.enterIdentityUuid')}</p>
+        <label for="search-identity" class="block text-xs font-semibold text-gray-500 uppercase tracking-wider mb-2">{$_('groups.searchIdentity')}</label>
+        <div class="relative">
+          <div class="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none">
+            <svg class="w-5 h-5 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z"/></svg>
+          </div>
+          <input
+            id="search-identity"
+            type="text"
+            bind:value={searchQuery}
+            on:input={handleSearchInput}
+            on:focus={() => searchResults.length > 0 && (showSearchDropdown = true)}
+            placeholder={$_('groups.searchPlaceholder')}
+            class="w-full pl-10 pr-4 py-3 border border-gray-200 rounded-xl text-sm input-focus outline-none font-medium bg-white text-gray-900"
+          />
+          {#if searching}
+            <div class="absolute inset-y-0 right-0 pr-3 flex items-center">
+              <svg class="w-5 h-5 text-gray-400 animate-spin" fill="none" viewBox="0 0 24 24"><circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"/><path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"/></svg>
+            </div>
+          {/if}
+        </div>
+        
+        <!-- Search Results Dropdown -->
+        {#if showSearchDropdown && searchResults.length > 0}
+          <div class="absolute z-10 mt-1 w-full max-w-md bg-white rounded-xl shadow-elevated-lg border border-gray-200 max-h-60 overflow-y-auto">
+            {#each searchResults as identity (identity.id)}
+              <button
+                on:click={() => selectSearchResult(identity)}
+                class="w-full px-4 py-3 flex items-center gap-3 hover:bg-gray-50 transition-colors text-left border-b border-gray-100 last:border-b-0"
+              >
+                <div class="w-8 h-8 rounded-full bg-blue-600 flex items-center justify-center text-white text-xs font-bold flex-shrink-0">
+                  {(identity.name || identity.username || '?')[0]?.toUpperCase()}
+                </div>
+                <div class="flex-1 min-w-0">
+                  <p class="text-sm font-medium text-gray-800 truncate">{identity.name || identity.username || 'Unknown'}</p>
+                  <p class="text-xs text-gray-400 truncate">{identity.email || identity.username || ''}</p>
+                </div>
+                <svg class="w-4 h-4 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 4v16m8-8H4"/></svg>
+              </button>
+            {/each}
+          </div>
+        {/if}
+        
+        {#if searchQuery && !searching && searchResults.length === 0}
+          <p class="text-gray-400 text-xs mt-2">{$_('groups.noSearchResults')}</p>
+        {/if}
       </div>
+      
+      <!-- Selected Identity Display -->
+      {#if addMemberForm.selected_identity}
+        <div class="bg-blue-50 rounded-xl p-3 border border-blue-100">
+          <div class="flex items-center justify-between">
+            <div class="flex items-center gap-3">
+              <div class="w-8 h-8 rounded-full bg-blue-600 flex items-center justify-center text-white text-xs font-bold">
+                {(addMemberForm.selected_identity.name || addMemberForm.selected_identity.username || '?')[0]?.toUpperCase()}
+              </div>
+              <div>
+                <p class="text-sm font-medium text-gray-800">{addMemberForm.selected_identity.name || addMemberForm.selected_identity.username}</p>
+                <p class="text-xs text-gray-500">{addMemberForm.selected_identity.email || ''}</p>
+              </div>
+            </div>
+            <button
+              on:click={clearSearchSelection}
+              class="p-1 rounded-lg text-gray-400 hover:text-gray-600 hover:bg-gray-100 transition-all"
+              title={$_('common.clear')}
+            >
+              <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"/></svg>
+            </button>
+          </div>
+        </div>
+      {/if}
+      
+      <!-- UUID Input (fallback for advanced users) -->
+      <details class="group">
+        <summary class="text-xs text-gray-500 cursor-pointer hover:text-gray-700 flex items-center gap-1">
+          <svg class="w-3 h-3 transform transition-transform group-open:rotate-90" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5l7 7-7 7"/></svg>
+          {$_('groups.orEnterUuid')}
+        </summary>
+        <div class="mt-3 space-y-3">
+          <div>
+            <label for="add-member-id" class="block text-xs font-semibold text-gray-500 uppercase tracking-wider mb-2">{$_('groups.identityId')}</label>
+            <input
+              id="add-member-id"
+              type="text"
+              bind:value={addMemberForm.agent_id}
+              placeholder={$_('groups.placeholderIdentityUuid')}
+              class="w-full px-4 py-3 border border-gray-200 rounded-xl text-sm input-focus outline-none font-medium font-mono bg-white text-gray-900"
+            />
+          </div>
+        </div>
+      </details>
+      
+      <!-- Role Selection -->
       <div>
         <label for="add-member-role" class="block text-xs font-semibold text-gray-500 uppercase tracking-wider mb-2">{$_('common.role')}</label>
         <select
@@ -508,9 +657,11 @@
           <option value="member">{$_('groups.roleMember')}</option>
         </select>
       </div>
+      
+      <!-- Action Buttons -->
       <div class="flex gap-3 justify-end pt-1">
         <button
-          on:click={() => { showAddMemberModal = false; addMemberForm = { agent_id: '', role: 'member' }; }}
+          on:click={closeModal}
           class="px-4 py-2.5 text-gray-500 hover:text-gray-800 font-semibold text-sm transition-all rounded-lg hover:bg-gray-50"
         >
           {$_('common.cancel')}

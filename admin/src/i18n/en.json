@@ -245,7 +245,12 @@
     "descriptionOptional": "Description (optional)",
     "configureDefaultPermissions": "Configure Default Permissions",
     "lead": "Lead",
-    "member": "Member"
+    "member": "Member",
+    "searchIdentity": "Search User",
+    "searchPlaceholder": "Search by name, username or email...",
+    "noSearchResults": "No matching users found",
+    "orEnterUuid": "or enter Identity ID",
+    "clear": "Clear"
   },
   "skills": {
     "title": "Skills",
