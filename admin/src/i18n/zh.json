@@ -140,7 +140,9 @@
     "sessions": "会话",
     "groups": "分组",
     "add": "添加",
-    "members": "成员"
+    "members": "成员",
+    "assign": "分配",
+    "totalCount": "共 {count} 条"
   },
   "organizations": {
     "title": "组织",
@@ -424,6 +426,7 @@
     "apiKeyDescription": "描述",
     "noApiKeys": "暂无 API 密钥",
     "createFirst": "创建您的第一个 API 密钥",
+    "createFirstDescription": "创建您的第一个 API 密钥以进行 API 认证",
     "deleteApiKey": "确定要删除此 API 密钥吗？",
     "apiKeyCreated": "API 密钥已创建",
     "apiKeyDeleted": "API 密钥已删除",

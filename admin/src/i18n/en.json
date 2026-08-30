@@ -140,7 +140,9 @@
     "sessions": "Sessions",
     "groups": "Groups",
     "add": "Add",
-    "members": "Members"
+    "members": "Members",
+    "assign": "Assign",
+    "totalCount": "Total: {count}"
   },
   "organizations": {
     "title": "Organizations",
@@ -424,6 +426,7 @@
     "apiKeyDescription": "Description",
     "noApiKeys": "No API keys found",
     "createFirst": "Create your first API key",
+    "createFirstDescription": "Create your first API key to authenticate with the API",
     "deleteApiKey": "Delete this API key?",
     "apiKeyCreated": "API key created",
     "apiKeyDeleted": "API key deleted",
