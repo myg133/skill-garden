@@ -142,7 +142,7 @@
     "add": "Add",
     "members": "Members",
     "assign": "Assign",
-    "totalCount": "Total: {count}"
+    "totalCount": "Total: {total}"
   },
   "organizations": {
     "title": "Organizations",

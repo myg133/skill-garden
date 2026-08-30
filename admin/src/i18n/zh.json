@@ -142,7 +142,7 @@
     "add": "添加",
     "members": "成员",
     "assign": "分配",
-    "totalCount": "共 {count} 条"
+    "totalCount": "共 {total} 条"
   },
   "organizations": {
     "title": "组织",
