@@ -134,7 +134,10 @@
     "selectAll": "Select all",
     "deselectAll": "Deselect all",
     "view": "View",
-    "tenant": "Tenant"
+    "tenant": "Tenant",
+    "tools": "Tools",
+    "sessions": "Sessions",
+    "groups": "Groups"
   },
   "organizations": {
     "title": "Organizations",
@@ -181,7 +184,8 @@
     },
     "createGroup": "Create Group",
     "loading": "Loading...",
-    "noGroups": "No groups yet"
+    "noGroups": "No groups yet",
+    "backToOrganizations": "Back to Organizations"
   },
   "groups": {
     "title": "Groups",
@@ -625,7 +629,8 @@
     "duration": "Duration",
     "sessionId": "Session ID",
     "organization": "Organization",
-    "endedLabel": "Ended"
+    "endedLabel": "Ended",
+    "activeSessions": "Active Sessions"
   },
   "settings": {
     "title": "Settings",

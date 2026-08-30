@@ -134,7 +134,10 @@
     "selectAll": "全选",
     "deselectAll": "取消全选",
     "view": "查看",
-    "tenant": "租户"
+    "tenant": "租户",
+    "tools": "工具",
+    "sessions": "会话",
+    "groups": "分组"
   },
   "organizations": {
     "title": "组织",
@@ -181,7 +184,8 @@
     },
     "createGroup": "创建分组",
     "loading": "加载中...",
-    "noGroups": "暂无分组"
+    "noGroups": "暂无分组",
+    "backToOrganizations": "返回组织列表"
   },
   "groups": {
     "title": "分组",
@@ -625,7 +629,8 @@
     "duration": "持续时间",
     "sessionId": "会话 ID",
     "organization": "组织",
-    "endedLabel": "已结束"
+    "endedLabel": "已结束",
+    "activeSessions": "活跃会话"
   },
   "settings": {
     "title": "设置",
@@ -694,7 +699,7 @@
     "importSuccess": "导入完成",
     "exportSuccess": "导出完成",
     "noToolsYet": "暂无注册的工具",
-    "registeredTools": "已注册的工具",
+    "registeredTools": "注册工具",
     "registerTool": "注册工具",
     "toolId": "工具 ID",
     "toolName": "工具名称",
