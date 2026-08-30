@@ -628,7 +628,7 @@
       {/if}
       <span class="inline-flex items-center gap-1.5 px-3.5 py-2 bg-white text-blue-700 rounded-xl text-sm font-semibold ring-1 ring-sky-600/20">
         <span class="w-1.5 h-1.5 rounded-full bg-white0"></span>
-        {total} total
+        {$_('common.totalCount', { values: { total } })}
       </span>
     </div>
   </div>
