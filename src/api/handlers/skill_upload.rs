@@ -7,7 +7,7 @@ use axum::{
     Json,
 };
 
-use super::helpers::ApiState;
+use super::helpers::{require_admin, ApiState};
 use crate::api::error::ApiError;
 use crate::api::jwt::AgentContext;
 
@@ -225,17 +225,23 @@ pub async fn confirm_skill_upload_handler(
     axum::extract::Path((preview_id,)): axum::extract::Path<(String,)>,
     Json(body): Json<crate::api::models::ConfirmUploadBody>,
 ) -> Result<impl IntoResponse, ApiError> {
-    let _identity_id =
-        identity_id.ok_or_else(|| ApiError::Unauthorized("identity_id required".to_string()))?;
-
-    // 检查是否为管理员角色（包括 super_admin, tenant_admin, org_admin 等）
-    let is_admin = roles.iter().any(|r| {
-        r == "admin"
-            || r == "tenant_admin"
-            || r == "org_admin"
-            || r == "super_admin"
-            || r.ends_with("_admin")
-    });
+    // 使用 require_admin 进行两阶段权限检查：
+    // 1. 快速路径：检查 JWT roles 包含 "admin"
+    // 2. 兜底路径：查 DB 确认 tenant_admin/org_admin/super_admin 等角色
+    // 这修复了 JWT 不包含 "tenant_admin" 导致 403 的问题
+    let _identity_id = require_admin(&state, &AgentContext {
+        subject: subject.clone(),
+        roles: roles.clone(),
+        scope: vec![],
+        identity_id,
+        agent_id: None,
+        session_id: None,
+        org_id: agent_org_id,
+        api_key_id: None,
+        auth_source: crate::api::jwt::AuthSource::UserLogin,
+        agent_name: None,
+        raw_api_key: None,
+    }).await?;
 
     // 推断 owner_type：body 显式 → 自动（有 agent_org_id → organization，否则 user）
     let effective_owner_type = body.owner_type.as_deref().unwrap_or_else(|| {
@@ -257,20 +263,7 @@ pub async fn confirm_skill_upload_handler(
                 )
             })?;
 
-        // 验证用户属于该组织（admin 跳过组织成员校验）
-        if !is_admin {
-            let is_member = state
-                .permission
-                .is_org_member(_identity_id, org_id)
-                .await
-                .map_err(|e| ApiError::InternalError(e.to_string()))?;
-            if !is_member {
-                return Err(ApiError::Forbidden(
-                    "You must be a member of this organization to create a Skill".to_string(),
-                ));
-            }
-        }
-
+        // require_admin 已确认用户为管理员，跳过组织成员校验
         ("organization".to_string(), Some(org_id))
     } else {
         // 个人用户创建 Skill 时，自动设置为本人所有
