@@ -81,7 +81,7 @@
               type="text"
               bind:value={username}
               placeholder={$_('auth.enterUsername')}
-              class="w-full pl-10 pr-4 py-3 border border-surface-200 rounded-xl text-sm input-focus outline-none font-medium bg-surface-50/80 placeholder:text-surface-300"
+              class="w-full pl-10 pr-4 py-3 border border-surface-200 rounded-xl text-sm text-surface-900 input-focus outline-none font-medium bg-white placeholder:text-surface-400"
             />
           </div>
         </div>
@@ -98,7 +98,7 @@
               type="text"
               bind:value={password}
               placeholder={$_('auth.enterPassword')}
-              class="w-full pl-10 pr-12 py-3 border border-surface-200 rounded-xl text-sm input-focus outline-none font-medium bg-surface-50/80 placeholder:text-surface-300"
+              class="w-full pl-10 pr-12 py-3 border border-surface-200 rounded-xl text-sm text-surface-900 input-focus outline-none font-medium bg-white placeholder:text-surface-400"
             />
             {:else}
             <input
@@ -106,7 +106,7 @@
               type="password"
               bind:value={password}
               placeholder={$_('auth.enterPassword')}
-              class="w-full pl-10 pr-12 py-3 border border-surface-200 rounded-xl text-sm input-focus outline-none font-medium bg-surface-50/80 placeholder:text-surface-300"
+              class="w-full pl-10 pr-12 py-3 border border-surface-200 rounded-xl text-sm text-surface-900 input-focus outline-none font-medium bg-white placeholder:text-surface-400"
             />
             {/if}
             <button
