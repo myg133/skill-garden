@@ -675,7 +675,10 @@ pub async fn list_org_members_by_id_handler(
     let members = org_membership_repo
         .list_all_members(org.id)
         .await
-        .map_err(|e| ApiError::BadRequest(format!("Failed to list members: {}", e)))?;
+        .map_err(|e| {
+            tracing::error!("list_org_members_by_id_handler error: {}", e);
+            ApiError::InternalError(format!("Failed to list members: {}", e))
+        })?;
 
     Ok((StatusCode::OK, Json(members)))
 }
