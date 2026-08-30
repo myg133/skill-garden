@@ -1,10 +1,17 @@
-﻿//! 市场管理 handlers
+//! 市场管理 handlers
 
-use axum::{extract::{Path, Query, State}, http::StatusCode, response::IntoResponse, Json};
+use axum::{
+    extract::{Path, Query, State},
+    http::StatusCode,
+    response::IntoResponse,
+    Json,
+};
 
+use super::helpers::{
+    check_skill_perm_db, require_marketplace_admin, require_marketplace_admin_only, ApiState,
+};
 use crate::api::error::ApiError;
 use crate::api::jwt::AgentContext;
-use super::helpers::{check_skill_perm_db, require_marketplace_admin, require_marketplace_admin_only, ApiState};
 
 pub async fn submit_to_marketplace_handler(
     State(state): State<ApiState>,
@@ -58,15 +65,15 @@ pub async fn submit_to_marketplace_handler(
     skill_repo
         .set_pre_marketplace_visibility(&skill_id, Some(&skill.visibility))
         .await
-        .map_err(|e| ApiError::BadRequest(format!("Failed to save pre-marketplace visibility: {}", e)))?;
+        .map_err(|e| {
+            ApiError::BadRequest(format!("Failed to save pre-marketplace visibility: {}", e))
+        })?;
 
     // 设置 marketplace_status = pending_review
     skill_repo
         .update_marketplace_status(&skill_id, Some("pending_review"))
         .await
-        .map_err(|e| {
-            ApiError::BadRequest(format!("Failed to submit to marketplace: {}", e))
-        })?;
+        .map_err(|e| ApiError::BadRequest(format!("Failed to submit to marketplace: {}", e)))?;
 
     state
         .audit_repo
@@ -182,7 +189,10 @@ pub async fn marketplace_review_reject_handler(
     }
 
     // 驳回: 设置 marketplace_status=rejected, 恢复原始 visibility
-    let pre_visibility = skill.pre_marketplace_visibility.as_deref().unwrap_or("private");
+    let pre_visibility = skill
+        .pre_marketplace_visibility
+        .as_deref()
+        .unwrap_or("private");
     skill_repo
         .update_marketplace_status(&skill_id, Some("rejected"))
         .await
@@ -191,9 +201,7 @@ pub async fn marketplace_review_reject_handler(
     skill_repo
         .update(&skill_id, None, None, None, Some(pre_visibility))
         .await
-        .map_err(|e| {
-            ApiError::BadRequest(format!("Failed to restore visibility: {}", e))
-        })?;
+        .map_err(|e| ApiError::BadRequest(format!("Failed to restore visibility: {}", e)))?;
 
     state
         .audit_repo
@@ -316,7 +324,10 @@ pub async fn marketplace_delist_handler(
     }
 
     // 下架: 设置 marketplace_status=delisted, visibility 回退到 pre_marketplace_visibility
-    let pre_visibility = skill.pre_marketplace_visibility.as_deref().unwrap_or("private");
+    let pre_visibility = skill
+        .pre_marketplace_visibility
+        .as_deref()
+        .unwrap_or("private");
     skill_repo
         .update_marketplace_status(&skill_id, Some("delisted"))
         .await
@@ -326,9 +337,7 @@ pub async fn marketplace_delist_handler(
     skill_repo
         .update(&skill_id, None, None, None, Some(pre_visibility))
         .await
-        .map_err(|e| {
-            ApiError::BadRequest(format!("Failed to revert visibility: {}", e))
-        })?;
+        .map_err(|e| ApiError::BadRequest(format!("Failed to revert visibility: {}", e)))?;
 
     skill_repo
         .set_admin_unpublished(&skill_id, true)
@@ -415,8 +424,8 @@ pub async fn request_marketplace_delist_handler(
 
     if skill.owner_type == "user" {
         // 个人 Skill：作者本人可申请下架
-        is_owner = skill.owner_id == Some(identity_id)
-            || skill.author_identity_id == Some(identity_id);
+        is_owner =
+            skill.owner_id == Some(identity_id) || skill.author_identity_id == Some(identity_id);
     } else if skill.owner_type == "organization" {
         // 组织 Skill：组织 Admin 及以上可申请下架
         if let Some(org_id) = skill.owner_id {
@@ -446,9 +455,7 @@ pub async fn request_marketplace_delist_handler(
     skill_repo
         .update_marketplace_status(&skill_id, Some("pending_delist"))
         .await
-        .map_err(|e| {
-            ApiError::BadRequest(format!("Failed to request delist: {}", e))
-        })?;
+        .map_err(|e| ApiError::BadRequest(format!("Failed to request delist: {}", e)))?;
 
     if let Some(ref reason) = body.reason {
         skill_repo
@@ -509,7 +516,10 @@ pub async fn marketplace_approve_delist_handler(
     }
 
     // 批准下架：设置 marketplace_status=delisted，恢复 pre_marketplace_visibility
-    let pre_visibility = skill.pre_marketplace_visibility.as_deref().unwrap_or("private");
+    let pre_visibility = skill
+        .pre_marketplace_visibility
+        .as_deref()
+        .unwrap_or("private");
     skill_repo
         .update_marketplace_status(&skill_id, Some("delisted"))
         .await
@@ -518,9 +528,7 @@ pub async fn marketplace_approve_delist_handler(
     skill_repo
         .update(&skill_id, None, None, None, Some(pre_visibility))
         .await
-        .map_err(|e| {
-            ApiError::BadRequest(format!("Failed to revert visibility: {}", e))
-        })?;
+        .map_err(|e| ApiError::BadRequest(format!("Failed to revert visibility: {}", e)))?;
 
     skill_repo
         .set_admin_unpublished(&skill_id, true)
@@ -640,9 +648,9 @@ pub async fn marketplace_approve_update_handler(
         ));
     }
 
-    let draft = skill.draft_content.ok_or_else(|| {
-        ApiError::BadRequest("No draft content to apply".to_string())
-    })?;
+    let draft = skill
+        .draft_content
+        .ok_or_else(|| ApiError::BadRequest("No draft content to apply".to_string()))?;
 
     // 搴旂敤 draft 鍒颁富瀛楁
     skill_repo
@@ -769,8 +777,7 @@ pub async fn cancel_update_handler(
 
     // 只有作者可以取消
     let is_owner = skill.owner_type == "user"
-        && (skill.owner_id == Some(identity_id)
-            || skill.author_identity_id == Some(identity_id));
+        && (skill.owner_id == Some(identity_id) || skill.author_identity_id == Some(identity_id));
     if !is_owner && skill.owner_type == "organization" {
         // 组织成员检查稍后在下面
     }
@@ -886,6 +893,3 @@ pub async fn marketplace_stats_handler(
         })),
     ))
 }
-
-
-

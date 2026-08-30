@@ -167,20 +167,21 @@ impl OrgMembershipRepository {
             .await
             .unwrap_or_default();
 
-            let groups_info: Option<Vec<crate::models::org_membership::GroupInfo>> = if groups.is_empty() {
-                None
-            } else {
-                Some(
-                    groups
-                        .into_iter()
-                        .map(|g| crate::models::org_membership::GroupInfo {
-                            id: g.id,
-                            name: g.name,
-                            role: g.role,
-                        })
-                        .collect(),
-                )
-            };
+            let groups_info: Option<Vec<crate::models::org_membership::GroupInfo>> =
+                if groups.is_empty() {
+                    None
+                } else {
+                    Some(
+                        groups
+                            .into_iter()
+                            .map(|g| crate::models::org_membership::GroupInfo {
+                                id: g.id,
+                                name: g.name,
+                                role: g.role,
+                            })
+                            .collect(),
+                    )
+                };
 
             result.push(OrgMemberInfo {
                 identity_id: member.identity_id,

@@ -1,10 +1,15 @@
-﻿//! 角色权限管理 handlers
+//! 角色权限管理 handlers
 
-use axum::{extract::{Query, State}, http::StatusCode, response::IntoResponse, Json};
+use axum::{
+    extract::{Query, State},
+    http::StatusCode,
+    response::IntoResponse,
+    Json,
+};
 
+use super::helpers::{require_admin, ApiState};
 use crate::api::error::ApiError;
 use crate::api::jwt::AgentContext;
-use super::helpers::{require_admin, ApiState};
 
 // Role permission management handlers
 
@@ -71,4 +76,3 @@ pub async fn delete_role_permission_handler(
         .map_err(|e| ApiError::BadRequest(e.to_string()))?;
     Ok((StatusCode::OK, Json(serde_json::json!({"deleted": true}))))
 }
-

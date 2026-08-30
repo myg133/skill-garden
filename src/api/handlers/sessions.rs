@@ -1,15 +1,20 @@
 //! 会话管理 handlers
 
-use axum::{extract::{Path, Query, State}, http::StatusCode, response::IntoResponse, Json};
+use axum::{
+    extract::{Path, Query, State},
+    http::StatusCode,
+    response::IntoResponse,
+    Json,
+};
 use uuid::Uuid;
 
+use super::helpers::{require_admin, ApiState};
 use crate::api::error::ApiError;
 use crate::api::http_state::AppRouterState;
 use crate::api::jwt::AgentContext;
-use super::helpers::{require_admin, ApiState};
 
 /// Session handlers
-    pub async fn get_session_handler(
+pub async fn get_session_handler(
     State(state): State<ApiState>,
     agent_context: AgentContext,
     Path(session_id): Path<Uuid>,
@@ -23,7 +28,7 @@ use super::helpers::{require_admin, ApiState};
     match session {
         Some(s) => {
             // Check ownership: only the session owner or admin can view
-    let is_admin = require_admin(&state, &agent_context).await.is_ok();
+            let is_admin = require_admin(&state, &agent_context).await.is_ok();
             if !is_admin {
                 let identity_id = agent_context.require_identity()?;
                 if s.identity_id != identity_id {
@@ -181,6 +186,3 @@ async fn enrich_session_with_meta(
         ended_at: session.ended_at,
     })
 }
-
-
-

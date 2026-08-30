@@ -1,11 +1,16 @@
-﻿//! 权限检查 handlers
+//! 权限检查 handlers
 
-use axum::{extract::{Path, State}, http::StatusCode, response::IntoResponse, Json};
+use axum::{
+    extract::{Path, State},
+    http::StatusCode,
+    response::IntoResponse,
+    Json,
+};
 use uuid::Uuid;
 
+use super::helpers::{require_admin, ApiState};
 use crate::api::error::ApiError;
 use crate::api::jwt::AgentContext;
-use super::helpers::{require_admin, ApiState};
 
 // Permission check handlers
 
@@ -61,4 +66,3 @@ pub async fn get_permission_context_handler(
         })),
     ))
 }
-

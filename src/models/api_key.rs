@@ -39,7 +39,10 @@ pub enum ApiKeyStatus {
 impl ApiKeyStatus {
     /// 根据 DB 状态和 expires_at 计算有效的展示状态
     /// 优先级：Revoked > Disabled > Expired > Active
-    pub fn compute_effective(db_status: ApiKeyStatus, expires_at: Option<DateTime<Utc>>) -> ApiKeyStatus {
+    pub fn compute_effective(
+        db_status: ApiKeyStatus,
+        expires_at: Option<DateTime<Utc>>,
+    ) -> ApiKeyStatus {
         // Revoked / Disabled 等显式管理状态原样保留
         if db_status == ApiKeyStatus::Revoked {
             return ApiKeyStatus::Revoked;

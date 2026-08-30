@@ -1,11 +1,16 @@
-﻿//! 组织工具管理 handlers
+//! 组织工具管理 handlers
 
-use axum::{extract::{Path, Query, State}, http::StatusCode, response::IntoResponse, Json};
+use axum::{
+    extract::{Path, Query, State},
+    http::StatusCode,
+    response::IntoResponse,
+    Json,
+};
 use uuid::Uuid;
 
+use super::helpers::{require_admin, require_org_member, ApiState};
 use crate::api::error::ApiError;
 use crate::api::jwt::AgentContext;
-use super::helpers::{require_admin, require_org_member, ApiState};
 
 /// Org Tool handlers
 
@@ -144,5 +149,3 @@ pub async fn delete_org_tool_handler(
         Json(serde_json::json!({"deleted": tool_id})),
     ))
 }
-
-

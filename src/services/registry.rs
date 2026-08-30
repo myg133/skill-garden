@@ -50,7 +50,11 @@ impl RegistryService {
 
     /// 获取 Skill 目录路径（已废弃，保留兼容）
     fn skill_dir(&self, _name: &str) -> PathBuf {
-        self.registry_dir.parent().unwrap_or(&self.registry_dir).join("skills").join(_name)
+        self.registry_dir
+            .parent()
+            .unwrap_or(&self.registry_dir)
+            .join("skills")
+            .join(_name)
     }
 
     /// 公开的 skill 目录路径（已废弃，保留兼容）
@@ -292,7 +296,11 @@ impl RegistryService {
             search.update_skill(&skill)?;
         } else {
             if let Err(e) = search.delete_skill(skill_id) {
-                tracing::warn!("Failed to remove skill {} from search index: {}", skill_id, e);
+                tracing::warn!(
+                    "Failed to remove skill {} from search index: {}",
+                    skill_id,
+                    e
+                );
             }
         }
 
@@ -341,7 +349,11 @@ impl RegistryService {
             }
         } else {
             if let Err(e) = search.delete_skill(skill_id) {
-                tracing::warn!("Failed to remove skill {} from search index: {}", skill_id, e);
+                tracing::warn!(
+                    "Failed to remove skill {} from search index: {}",
+                    skill_id,
+                    e
+                );
             }
         }
 
@@ -404,7 +416,10 @@ impl RegistryService {
     }
 
     /// 批量加载 skill 元数据（仅过滤字段，不含 content，用于搜索结果的可见性过滤）
-    pub async fn get_skills_meta_batch(&self, ids: &[&str]) -> Result<Vec<SkillMetadata>, AppError> {
+    pub async fn get_skills_meta_batch(
+        &self,
+        ids: &[&str],
+    ) -> Result<Vec<SkillMetadata>, AppError> {
         let rows = self.skill_repo.find_meta_by_ids(ids).await.map_err(|e| {
             AppError::InternalError(format!("Failed to batch load skill metadata: {}", e))
         })?;
@@ -415,38 +430,41 @@ impl RegistryService {
                 skill_tags.insert(row.id.clone(), tags);
             }
         }
-        Ok(rows.into_iter().map(|row| {
-            let tags = skill_tags.get(&row.id).cloned().unwrap_or_default();
-            SkillMetadata {
-                id: row.id,
-                name: row.name,
-                description: row.description,
-                version: row.version,
-                author_agent_id: row.author_agent_id,
-                author_identity_id: row.author_identity_id,
-                author_name: row.author_name,
-                owner_type: row.owner_type,
-                owner_id: row.owner_id,
-                created: row.created_at,
-                updated: row.updated_at,
-                install_count: row.install_count as u32,
-                status: row.status,
-                git_url: row.git_url,
-                visibility: match row.visibility.as_str() {
-                    "private" => crate::models::skill_policy::Visibility::Private,
-                    "shared" => crate::models::skill_policy::Visibility::Shared,
-                    "marketplace" => crate::models::skill_policy::Visibility::Marketplace,
-                    _ => crate::models::skill_policy::Visibility::OrgVisible,
-                },
-                reviewed_by: row.reviewed_by,
-                reviewed_at: row.reviewed_at,
-                review_comment: row.review_comment,
-                marketplace_status: row.marketplace_status,
-                pre_marketplace_visibility: row.pre_marketplace_visibility,
-                draft_content: row.draft_content,
-                tags,
-            }
-        }).collect())
+        Ok(rows
+            .into_iter()
+            .map(|row| {
+                let tags = skill_tags.get(&row.id).cloned().unwrap_or_default();
+                SkillMetadata {
+                    id: row.id,
+                    name: row.name,
+                    description: row.description,
+                    version: row.version,
+                    author_agent_id: row.author_agent_id,
+                    author_identity_id: row.author_identity_id,
+                    author_name: row.author_name,
+                    owner_type: row.owner_type,
+                    owner_id: row.owner_id,
+                    created: row.created_at,
+                    updated: row.updated_at,
+                    install_count: row.install_count as u32,
+                    status: row.status,
+                    git_url: row.git_url,
+                    visibility: match row.visibility.as_str() {
+                        "private" => crate::models::skill_policy::Visibility::Private,
+                        "shared" => crate::models::skill_policy::Visibility::Shared,
+                        "marketplace" => crate::models::skill_policy::Visibility::Marketplace,
+                        _ => crate::models::skill_policy::Visibility::OrgVisible,
+                    },
+                    reviewed_by: row.reviewed_by,
+                    reviewed_at: row.reviewed_at,
+                    review_comment: row.review_comment,
+                    marketplace_status: row.marketplace_status,
+                    pre_marketplace_visibility: row.pre_marketplace_visibility,
+                    draft_content: row.draft_content,
+                    tags,
+                }
+            })
+            .collect())
     }
 
     /// 获取 Skill 安装信息，返回下载链接而非文件内容
@@ -475,7 +493,9 @@ impl RegistryService {
                     .map(|m| m.len())
                     .unwrap_or(0);
                 // 从 git repo 统计文件数，或估算
-                let git_repo_dir = self.registry_dir.parent()
+                let git_repo_dir = self
+                    .registry_dir
+                    .parent()
                     .unwrap_or(&self.registry_dir)
                     .join("git-repos")
                     .join(format!("skill-{}", skill.name));
@@ -876,7 +896,13 @@ dependencies: [{}]
                 }
 
                 // YAML 块标量: | 或 >
-                if value == "|" || value == "|-" || value == ">" || value == ">-" || value == "|+" || value == ">+" {
+                if value == "|"
+                    || value == "|-"
+                    || value == ">"
+                    || value == ">-"
+                    || value == "|+"
+                    || value == ">+"
+                {
                     current_key = Some(key);
                     is_multiline = true;
                     multiline_buffer = Vec::new();
@@ -887,8 +913,10 @@ dependencies: [{}]
                 current_key = Some(key);
 
                 let cleaned = value
-                    .trim_start_matches('"').trim_end_matches('"')
-                    .trim_start_matches('\'').trim_end_matches('\'');
+                    .trim_start_matches('"')
+                    .trim_end_matches('"')
+                    .trim_start_matches('\'')
+                    .trim_end_matches('\'');
 
                 match key {
                     "description" => description = normalize_description(cleaned),
@@ -955,5 +983,4 @@ dependencies: [{}]
             draft_content: None,
         })
     }
-
 }

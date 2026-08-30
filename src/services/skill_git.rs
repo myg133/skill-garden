@@ -151,7 +151,10 @@ impl SkillGitService {
 
     /// 构造 releases 目录路径
     pub fn releases_dir(&self) -> PathBuf {
-        self.repos_dir.parent().unwrap_or(&self.repos_dir).join("releases")
+        self.repos_dir
+            .parent()
+            .unwrap_or(&self.repos_dir)
+            .join("releases")
     }
 
     /// 生成版本 tarball（审核通过后调用）
@@ -162,8 +165,9 @@ impl SkillGitService {
     ) -> Result<PathBuf, AppError> {
         let repo_dir = self.repo_path(skill_name);
         let releases_dir = self.releases_dir().join(skill_name);
-        fs::create_dir_all(&releases_dir)
-            .map_err(|e| AppError::InternalError(format!("Failed to create releases dir: {}", e)))?;
+        fs::create_dir_all(&releases_dir).map_err(|e| {
+            AppError::InternalError(format!("Failed to create releases dir: {}", e))
+        })?;
 
         let tarball_path = releases_dir.join(format!("v{}.tar.gz", version));
         let tag_name = format!("v{}", version);
@@ -178,7 +182,8 @@ impl SkillGitService {
         if !output.status.success() {
             let stderr = String::from_utf8_lossy(&output.stderr);
             return Err(AppError::InternalError(format!(
-                "git archive failed: {}", stderr
+                "git archive failed: {}",
+                stderr
             )));
         }
 
@@ -249,7 +254,11 @@ impl SkillGitService {
         let commit_msg = format!(
             "v{}: {} by {}",
             version,
-            if repo_is_new { "Initial skill upload" } else { "New version upload" },
+            if repo_is_new {
+                "Initial skill upload"
+            } else {
+                "New version upload"
+            },
             author_agent_id
         );
         let commit_hash = self.git_commit_only(&repo_dir, &commit_msg)?;
@@ -259,11 +268,14 @@ impl SkillGitService {
         let (desc, tgs) = if latest_version.is_none() {
             (metadata.description.clone(), metadata.tags.clone())
         } else {
-            let current = tokio::runtime::Handle::current().block_on(async {
-                skill_repo.find_latest_by_name(&metadata.name).await
-            }).unwrap_or(None);
+            let current = tokio::runtime::Handle::current()
+                .block_on(async { skill_repo.find_latest_by_name(&metadata.name).await })
+                .unwrap_or(None);
             (
-                current.as_ref().map(|s| s.description.clone()).unwrap_or_default(),
+                current
+                    .as_ref()
+                    .map(|s| s.description.clone())
+                    .unwrap_or_default(),
                 current.as_ref().map(|s| s.tags.clone()).unwrap_or_default(),
             )
         };
@@ -283,7 +295,9 @@ impl SkillGitService {
         };
 
         let skill = tokio::runtime::Handle::current().block_on(async {
-            registry.create_skill(new_skill, author_agent_id, search).await
+            registry
+                .create_skill(new_skill, author_agent_id, search)
+                .await
         })?;
 
         // 不 sync_skill_files_from、不写 skill_versions、不打 tag
@@ -291,7 +305,9 @@ impl SkillGitService {
 
         tokio::runtime::Handle::current()
             .block_on(async {
-                skill_repo.update_status(&skill.id, "pending_review", None, None).await
+                skill_repo
+                    .update_status(&skill.id, "pending_review", None, None)
+                    .await
             })
             .map_err(|e| AppError::InternalError(format!("Failed to update status: {}", e)))?;
 
@@ -300,7 +316,11 @@ impl SkillGitService {
 
         info!(
             "Skill {} v{} uploaded (commit={}, files={}, is_new={})",
-            metadata.name, version, commit_hash, unpacked.files.len(), repo_is_new
+            metadata.name,
+            version,
+            commit_hash,
+            unpacked.files.len(),
+            repo_is_new
         );
 
         Ok(UploadResult {
@@ -536,7 +556,11 @@ impl SkillGitService {
         let commit_msg = format!(
             "v{}: {} by {}",
             version,
-            if repo_is_new { "Initial skill upload" } else { "New version upload" },
+            if repo_is_new {
+                "Initial skill upload"
+            } else {
+                "New version upload"
+            },
             author_agent_id
         );
         let commit_hash = self.git_commit_only(&repo_dir, &commit_msg)?;
@@ -546,9 +570,15 @@ impl SkillGitService {
         let (desc, tgs) = if latest_version.is_none() {
             (metadata.description.clone(), metadata.tags.clone())
         } else {
-            let current = skill_repo.find_latest_by_name(&metadata.name).await.unwrap_or(None);
+            let current = skill_repo
+                .find_latest_by_name(&metadata.name)
+                .await
+                .unwrap_or(None);
             (
-                current.as_ref().map(|s| s.description.clone()).unwrap_or_default(),
+                current
+                    .as_ref()
+                    .map(|s| s.description.clone())
+                    .unwrap_or_default(),
                 current.as_ref().map(|s| s.tags.clone()).unwrap_or_default(),
             )
         };
@@ -576,7 +606,11 @@ impl SkillGitService {
 
         info!(
             "Skill {} v{} uploaded (commit={}, files={}, is_new={})",
-            metadata.name, version, commit_hash, files.len(), repo_is_new
+            metadata.name,
+            version,
+            commit_hash,
+            files.len(),
+            repo_is_new
         );
 
         Ok(UploadResult {
@@ -756,11 +790,7 @@ impl SkillGitService {
     }
 
     /// Git add → commit（不打 tag，审核通过后才打 tag）
-    fn git_commit_only(
-        &self,
-        repo_dir: &Path,
-        message: &str,
-    ) -> Result<String, AppError> {
+    fn git_commit_only(&self, repo_dir: &Path, message: &str) -> Result<String, AppError> {
         // git add -A
         let add = Command::new("git")
             .current_dir(repo_dir)
@@ -1747,7 +1777,13 @@ pub fn parse_skill_md_frontmatter(content: &str) -> Result<ParsedSkillMetadata, 
             }
 
             // YAML 块标量: | 或 > 或 |-
-            if value == "|" || value == "|-" || value == ">-" || value == ">" || value == "|+" || value == ">+" {
+            if value == "|"
+                || value == "|-"
+                || value == ">-"
+                || value == ">"
+                || value == "|+"
+                || value == ">+"
+            {
                 current_key = Some(key.clone());
                 is_multiline_scalar = true;
                 multiline_buffer = Vec::new();
@@ -1801,8 +1837,10 @@ fn apply_scalar_value(meta: &mut ParsedSkillMetadata, key: &str, value: &str) {
     // 去掉外层引号（支持 "..." 和 '...'）
     let cleaned = value
         .trim()
-        .trim_start_matches('"').trim_end_matches('"')
-        .trim_start_matches('\'').trim_end_matches('\'');
+        .trim_start_matches('"')
+        .trim_end_matches('"')
+        .trim_start_matches('\'')
+        .trim_end_matches('\'');
     match key {
         "name" => meta.name = cleaned.to_string(),
         "description" => meta.description = normalize_description(cleaned),

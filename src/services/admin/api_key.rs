@@ -89,7 +89,10 @@ impl ApiKeyService {
 
         // 检查关联 identity 的状态
         if let Some(ref api_key) = result {
-            let identity = self.identity.get(api_key.identity_id).await
+            let identity = self
+                .identity
+                .get(api_key.identity_id)
+                .await
                 .map_err(|e| AppError::InternalError(e.to_string()))?;
             if let Some(id) = identity {
                 if id.status != IdentityStatus::Active {

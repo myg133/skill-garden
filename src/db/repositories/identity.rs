@@ -228,11 +228,7 @@ impl IdentityRepository {
     }
 
     /// 搜索身份（按名字/邮箱/username 模糊匹配）
-    pub async fn search(
-        &self,
-        query: &str,
-        limit: i64,
-    ) -> DbResult<Vec<Identity>> {
+    pub async fn search(&self, query: &str, limit: i64) -> DbResult<Vec<Identity>> {
         let search_pattern = format!("%{}%", query.to_lowercase());
         let identities = sqlx::query_as::<_, IdentityRow>(
             r#"

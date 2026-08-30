@@ -1,10 +1,15 @@
-﻿//! 租户角色分配 handlers
+//! 租户角色分配 handlers
 
-use axum::{extract::{Query, State}, http::StatusCode, response::IntoResponse, Json};
+use axum::{
+    extract::{Query, State},
+    http::StatusCode,
+    response::IntoResponse,
+    Json,
+};
 
+use super::helpers::{require_admin, ApiState};
 use crate::api::error::ApiError;
 use crate::api::jwt::AgentContext;
-use super::helpers::{require_admin, ApiState};
 
 // Tenant role assignment handlers (tenant_admin assigns org owner/admin)
 
@@ -23,7 +28,12 @@ pub async fn assign_tenant_role_handler(
     }
     let assignment = state
         .tenant_role_assignment
-        .assign(body.identity_id, body.tenant_id, &body.role_name, Some(admin_id))
+        .assign(
+            body.identity_id,
+            body.tenant_id,
+            &body.role_name,
+            Some(admin_id),
+        )
         .await
         .map_err(|e| ApiError::BadRequest(e.to_string()))?;
     Ok((
@@ -74,4 +84,3 @@ pub async fn list_tenant_role_assignments_handler(
         Json(serde_json::json!({ "data": assignments })),
     ))
 }
-

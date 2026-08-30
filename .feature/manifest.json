@@ -1,17 +1,30 @@
 {
-  "req": "REQ-001",
-  "title": "Admin UI 多语言支持（中/英）",
-  "status": "进行中",
-  "created": "2024-08-30",
-  "priority": "P0",
-  "worktree": "feature-REQ-001",
-  "branch": "feature/REQ-001",
-  "assigned_to": "anspire-open-developer",
-  "estimate_hours": 16,
-  "technologies": ["svelte-i18n"],
-  "files_to_modify": [
-    "admin/src/i18n/*",
-    "admin/src/routes/*.svelte",
-    "admin/src/components/*.svelte"
-  ]
+  "req": "REQ-003",
+  "phase": "Phase 2 Stage 1",
+  "title": "SaaS 自动创建租户",
+  "assignedTo": "anspire-open-developer",
+  "status": "in_progress",
+  "startedAt": "2024-08-30",
+  "worktree": "feature-REQ-003-phase2s1",
+  "branch": "feature/REQ-003-phase2s1",
+  "baseBranch": "develop",
+  "description": "运营模式开关、注册时自动创建租户、SaaS 模式配置",
+  "files": [
+    "src/api/handlers/auth.rs",
+    "src/lib.rs",
+    "admin/src/routes/Register.svelte",
+    ".env.example"
+  ],
+  "acceptanceCriteria": [
+    "AC-201: 用户注册时自动创建个人租户",
+    "AC-202: 注册用户自动成为该租户的 tenant_admin",
+    "AC-220: 租户管理员只能看到自己租户的数据",
+    "AC-222: 不同 TENANT_MODE 配置下，UI 展示正确的创建入口"
+  ],
+  "config": {
+    "TENANT_MODE": "saas",
+    "SELF_SERVICE_TENANT": "true",
+    "MAX_TENANTS_PER_USER": "1",
+    "TENANT_APPROVAL_REQUIRED": "false"
+  }
 }

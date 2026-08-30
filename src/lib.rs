@@ -66,7 +66,8 @@ pub use models::tenant::{Tenant, TenantStatus};
 pub use services::admin::*;
 #[cfg(feature = "server")]
 pub use services::admin::{
-    ApiKeyService, AuditService, GroupService, IdentityService, OrgJoinRequestService, RoleService, TenantService,
+    ApiKeyService, AuditService, GroupService, IdentityService, OrgJoinRequestService, RoleService,
+    TenantService,
 };
 #[cfg(feature = "server")]
 pub use services::evaluator::EvaluatorService;
@@ -103,6 +104,81 @@ pub use schemas::*;
 #[cfg(feature = "server")]
 pub use utils::*;
 
+/// 租户运营模式
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum TenantMode {
+    /// SaaS 多租户模式
+    Sas,
+    /// 企业私有化部署
+    PrivateEnterprise,
+    /// 内部交付
+    InternalDelivery,
+}
+
+impl Default for TenantMode {
+    fn default() -> Self {
+        TenantMode::Sas
+    }
+}
+
+impl std::fmt::Display for TenantMode {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            TenantMode::Sas => write!(f, "saas"),
+            TenantMode::PrivateEnterprise => write!(f, "private_enterprise"),
+            TenantMode::InternalDelivery => write!(f, "internal_delivery"),
+        }
+    }
+}
+
+impl From<&str> for TenantMode {
+    fn from(s: &str) -> Self {
+        match s.to_lowercase().as_str() {
+            "saas" => TenantMode::Sas,
+            "private_enterprise" => TenantMode::PrivateEnterprise,
+            "internal_delivery" => TenantMode::InternalDelivery,
+            _ => TenantMode::Sas,
+        }
+    }
+}
+
+/// 读取租户相关环境变量配置
+#[derive(Debug, Clone)]
+pub struct TenantConfig {
+    /// 运营模式
+    pub mode: TenantMode,
+    /// 是否允许用户自助创建租户
+    pub self_service_tenant: bool,
+    /// 每个用户允许创建的租户数量上限（0=无限制）
+    pub max_tenants_per_user: u32,
+    /// 是否需要审批
+    pub tenant_approval_required: bool,
+}
+
+impl Default for TenantConfig {
+    fn default() -> Self {
+        Self {
+            mode: TenantMode::from(
+                std::env::var("AION_HIVE_TENANT_MODE")
+                    .unwrap_or_else(|_| "saas".to_string())
+                    .as_str(),
+            ),
+            self_service_tenant: std::env::var("AION_HIVE_SELF_SERVICE_TENANT")
+                .unwrap_or_else(|_| "true".to_string())
+                .to_lowercase()
+                == "true",
+            max_tenants_per_user: std::env::var("AION_HIVE_MAX_TENANTS_PER_USER")
+                .unwrap_or_else(|_| "1".to_string())
+                .parse()
+                .unwrap_or(1),
+            tenant_approval_required: std::env::var("AION_HIVE_TENANT_APPROVAL_REQUIRED")
+                .unwrap_or_else(|_| "false".to_string())
+                .to_lowercase()
+                == "true",
+        }
+    }
+}
+
 // ---- server feature: AppState ----
 #[cfg(feature = "server")]
 #[derive(Debug, Clone)]
@@ -131,6 +207,7 @@ pub struct AppState {
     pub permission: services::PermissionService,
     pub download_token_repo: db::repositories::DownloadTokenRepository,
     pub data_dir: PathBuf,
+    pub tenant_config: TenantConfig,
 }
 
 #[cfg(feature = "server")]
@@ -168,39 +245,42 @@ impl AppState {
             let all_skills = skill_repo.list_all().await.map_err(|e| {
                 AppError::InternalError(format!("Failed to load skills for index rebuild: {}", e))
             })?;
-            let models: Vec<crate::models::Skill> = all_skills.into_iter().map(|s| crate::models::Skill {
-                id: s.id,
-                name: s.name,
-                description: s.description,
-                version: s.version,
-                author_agent_id: s.author_agent_id,
-                author_identity_id: s.author_identity_id,
-                owner_type: s.owner_type,
-                owner_id: s.owner_id,
-                compatibility: s.compatibility,
-                content: s.content,
-                install_count: s.install_count as u32,
-                tags: s.tags,
-                dependencies: s.dependencies,
-                status: s.status,
-                git_url: s.git_url,
-                created: s.created_at,
-                updated: s.updated_at,
-                // fields from repositories::Skill mapped to models::Skill
-                visibility: match s.visibility.as_str() {
-                    "private" => crate::models::skill_policy::Visibility::Private,
-                    "shared" => crate::models::skill_policy::Visibility::Shared,
-                    "marketplace" => crate::models::skill_policy::Visibility::Marketplace,
-                    _ => crate::models::skill_policy::Visibility::OrgVisible,
-                },
-                tools: s.tools,
-                reviewed_by: s.reviewed_by,
-                reviewed_at: s.reviewed_at,
-                review_comment: s.review_comment,
-                marketplace_status: s.marketplace_status,
-                pre_marketplace_visibility: s.pre_marketplace_visibility,
-                draft_content: s.draft_content,
-            }).collect();
+            let models: Vec<crate::models::Skill> = all_skills
+                .into_iter()
+                .map(|s| crate::models::Skill {
+                    id: s.id,
+                    name: s.name,
+                    description: s.description,
+                    version: s.version,
+                    author_agent_id: s.author_agent_id,
+                    author_identity_id: s.author_identity_id,
+                    owner_type: s.owner_type,
+                    owner_id: s.owner_id,
+                    compatibility: s.compatibility,
+                    content: s.content,
+                    install_count: s.install_count as u32,
+                    tags: s.tags,
+                    dependencies: s.dependencies,
+                    status: s.status,
+                    git_url: s.git_url,
+                    created: s.created_at,
+                    updated: s.updated_at,
+                    // fields from repositories::Skill mapped to models::Skill
+                    visibility: match s.visibility.as_str() {
+                        "private" => crate::models::skill_policy::Visibility::Private,
+                        "shared" => crate::models::skill_policy::Visibility::Shared,
+                        "marketplace" => crate::models::skill_policy::Visibility::Marketplace,
+                        _ => crate::models::skill_policy::Visibility::OrgVisible,
+                    },
+                    tools: s.tools,
+                    reviewed_by: s.reviewed_by,
+                    reviewed_at: s.reviewed_at,
+                    review_comment: s.review_comment,
+                    marketplace_status: s.marketplace_status,
+                    pre_marketplace_visibility: s.pre_marketplace_visibility,
+                    draft_content: s.draft_content,
+                })
+                .collect();
             match search.rebuild_from_skills(&models) {
                 Ok(n) => tracing::info!("Index rebuild complete: {} published skills indexed", n),
                 Err(e) => tracing::error!("Index rebuild failed: {}", e),
@@ -285,6 +365,7 @@ impl AppState {
             permission,
             download_token_repo,
             data_dir,
+            tenant_config: TenantConfig::default(),
         })
     }
 }

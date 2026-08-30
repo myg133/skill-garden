@@ -1,11 +1,16 @@
 //! 审计日志 handlers
 
-use axum::{extract::{Query, State}, http::StatusCode, response::IntoResponse, Json};
+use axum::{
+    extract::{Query, State},
+    http::StatusCode,
+    response::IntoResponse,
+    Json,
+};
 use uuid::Uuid;
 
+use super::helpers::ApiState;
 use crate::api::error::ApiError;
 use crate::api::jwt::AgentContext;
-use super::helpers::ApiState;
 
 /// 审计读路径的角色级 scope
 #[derive(Debug, Clone, Default)]
@@ -171,16 +176,13 @@ pub async fn list_audit_logs_handler(
             identity_type: log.identity_type,
             action: log.action,
             resource_type: log.resource_type.unwrap_or_default(),
-            resource_id: log
-                .resource_id
-                .map(|id| id.to_string())
-                .or_else(|| {
-                    log.details
-                        .as_ref()
-                        .and_then(|d| d.get("_resource_id_str"))
-                        .and_then(|v| v.as_str())
-                        .map(|s| s.to_string())
-                }),
+            resource_id: log.resource_id.map(|id| id.to_string()).or_else(|| {
+                log.details
+                    .as_ref()
+                    .and_then(|d| d.get("_resource_id_str"))
+                    .and_then(|v| v.as_str())
+                    .map(|s| s.to_string())
+            }),
             details: log.details.unwrap_or(serde_json::json!({})),
             ip_address: log.ip_address,
             user_agent: log.user_agent,
@@ -256,5 +258,3 @@ pub async fn list_my_audit_logs_handler(
         }),
     ))
 }
-
-

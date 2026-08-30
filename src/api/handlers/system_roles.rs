@@ -1,11 +1,16 @@
-﻿//! 系统角色分配 handlers
+//! 系统角色分配 handlers
 
-use axum::{extract::{Path, Query, State}, http::StatusCode, response::IntoResponse, Json};
+use axum::{
+    extract::{Path, Query, State},
+    http::StatusCode,
+    response::IntoResponse,
+    Json,
+};
 use uuid::Uuid;
 
+use super::helpers::{require_admin, ApiState};
 use crate::api::error::ApiError;
 use crate::api::jwt::AgentContext;
-use super::helpers::{require_admin, ApiState};
 
 // System role assignment handlers
 
@@ -17,7 +22,9 @@ pub async fn assign_system_role_handler(
     require_admin(&state, &agent_context).await?;
     let admin_id = uuid::Uuid::parse_str(&agent_context.subject)
         .map_err(|_| ApiError::BadRequest("Invalid admin subject".to_string()))?;
-    if !crate::models::system_role_assignment::SystemRole::is_valid_super_admin_role(&body.role_name) {
+    if !crate::models::system_role_assignment::SystemRole::is_valid_super_admin_role(
+        &body.role_name,
+    ) {
         return Err(ApiError::BadRequest(format!(
             "Invalid system role for super admin assignment: {}. Only super_admin/marketplace_admin allowed.",
             body.role_name
@@ -95,4 +102,3 @@ pub async fn get_identity_system_roles_handler(
         Json(serde_json::json!({ "data": assignments })),
     ))
 }
-

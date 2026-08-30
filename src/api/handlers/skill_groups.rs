@@ -1,11 +1,16 @@
-﻿//! 技能分组关联 handlers
+//! 技能分组关联 handlers
 
-use axum::{extract::{Path, State}, http::StatusCode, response::IntoResponse, Json};
+use axum::{
+    extract::{Path, State},
+    http::StatusCode,
+    response::IntoResponse,
+    Json,
+};
 use uuid::Uuid;
 
+use super::helpers::{require_org_member, ApiState};
 use crate::api::error::ApiError;
 use crate::api::jwt::AgentContext;
-use super::helpers::{require_org_member, ApiState};
 
 pub async fn list_skill_groups_handler(
     State(state): State<ApiState>,
@@ -132,5 +137,3 @@ pub async fn remove_skill_from_group_handler(
         })),
     ))
 }
-
-

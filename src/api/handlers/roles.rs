@@ -1,11 +1,16 @@
-﻿//! 角色管理 handlers
+//! 角色管理 handlers
 
-use axum::{extract::{Path, Query, State}, http::StatusCode, response::IntoResponse, Json};
+use axum::{
+    extract::{Path, Query, State},
+    http::StatusCode,
+    response::IntoResponse,
+    Json,
+};
 use uuid::Uuid;
 
+use super::helpers::{require_admin, ApiState};
 use crate::api::error::ApiError;
 use crate::api::jwt::AgentContext;
-use super::helpers::{require_admin, ApiState};
 
 // Role handlers
 
@@ -174,4 +179,3 @@ pub async fn get_identity_permissions_handler(
         Json(serde_json::json!({ "data": permissions })),
     ))
 }
-

@@ -78,13 +78,12 @@ impl TenantRepository {
         if ids.is_empty() {
             return Ok(HashMap::new());
         }
-        let rows = sqlx::query_as::<_, TenantNameRow>(
-            "SELECT id, name FROM tenants WHERE id = ANY($1)",
-        )
-        .bind(ids)
-        .fetch_all(&self.pool)
-        .await
-        .map_err(|e| DbError::QueryError(e.to_string()))?;
+        let rows =
+            sqlx::query_as::<_, TenantNameRow>("SELECT id, name FROM tenants WHERE id = ANY($1)")
+                .bind(ids)
+                .fetch_all(&self.pool)
+                .await
+                .map_err(|e| DbError::QueryError(e.to_string()))?;
 
         Ok(rows.into_iter().map(|r| (r.id, r.name)).collect())
     }
