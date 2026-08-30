@@ -1,53 +1,60 @@
-# REQ-003 Phase 2 Stage 2 状态
+# REQ-003 Phase 2 Stage 3 状态
 
 ## 基本信息
 
 | 属性 | 值 |
 |------|-----|
 | **REQ 编号** | REQ-003 |
-| **Phase** | Phase 2 Stage 2 |
-| **标题** | 企业模式手动创建租户 + 指定管理员 |
-| **状态** | 已完成开发 |
+| **Phase** | Phase 2 Stage 3 |
+| **标题** | SaaS 自助申请 + 审批流程 |
+| **状态** | 待验证 |
 | **开始日期** | 2024-08-30 |
 | **完成日期** | 2024-08-30 |
 | **负责人** | anspire-open-developer |
 
 ## 功能范围
 
-### 2.1 租户创建 API 扩展（企业模式）
-- [x] 修改 `CreateTenantBody` 添加 `admin_email` 字段
-- [x] 创建租户时支持 admin_email 参数
-- [x] 企业模式下验证 admin_email 对应的用户存在
-- [x] 自动创建 tenant_role_assignment
+### 3.1 申请创建租户 API
+- [x] `POST /admin/tenants/requests` - 用户提交创建租户申请
+- [x] `GET /admin/tenants/requests` - 列出所有申请（super_admin）
+- [x] `PUT /admin/tenants/requests/{id}` - 审批（approve/reject）
 
-### 2.2 前端：创建租户表单
-- [x] 更新 `Tenants.svelte` - 添加管理员邮箱字段和用户搜索
-- [x] 企业模式下显示表单（仅 super_admin 可见）
+### 3.2 审批通过后自动创建
+- [x] 审批通过时自动创建租户
+- [x] 自动将申请人设为 `tenant_admin`
 
-### 2.3 TenantDetail 页面添加管理员管理
-- [x] 查看当前租户管理员列表
-- [x] 添加新管理员（输入邮箱）
-- [x] 移除管理员
+### 3.3 前端：申请流程
+- [x] `Tenants.svelte` - SaaS 模式显示"申请创建租户"按钮
+- [x] 申请表单：租户名称 + 可选留言
+- [x] 申请列表（super_admin）：显示所有待审批申请
+- [x] 审批操作：批准/拒绝
 
 ## 验收标准
 
 | 编号 | 描述 | 状态 |
 |------|------|------|
-| AC-211 | private_enterprise 模式下，仅 super_admin 可创建租户 | 已实现 |
-| AC-212 | 创建租户时必须指定首个 tenant_admin | 已实现 |
-| AC-213 | 被指定的用户成为 tenant_admin 后可正常登录管理 | 已实现 |
+| AC-203 | `SELF_SERVICE=true` + `APPROVAL=true` 时，用户可申请创建租户 | 已实现 |
+| AC-204 | 申请需 super_admin 审批 | 已实现 |
 
 ## 改动文件
 
 ### 后端
-- `src/api/models.rs` - CreateTenantBody 添加 admin_email
-- `src/api/handlers/tenants.rs` - 企业模式租户创建逻辑
-- `CHANGELOG.md` - 更新变更日志
+- `src/db/migrations/042_add_tenant_creation_requests.sql` - 新建表
+- `src/models/tenant.rs` - 添加 TenantCreationRequest 模型
+- `src/db/repositories/tenant.rs` - 添加请求仓储
+- `src/api/models.rs` - 添加 API 请求/响应模型
+- `src/api/handlers/tenants.rs` - 添加申请/审批 API
+- `src/api/routes.rs` - 注册新路由
 
 ### 前端
-- `admin/src/routes/Tenants.svelte` - 创建租户弹窗添加 admin_email 和用户搜索
-- `admin/src/routes/TenantDetail.svelte` - 添加管理员管理功能
+- `admin/src/lib/api.js` - 添加申请 API 方法
+- `admin/src/routes/Tenants.svelte` - 申请按钮、表单、审批列表
+- `admin/src/i18n/zh.json` - 添加国际化文本
+- `admin/src/i18n/en.json` - 添加国际化文本
+
+### 文档
+- `CHANGELOG.md` - 更新变更日志
 
 ## 提交历史
 
-- 2024-08-30: Phase 2 Stage 2 完成 - 企业模式手动创建租户 + 指定管理员
+- 2024-08-30: Phase 2 Stage 3 完成 - SaaS 自助申请 + 审批流程

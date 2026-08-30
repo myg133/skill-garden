@@ -413,6 +413,23 @@ pub fn create_api_router(state: ApiState) -> Router<ApiState> {
         .route("/api/v1/admin/tenants/:id", get(get_tenant_handler))
         .route("/api/v1/admin/tenants/:id", put(update_tenant_handler))
         .route("/api/v1/admin/tenants/:id", delete(delete_tenant_handler))
+        // Tenant creation request routes (self-service approval workflow)
+        .route(
+            "/api/v1/admin/tenants/requests",
+            post(create_tenant_request_handler),
+        )
+        .route(
+            "/api/v1/admin/tenants/requests",
+            get(list_tenant_requests_handler),
+        )
+        .route(
+            "/api/v1/admin/tenants/requests/:id",
+            get(get_tenant_request_handler),
+        )
+        .route(
+            "/api/v1/admin/tenants/requests/:id",
+            put(review_tenant_request_handler),
+        )
         // Identity routes
         .route("/api/v1/admin/identities", get(list_identities_handler))
         .route("/api/v1/admin/identities", post(create_identity_handler))

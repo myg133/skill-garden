@@ -405,6 +405,43 @@ pub struct OrgMemberResponse {
     pub joined_at: String,
 }
 
+// ===== Tenant Creation Request API Models =====
+
+/// Request body for creating a tenant creation request
+#[derive(Debug, Deserialize)]
+pub struct CreateTenantRequestBody {
+    pub tenant_name: String,
+    #[serde(default)]
+    pub message: Option<String>,
+}
+
+/// Request body for reviewing a tenant creation request
+#[derive(Debug, Deserialize)]
+pub struct ReviewTenantRequestBody {
+    pub action: String, // "approve" or "reject"
+    #[serde(default)]
+    pub note: Option<String>,
+}
+
+/// Tenant creation request response
+#[derive(Debug, Serialize)]
+pub struct TenantRequestResponse {
+    pub id: Uuid,
+    pub applicant_id: Uuid,
+    pub applicant_name: String,
+    pub applicant_email: String,
+    pub tenant_name: String,
+    pub tenant_slug: String,
+    pub message: Option<String>,
+    pub status: String,
+    pub reviewed_by: Option<Uuid>,
+    pub reviewed_at: Option<chrono::DateTime<chrono::Utc>>,
+    pub review_note: Option<String>,
+    pub tenant_id: Option<Uuid>,
+    pub created_at: chrono::DateTime<chrono::Utc>,
+    pub updated_at: chrono::DateTime<chrono::Utc>,
+}
+
 #[derive(Debug, Serialize)]
 pub struct OrgMemberListResponse {
     pub members: Vec<OrgMemberResponse>,
